@@ -53,8 +53,7 @@ const Predictor = () => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{ role: "user", parts: [{ text: prompt }] }],
-                    model: "gemini-1.5-flash"
+                    contents: [{ role: "user", parts: [{ text: prompt }] }]
                 })
             });
 

@@ -84,14 +84,12 @@ export default function StudyHub() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [{ role: "user", parts: [{ text: prompt }] }],
-                    systemInstruction: systemContext,
-                    model: "gemini-1.5-pro"
+                    systemInstruction: systemContext
                 })
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || "AI Proxy Error");
+                throw new Error("AI Proxy Error");
             }
 
             const data = await response.json();

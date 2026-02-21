@@ -68,23 +68,29 @@ const Login = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     contents: [
-                        { role: "user", parts: [{ text: prompt }] },
-                        { role: "user", parts: [{ inlineData: { data: base64Data, mimeType: "image/png" } }] }
+                        { text: prompt },
+                        { inlineData: { data: base64Data, mimeType: rawCaptchaBlob.type || "image/png" } }
                     ],
-                    model: "gemini-1.5-flash"
+                    systemInstruction: "You are an expert captcha solver. Provide ONLY the 5 alphanumeric characters found in the image."
                 })
             });
 
-            if (!response.ok) throw new Error("Proxy error");
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error("AI Proxy Error Details:", errorData);
+                throw new Error(errorData.error || "Proxy error");
+            }
 
             const data = await response.json();
-            const solvedCode = data.text.trim().replace(/[^a-zA-Z0-9]/g, '').substring(0, 5);
 
-            if (solvedCode) {
-                setCaptcha(solvedCode);
+            if (data.text) {
+                const solvedCode = data.text.trim().replace(/[^a-zA-Z0-9]/g, '').substring(0, 5);
+                if (solvedCode) {
+                    setCaptcha(solvedCode);
+                }
             }
         } catch (err) {
-            // Log generic error
+            console.error("Captcha Solver Error:", err.message);
         } finally {
             setIsSolving(false);
         }
@@ -303,17 +309,8 @@ const Login = () => {
                                 </button>
                             </div>
                             <p className="text-[10px] text-slate-400 mt-1 ml-1 italic flex items-center gap-1.5">
-                                {APP_CONFIG.GEMINI_API_KEY ? (
-                                    <>
-                                        <Sparkles className="w-3 h-3 text-indigo-400 shrink-0" />
-                                        AI auto-fill is active — please verify before logging in.
-                                    </>
-                                ) : (
-                                    <>
-                                        <RefreshCcw className="w-3 h-3 text-slate-400 shrink-0" />
-                                        AI solver disabled (API key missing) — please enter manually.
-                                    </>
-                                )}
+                                <Sparkles className="w-3 h-3 text-indigo-400 shrink-0" />
+                                AI auto-fill is active via secure proxy — please verify before logging in.
                             </p>
                         </div>
 
