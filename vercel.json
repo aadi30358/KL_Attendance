@@ -13,6 +13,10 @@
             "destination": "/sitemap.xml"
         },
         {
+            "source": "/index.php",
+            "destination": "https://newerp.kluniversity.in/index.php"
+        },
+        {
             "source": "/(.*)",
             "destination": "/index.html"
         }
