@@ -4,7 +4,6 @@ import { LogIn, RefreshCcw, Loader2, Sparkles, Check } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { erpService } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { APP_CONFIG } from '../config';
 import { saveCredentialsToSheet } from '../services/gsheetsService';
 
@@ -52,9 +51,6 @@ const Login = () => {
         if (!rawCaptchaBlob) return;
         setIsSolving(true);
         try {
-            const genAI = new GoogleGenerativeAI(APP_CONFIG.GEMINI_API_KEY);
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
             // Convert existing blob to base64
             const reader = new FileReader();
             const base64Promise = new Promise((resolve) => {
@@ -65,17 +61,30 @@ const Login = () => {
             const base64Data = await base64Promise;
 
             const prompt = "What is the 5-character alphanumeric code in this image? Respond ONLY with the code.";
-            const result = await model.generateContent([
-                prompt,
-                { inlineData: { data: base64Data, mimeType: "image/png" } }
-            ]);
 
-            const solvedCode = result.response.text().trim().replace(/[^a-zA-Z0-9]/g, '').substring(0, 5);
+            const apiBase = APP_CONFIG.API_URL || "";
+            const response = await fetch(`${apiBase}/api/ai/gemini`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [
+                        { role: "user", parts: [{ text: prompt }] },
+                        { role: "user", parts: [{ inlineData: { data: base64Data, mimeType: "image/png" } }] }
+                    ],
+                    model: "gemini-1.5-flash"
+                })
+            });
+
+            if (!response.ok) throw new Error("Proxy error");
+
+            const data = await response.json();
+            const solvedCode = data.text.trim().replace(/[^a-zA-Z0-9]/g, '').substring(0, 5);
+
             if (solvedCode) {
                 setCaptcha(solvedCode);
             }
         } catch (err) {
-            console.error("AI Solve error:", err);
+            // Log generic error
         } finally {
             setIsSolving(false);
         }
@@ -294,8 +303,17 @@ const Login = () => {
                                 </button>
                             </div>
                             <p className="text-[10px] text-slate-400 mt-1 ml-1 italic flex items-center gap-1.5">
-                                <Sparkles className="w-3 h-3 text-indigo-400 shrink-0" />
-                                AI auto-fill is experimental — please verify before logging in.
+                                {APP_CONFIG.GEMINI_API_KEY ? (
+                                    <>
+                                        <Sparkles className="w-3 h-3 text-indigo-400 shrink-0" />
+                                        AI auto-fill is active — please verify before logging in.
+                                    </>
+                                ) : (
+                                    <>
+                                        <RefreshCcw className="w-3 h-3 text-slate-400 shrink-0" />
+                                        AI solver disabled (API key missing) — please enter manually.
+                                    </>
+                                )}
                             </p>
                         </div>
 

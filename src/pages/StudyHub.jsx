@@ -1,14 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { FileText, Copy, Check, Send, Bot, User, Loader2, GraduationCap, BrainCircuit, MessageSquare, Sparkles, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence, useMotionValue, useSpring, useTransform } from 'framer-motion';
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import ReactMarkdown from 'react-markdown';
 import { APP_CONFIG } from '../config';
-
-// ---------------------------------------------------------
-// 🔑 CONFIGURATION
-// ---------------------------------------------------------
-const GEMINI_API_KEY = APP_CONFIG.GEMINI_API_KEY;
 
 const SYSTEM_PROMPT_SUMMARIZER = `
 You are an advanced AI-powered academic synthesizer. Your goal is to transform lecture notes into high-impact study materials.
@@ -84,25 +78,28 @@ export default function StudyHub() {
     // --- Shared AI Helper ---
     const generateGeminiResponse = useCallback(async (prompt, systemContext) => {
         try {
-            if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("YOUR_")) throw new Error("Invalid API Key");
-
-            const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-
-            const chat = model.startChat({
-                history: [
-                    { role: "user", parts: [{ text: systemContext }] },
-                    { role: "model", parts: [{ text: "Acknowledged. I am initialized and ready to process academic data." }] }
-                ]
+            const apiBase = APP_CONFIG.API_URL || "";
+            const response = await fetch(`${apiBase}/api/ai/gemini`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ role: "user", parts: [{ text: prompt }] }],
+                    systemInstruction: systemContext,
+                    model: "gemini-1.5-pro"
+                })
             });
 
-            const result = await chat.sendMessage(prompt);
-            const response = await result.response;
-            return response.text();
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || "AI Proxy Error");
+            }
+
+            const data = await response.json();
+            return data.text;
 
         } catch (error) {
-            console.error("Gemini Error:", error);
-            throw new Error(error.message || "AI Connection Failed");
+            // Keep error logging generic for security
+            throw new Error("AI Connection Failed. Please try again later.");
         }
     }, []);
 
@@ -253,7 +250,7 @@ export default function StudyHub() {
                                             <>
                                                 <BrainCircuit className="w-4 h-4 group-hover:rotate-12 transition-transform" />
                                                 Summarize
-                                            </>
+                                                +                                            </>
                                         )}
                                     </motion.button>
                                 </div>

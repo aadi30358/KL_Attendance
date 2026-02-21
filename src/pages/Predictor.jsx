@@ -2,11 +2,8 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Calculator, BrainCircuit, Sparkles } from 'lucide-react';
 import { useAttendance } from '../context/useAttendance';
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import SEO from '../components/SEO';
 import { APP_CONFIG } from '../config';
-
-const GEMINI_API_KEY = APP_CONFIG.GEMINI_API_KEY;
 
 const Predictor = () => {
     const { attendanceData } = useAttendance();
@@ -43,9 +40,6 @@ const Predictor = () => {
         if (!prediction) return;
         setIsLoading(true);
         try {
-            const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
             const prompt = `
                 I am a student at KL University. 
                 Current Attendance: ${attendanceData.currentPercentage}% (${attendanceData.attendedClasses}/${attendanceData.totalClasses}).
@@ -54,8 +48,22 @@ const Predictor = () => {
                 Provide a very brief 2-sentence tactical advice as Jarvis.
             `;
 
-            const result = await model.generateContent(prompt);
-            setAiInsight(result.response.text());
+            const apiBase = APP_CONFIG.API_URL || "";
+            const response = await fetch(`${apiBase}/api/ai/gemini`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ role: "user", parts: [{ text: prompt }] }],
+                    model: "gemini-1.5-flash"
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error("AI Proxy Error");
+            }
+
+            const data = await response.json();
+            setAiInsight(data.text);
         } catch {
             setAiInsight("Unable to sync with Jarvis core for insights.");
         }
