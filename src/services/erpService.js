@@ -300,6 +300,7 @@ export const erpService = {
     },
 
     getCaptchaUrl() {
-        return `/index.php?r=site%2Fcaptcha&v=${Math.random().toString(36).substring(7)}`;
+            const apiBase = import.meta.env.VITE_API_URL || '';
+    return `${apiBase}/api/captcha?v=${Math.random().toString(36).substring(7)}`;
     }
 };
