@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import svgCaptcha from 'svg-captcha';
 
 dotenv.config();
 
@@ -66,6 +67,13 @@ app.post('/api/ai/gemini', async (req, res) => {
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
 });
+
+// Captcha endpoint
+app.get('/api/captcha', (req, res) => {
+    const captcha = svgCaptcha.create();
+      res.type('svg');
+      res.send(captcha.data);
+    });
 
 app.listen(PORT, () => {
     console.log(`Hardened AI Proxy Server running on http://localhost:${PORT}`);
