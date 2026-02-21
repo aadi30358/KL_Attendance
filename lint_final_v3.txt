@@ -1,0 +1,12 @@
+﻿
+C:\Users\yaswa\Documents\desktop apps\projects\kl attendance\src\context\AttendanceContext.jsx
+  25:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\yaswa\Documents\desktop apps\projects\kl attendance\src\context\AuthContext.jsx
+  7:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+C:\Users\yaswa\Documents\desktop apps\projects\kl attendance\src\context\ChatContext.jsx
+  5:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+Γ£û 3 problems (0 errors, 3 warnings)
+

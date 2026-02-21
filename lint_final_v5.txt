@@ -1,0 +1,7 @@
+﻿
+C:\Users\yaswa\Documents\desktop apps\projects\kl attendance\src\context\AuthContext.jsx
+  1:10  error  'createContext' is defined but never used  no-unused-vars
+  1:25  error  'useContext' is defined but never used     no-unused-vars
+
+Γ£û 2 problems (2 errors, 0 warnings)
+

@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://kl-attendance-manager.vercel.app/sitemap.xml
