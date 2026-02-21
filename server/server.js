@@ -5,6 +5,9 @@ import rateLimit from 'express-rate-limit';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import svgCaptcha from 'svg-captcha';
 
+// Simple in-memory store for captcha answers (in production, use Redis or sessions)
+const captchaStore = new Map();
+
 dotenv.config();
 
 const app = express();
@@ -70,11 +73,30 @@ app.get('/api/health', (req, res) => {
 
 // Captcha endpoint
 app.get('/api/captcha', (req, res) => {
-    const captcha = svgCaptcha.create();
-      res.type('svg');
-      res.send(captcha.data);
+  try {
+    const captcha = svgCaptcha.create({
+      size: 5,
+      noise: 2,
+      color: true,
+      background: '#f5f5f5'
     });
-
+    
+    // Generate a unique ID for this captcha
+    const captchaId = `captcha_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Store the captcha answer (expire after 5 minutes)
+    captchaStore.set(captchaId, captcha.text.toLowerCase());
+    setTimeout(() => captchaStore.delete(captchaId), 5 * 60 * 1000);
+    
+    // Send SVG with proper content type
+    res.type('svg+xml');
+    res.set('X-Captcha-ID', captchaId);
+    res.send(captcha.data);
+  } catch (error) {
+    console.error('Captcha generation error:', error);
+    res.status(500).json({ error: 'Failed to generate captcha' });
+  }
+});
 app.listen(PORT, () => {
     console.log(`Hardened AI Proxy Server running on http://localhost:${PORT}`);
 });
