@@ -49,7 +49,7 @@ app.post('/api/ai/gemini', async (req, res) => {
         }
 
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: modelName || "gemini-1.5-flash", systemInstruction });
+        const model = genAI.getGenerativeModel({ model: modelName || "gemini-2.5-flash", systemInstruction });
 
         const result = await model.generateContent(contents);
         const response = await result.response;
