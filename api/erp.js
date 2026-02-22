@@ -31,14 +31,16 @@ export default async function handler(req, res) {
             redirect: 'manual'
         };
 
+        // Retain client IP to stabilize KL ERP's PHP session tracker and prevent forced logouts
+        const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '192.168.1.1';
+        fetchOptions.headers['x-forwarded-for'] = clientIp;
+
         // Remove headers that cause issues
         delete fetchOptions.headers['connection'];
         delete fetchOptions.headers['content-length'];
         delete fetchOptions.headers['accept-encoding'];
         delete fetchOptions.headers['x-forwarded-host'];
         delete fetchOptions.headers['x-forwarded-proto'];
-        delete fetchOptions.headers['x-forwarded-for'];
-        delete fetchOptions.headers['x-real-ip'];
 
         const response = await fetch(erpUrl, fetchOptions);
 
@@ -49,7 +51,11 @@ export default async function handler(req, res) {
             if (key.toLowerCase() === 'set-cookie') {
                 const setCookies = response.headers.getSetCookie ? response.headers.getSetCookie() : [value];
                 const rewrittenCookies = setCookies.map(cookie => {
-                    return cookie.replace(/Domain=[^;]+;?/gi, '');
+                    let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');
+                    // Force rigorous SameSite and Secure to bypass Chrome's strict privacy drops
+                    if (!newCookie.includes('SameSite')) newCookie += '; SameSite=None';
+                    if (!newCookie.includes('Secure')) newCookie += '; Secure';
+                    return newCookie;
                 });
                 res.setHeader('Set-Cookie', rewrittenCookies);
             } else {
