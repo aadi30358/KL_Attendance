@@ -48,7 +48,11 @@ export default async function handler(req, res) {
 
         const headersArray = Array.from(response.headers.entries());
         for (const [key, value] of headersArray) {
-            if (key.toLowerCase() === 'set-cookie') {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey === 'content-encoding' || lowerKey === 'content-length') {
+                continue; // fetch already decompresses the body, let Vercel handle recompressing and length
+            }
+            if (lowerKey === 'set-cookie') {
                 const setCookies = response.headers.getSetCookie ? response.headers.getSetCookie() : [value];
                 const rewrittenCookies = setCookies.map(cookie => {
                     let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');
