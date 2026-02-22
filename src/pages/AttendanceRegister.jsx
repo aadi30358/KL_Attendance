@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { BookOpen, Calendar, LogOut, ArrowLeft } from 'lucide-react';
 import { erpService } from '../services/erpService';
@@ -145,13 +145,14 @@ function BunkSimulator({ subject }) {
 // ── Main Component ───────────────────────────────────────────────────
 const AttendanceRegister = () => {
     const { logout } = useAuth();
-    const [year, setYear] = useState('');
-    const [semester, setSemester] = useState('');
+    const [year, setYear] = useState('2024-2025');
+    const [semester, setSemester] = useState('Even');
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
     const [debugHtml, setDebugHtml] = useState(null);
     const [showDashboard, setShowDashboard] = useState(false);
     const navigate = useNavigate();
+    const hasFetched = useRef(false);
 
     useEffect(() => {
         const kleData = localStorage.getItem('kleData');
@@ -160,21 +161,30 @@ const AttendanceRegister = () => {
             const data = JSON.parse(kleData);
             setSubjects(data.attendance_data);
             setShowDashboard(true);
+        } else if (html && !hasFetched.current) {
+            // First time login - html exists but no kleData yet
+            hasFetched.current = true;
+            handleSearch('2024-2025', 'Even'); // Auto-fetch for current semester
         } else if (!html) {
             navigate('/login');
         }
     }, [navigate]);
 
-    const handleSearch = async () => {
-        if (!year || !semester) { alert('Please select both Year and Semester'); return; }
+    const handleSearch = async (fetchYear = year, fetchSemester = semester) => {
+        if (!fetchYear || !fetchSemester) { alert('Please select both Year and Semester'); return; }
         setLoading(true); setDebugHtml(null);
         try {
-            const data = await erpService.fetchAttendance(year, semester);
-            setSubjects(data); setShowDashboard(true);
+            const data = await erpService.fetchAttendance(fetchYear, fetchSemester);
+            setSubjects(data);
+            setShowDashboard(true);
+            // Save fetched data to standard location for persistence
+            localStorage.setItem('kleData', JSON.stringify({ attendance_data: data }));
+            setYear(fetchYear);
+            setSemester(fetchSemester);
         } catch (error) {
             if (error.message?.startsWith('DEBUG_HTML:')) { setDebugHtml(error.message.replace('DEBUG_HTML:', '')); setShowDashboard(true); }
             else if (error.message?.startsWith('No table found')) { setDebugHtml(error.message); setShowDashboard(true); }
-            else alert('Failed to fetch attendance. Verify your login status.');
+            else alert('Failed to fetch attendance. Verify your login status or selected semester.');
         } finally { setLoading(false); }
     };
 
@@ -362,7 +372,7 @@ const AttendanceRegister = () => {
                         </div>
 
                         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                            onClick={handleSearch} disabled={loading}
+                            onClick={() => handleSearch(year, semester)} disabled={loading}
                             className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl shadow-xl shadow-slate-900/20 hover:bg-slate-800 transition-all mt-2 flex items-center justify-center gap-2">
                             {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Get Attendance'}
                         </motion.button>
