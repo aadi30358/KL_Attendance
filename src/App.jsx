@@ -1,8 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import AnnouncementBanner from './components/AnnouncementBanner';
-import ChatAssistant from './components/ChatAssistant';
-import { ChatProvider } from './context/ChatContext';
 import { AuthProvider } from './context/AuthContext';
 import { AttendanceProvider } from './context/AttendanceContext';
 import Home from './pages/Home';
@@ -25,7 +23,6 @@ const AppWithAuth = () => {
       <AnnouncementBanner />
       <Navbar />
       <main>
-        <ChatAssistant />
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
@@ -52,13 +49,11 @@ function App() {
   return (
     <HelmetProvider>
       <AuthProvider>
-        <ChatProvider>
-          <AttendanceProvider>
-            <Router>
-              <AppWithAuth />
-            </Router>
-          </AttendanceProvider>
-        </ChatProvider>
+        <AttendanceProvider>
+          <Router>
+            <AppWithAuth />
+          </Router>
+        </AttendanceProvider>
       </AuthProvider>
     </HelmetProvider>
   );
