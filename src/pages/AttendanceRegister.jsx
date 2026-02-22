@@ -145,14 +145,13 @@ function BunkSimulator({ subject }) {
 // ── Main Component ───────────────────────────────────────────────────
 const AttendanceRegister = () => {
     const { logout } = useAuth();
-    const [year, setYear] = useState('2024-2025');
-    const [semester, setSemester] = useState('Even');
+    const [year, setYear] = useState('');
+    const [semester, setSemester] = useState('');
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
     const [debugHtml, setDebugHtml] = useState(null);
     const [showDashboard, setShowDashboard] = useState(false);
     const navigate = useNavigate();
-    const hasFetched = useRef(false);
 
     useEffect(() => {
         const kleData = localStorage.getItem('kleData');
@@ -161,10 +160,6 @@ const AttendanceRegister = () => {
             const data = JSON.parse(kleData);
             setSubjects(data.attendance_data);
             setShowDashboard(true);
-        } else if (html && !hasFetched.current) {
-            // First time login - html exists but no kleData yet
-            hasFetched.current = true;
-            handleSearch('2024-2025', 'Even'); // Auto-fetch for current semester
         } else if (!html) {
             navigate('/login');
         }
