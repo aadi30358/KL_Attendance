@@ -61,7 +61,17 @@ const Predictor = () => {
                 throw new Error("AI Proxy Error");
             }
 
-            const data = await response.json();
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new Error("Invalid response format from AI Server.");
+            }
+
+            let data;
+            try {
+                data = await response.json();
+            } catch {
+                throw new Error("Failed to parse JSON response.");
+            }
             setAiInsight(data.text);
         } catch {
             setAiInsight("Unable to sync with Jarvis core for insights.");

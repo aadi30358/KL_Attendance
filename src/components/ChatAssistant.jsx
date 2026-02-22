@@ -54,7 +54,16 @@ const ChatAssistant = () => {
                 throw new Error('Anthropic API call failed');
             }
 
-            const data = await response.json();
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new Error("Invalid response format from Anthropic API.");
+            }
+            let data;
+            try {
+                data = await response.json();
+            } catch {
+                throw new Error("Failed to parse JSON response from server.");
+            }
             const botMsg = { role: 'assistant', content: data.content[0].text };
             setMessages(prev => [...prev, botMsg]);
         } catch (error) {

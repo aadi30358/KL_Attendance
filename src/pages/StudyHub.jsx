@@ -92,10 +92,20 @@ export default function StudyHub() {
                 throw new Error("AI Proxy Error");
             }
 
-            const data = await response.json();
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new Error("Invalid response format from AI Server. Server may be down.");
+            }
+
+            let data;
+            try {
+                data = await response.json();
+            } catch {
+                throw new Error("Failed to parse JSON response from server.");
+            }
             return data.text;
 
-        } catch (error) {
+        } catch {
             // Keep error logging generic for security
             throw new Error("AI Connection Failed. Please try again later.");
         }

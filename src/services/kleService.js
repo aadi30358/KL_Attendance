@@ -11,10 +11,19 @@ export const kleService = {
         });
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Failed to fetch data');
+            let error = {};
+            try {
+                error = await response.json();
+            } catch {
+                /* Safe fallback if the server returns an HTML error page instead of JSON */
+            }
+            throw new Error(error.detail || 'Failed to fetch data from KLE server');
         }
 
-        return await response.json();
+        try {
+            return await response.json();
+        } catch {
+            throw new Error('Failed to parse response from KLE server');
+        }
     }
 };

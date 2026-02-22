@@ -14,7 +14,7 @@
         },
         {
             "source": "/index.php",
-            "destination": "https://newerp.kluniversity.in/index.php"
+            "destination": "/api/erp"
         },
         {
             "source": "/((?!api).*)",

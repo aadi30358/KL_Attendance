@@ -16,7 +16,6 @@ import Login from './pages/Login';
 import AttendanceRegister from './pages/AttendanceRegister';
 import Predictor from './pages/Predictor';
 import UserProfile from './pages/UserProfile';
-import { useAuth } from './context/useAuth';
 import { HelmetProvider } from 'react-helmet-async';
 
 const AppWithAuth = () => {

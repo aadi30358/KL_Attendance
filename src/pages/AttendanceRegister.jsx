@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Calendar, LogOut, TrendingUp, AlertTriangle, CheckCircle, ArrowLeft } from 'lucide-react';
+import { BookOpen, Calendar, LogOut, ArrowLeft } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -24,37 +24,6 @@ function getStatusLabel(pct) {
     if (pct >= 85) return { text: '✓ Safe (85%+)', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
     if (pct >= 75) return { text: '⚠ OK (75–85%)', cls: 'bg-amber-50 text-amber-700 ring-amber-200' };
     return { text: '✗ Shortage', cls: 'bg-red-50 text-red-600 ring-red-200' };
-}
-
-// Compute weighted average across all subjects using extension's weight scheme
-function computeWeightedAverage(subjects) {
-    let totalWeightedPct = 0;
-    let totalWeight = 0;
-    subjects.forEach(subject => {
-        if (subject.components && Object.keys(subject.components).length > 0) {
-            Object.entries(subject.components).forEach(([comp, data]) => {
-                const w = WEIGHTS[comp] || 0;
-                totalWeightedPct += data.percent * w;
-                totalWeight += w;
-            });
-        } else {
-            totalWeightedPct += subject.percent * 100;
-            totalWeight += 100;
-        }
-    });
-    return totalWeight > 0 ? (totalWeightedPct / totalWeight).toFixed(2) : 0;
-}
-
-// Per subject: classes needed to reach threshold
-function classesNeeded(attended, total, threshold) {
-    const needed = Math.ceil((threshold / 100 * total - attended) / (1 - threshold / 100));
-    return needed > 0 ? needed : 0;
-}
-
-// Per subject: classes that can be safely bunked
-function classesCanBunk(attended, total, threshold) {
-    const bunkable = Math.floor((attended - (threshold / 100) * total) / (threshold / 100));
-    return bunkable > 0 ? bunkable : 0;
 }
 
 // ── BunkSimulator sub-component ──────────────────────────────────────
@@ -108,8 +77,6 @@ function BunkSimulator({ subject }) {
             // and treating it as 0% attended for those bunked classes.
             if (!selectedCompFound) {
                 const w = WEIGHTS[selectedComp] || 1;
-                const cConducted = bunkCount;
-                const cAttended = 0;
                 const cPercent = 0; // 0% because all classes for it were bunked
 
                 totalWeightedPct += cPercent * w;
@@ -168,7 +135,7 @@ function BunkSimulator({ subject }) {
                     </p>
                 )}
                 <p className="text-[10px] text-slate-400 italic font-medium mt-2">
-                    * Note: The percentage is your Total Average Attendance. It drops differently depending on the component's weight (e.g. Lecture dropping impacts more than Skill).
+                    * Note: The percentage is your Total Average Attendance. It drops differently depending on the component&apos;s weight (e.g. Lecture dropping impacts more than Skill).
                 </p>
             </div>
         </div>
@@ -229,10 +196,6 @@ const AttendanceRegister = () => {
 
     // ── DASHBOARD VIEW ──────────────────────────────────────────────
     if (showDashboard) {
-        const weightedAvg = subjects.length > 0 ? computeWeightedAverage(subjects) : null;
-        const eligibleCount = subjects.filter(s => s.percent >= 75).length;
-        const shortageCount = subjects.filter(s => s.percent < 75).length;
-
         return (
             <div className="min-h-screen bg-slate-50 pt-20 pb-6 px-4 sm:px-6 font-sans">
                 <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30" />
@@ -270,19 +233,8 @@ const AttendanceRegister = () => {
                 {/* Cards Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-7xl mx-auto">
                     {subjects.map((subject, index) => {
-                        const parts = (subject.attended || '0/0').split('/');
-                        const attended = parseInt(parts[0]) || 0;
-                        const total = parseInt(parts[1]) || 0;
                         const pct = subject.percent;
                         const status = getStatusLabel(pct);
-
-                        // 75% projections
-                        const need75 = pct < 75 ? classesNeeded(attended, total, 75) : 0;
-                        const bunk75 = pct >= 75 ? classesCanBunk(attended, total, 75) : 0;
-
-                        // 85% projections
-                        const need85 = pct < 85 ? classesNeeded(attended, total, 85) : 0;
-                        const bunk85 = pct >= 85 ? classesCanBunk(attended, total, 85) : 0;
 
                         return (
                             <motion.div

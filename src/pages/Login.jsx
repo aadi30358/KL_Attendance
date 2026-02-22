@@ -28,8 +28,11 @@ const Login = () => {
         setRawCaptchaBlob(null);
 
         try {
-            const url = erpService.getCaptchaUrl();
-            const response = await fetch(url);
+            // Fetch real captcha from ERP via proxy to preserve CSRF session cookies
+            const response = await fetch('/index.php?r=site%2Fcaptcha&v=' + Math.random(), {
+                method: "GET",
+                credentials: "include",
+            });
             const blob = await response.blob();
 
             // Clean up old object URL using ref
