@@ -49,11 +49,10 @@ export default function AcademicCalendar() {
 
                 {/* Main Preview Card */}
                 <motion.div
-                    className="relative w-full aspect-[4/3] sm:aspect-video bg-white/60 backdrop-blur-xl rounded-[2.5rem] shadow-2xl border border-white/60 overflow-hidden group cursor-pointer"
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
+                    className="relative w-full aspect-[4/3] sm:aspect-video bg-white/60 backdrop-blur-xl rounded-[2.5rem] shadow-2xl border border-white/60 overflow-hidden group cursor-pointer transition-transform duration-300 hover:-translate-y-2"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
                     transition={{ delay: 0.2 }}
-                    whileHover={{ y: -8 }}
                     onClick={() => setIsModalOpen(true)}
                 >
                     {/* Hover Overlay */}
@@ -71,7 +70,7 @@ export default function AcademicCalendar() {
                     <img
                         src="/academic_calendar.jpg"
                         alt="Academic Calendar Preview"
-                        className="w-full h-full object-cover sm:object-contain p-4 group-hover:scale-[1.02] transition-transform duration-700"
+                        className="w-full h-full object-cover sm:object-contain p-4 transition-transform duration-700"
                     />
 
                     {/* Corner Tag */}
@@ -131,16 +130,20 @@ export default function AcademicCalendar() {
                             </button>
                         </div>
 
-                        {/* PDF Viewer Iframe */}
+                        {/* PDF Viewer */}
                         <div className="w-full h-full p-4 md:p-12 flex items-center justify-center">
-                            <motion.iframe
-                                src="/academic_calendar.pdf"
+                            <object
+                                data="/academic_calendar.pdf#view=FitH"
+                                type="application/pdf"
                                 className="w-full h-full rounded-2xl shadow-2xl border border-slate-200 bg-slate-100"
-                                initial={{ opacity: 0, scale: 0.95 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.95 }}
                                 title="Academic Calendar PDF"
-                            />
+                            >
+                                <iframe
+                                    src="/academic_calendar.pdf#view=FitH"
+                                    className="w-full h-full rounded-2xl border-none"
+                                    title="Academic Calendar PDF Fallback"
+                                />
+                            </object>
                         </div>
                     </motion.div>
                 )}
