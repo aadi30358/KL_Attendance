@@ -50,8 +50,8 @@ function BunkSimulator({ subject }) {
 
     if (bunkCount > 0) {
         if (hasComponents) {
-            let totalWeightedPct = 0;
-            let totalWeight = 0;
+            let totalConductedW = 0;
+            let totalAttendedW = 0;
             let selectedCompFound = false;
 
             components.forEach(([compName, data]) => {
@@ -66,24 +66,17 @@ function BunkSimulator({ subject }) {
                     selectedCompFound = true;
                 }
 
-                // Recalculate component percent with new conducted count
-                const cPercent = cConducted > 0 ? (cAttended / cConducted) * 100 : 0;
-
-                totalWeightedPct += cPercent * w;
-                totalWeight += w;
+                totalConductedW += cConducted * w;
+                totalAttendedW += cAttended * w;
             });
 
-            // If the component hasn't occurred yet, we simulate the drop by adding its weight 
-            // and treating it as 0% attended for those bunked classes.
             if (!selectedCompFound) {
                 const w = WEIGHTS[selectedComp] || 1;
-                const cPercent = 0; // 0% because all classes for it were bunked
-
-                totalWeightedPct += cPercent * w;
-                totalWeight += w;
+                totalConductedW += bunkCount * w;
+                // attended doesn't increase since we bunked
             }
 
-            projectedActual = totalWeight > 0 ? parseFloat((totalWeightedPct / totalWeight).toFixed(2)) : null;
+            projectedActual = totalConductedW > 0 ? parseFloat(((totalAttendedW / totalConductedW) * 100).toFixed(2)) : null;
         } else {
             // Fallback for subjects with completely broken component names
             const parts = (subject.attended || '0/0').split('/');

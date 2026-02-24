@@ -99,17 +99,18 @@ const Login = () => {
         }
     }, [rawCaptchaBlob]);
 
+    const hasInitRan = useRef(false);
+
     useEffect(() => {
         const init = async () => {
+            if (hasInitRan.current) return;
+            hasInitRan.current = true;
             try {
                 const { csrfToken: token } = await erpService.getInitialState();
                 setCsrfToken(token);
-                // We call refreshCaptcha but don't want to re-run init when captcha changes
-                // So we'll satisfy the linter by omitting it or using a ref.
-                // Actually, just calling refreshCaptcha() here is fine as long as the effect doesn't depend on it.
-                // But since refreshCaptcha is a useCallback that depends on captchaUrl, it changes.
             } catch (err) {
                 console.error("Failed to init login", err);
+                hasInitRan.current = false; // allow retry on fail
             }
         };
         init();
