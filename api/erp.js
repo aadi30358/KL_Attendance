@@ -62,6 +62,10 @@ export default async function handler(req, res) {
                     return newCookie;
                 });
                 res.setHeader('Set-Cookie', rewrittenCookies);
+            } else if (lowerKey === 'location') {
+                // Prevent routing to http://newerp... by converting absolute ERP urls to relative paths
+                const rewrittenLocation = value.replace(/^https?:\/\/newerp\.kluniversity\.in/i, '');
+                res.setHeader('Location', rewrittenLocation);
             } else {
                 res.setHeader(key, value);
             }

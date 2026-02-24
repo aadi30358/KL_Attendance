@@ -14,6 +14,9 @@ const AnnouncementBanner = () => {
             if (doc.exists()) {
                 setAnnouncement(doc.data().announcement);
             }
+        }, (error) => {
+            // Suppress "Missing or insufficient permissions" error for unauthenticated (not logged in) users
+            console.log("Announcement banner hidden (auth required)");
         });
         return () => unsub();
     }, []);

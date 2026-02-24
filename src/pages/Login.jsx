@@ -312,9 +312,8 @@ const Login = () => {
                                     <RefreshCcw className="w-4 h-4" />
                                 </button>
                             </div>
-                            <p className="text-[10px] text-slate-400 mt-1 ml-1 italic flex items-center gap-1.5">
-                                <Sparkles className="w-3 h-3 text-indigo-400 shrink-0" />
-                                AI auto-fill is active via secure proxy — please verify before logging in.
+                            <p className="text-[10px] text-black mt-1 ml-1 italic font-medium">
+                                Note: The first login attempt may fail. If so, please re-enter the new captcha to log in.
                             </p>
                         </div>
 
