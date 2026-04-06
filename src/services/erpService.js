@@ -214,7 +214,7 @@ export const erpService = {
             const type = ltpsType.toLowerCase();
             if (type.includes('lecture') || type === 'l') return 100;
             if (type.includes('practical') || type === 'p') return 50;
-            if (type.includes('tutorial') || type === 't') return 25;
+            if (type.includes('theory') || type === 't') return 100;
             if (type.includes('skill') || type === 's') return 25;
             return 1; // Fallback weight if unknown type
         };
@@ -284,7 +284,7 @@ export const erpService = {
         // Convert map to array and compute final percentages based on unified totals
         return Array.from(subjectMap.values()).map(subj => {
             const percent = subj.totalConducted > 0
-                ? ((subj.totalAttended / subj.totalConducted) * 100).toFixed(2)
+                ? Math.ceil((subj.totalAttended / subj.totalConducted) * 100)
                 : 0;
 
             return {

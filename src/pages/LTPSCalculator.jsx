@@ -39,7 +39,7 @@ const LTPSCalculator = () => {
 
     const [weights, setWeights] = useState({
         lecture: 100,
-        tutorial: 25,
+        theory: 100,
         practical: 50,
         skilling: 25
     });
@@ -72,7 +72,7 @@ const LTPSCalculator = () => {
         const analysis = [];
         const enteredComponents = {
             Lecture: lect !== '' ? parseFloat(lect) : null,
-            Tutorial: tut !== '' ? parseFloat(tut) : null,
+            Theory: tut !== '' ? parseFloat(tut) : null,
             Practical: pract !== '' ? parseFloat(pract) : null,
             Skilling: skill !== '' ? parseFloat(skill) : null
         };
@@ -105,7 +105,7 @@ const LTPSCalculator = () => {
 
         const enteredComponents = [];
         if (lect !== '') enteredComponents.push({ name: 'Lecture', value: parseFloat(lect) });
-        if (tut !== '') enteredComponents.push({ name: 'Tutorial', value: parseFloat(tut) });
+        if (tut !== '') enteredComponents.push({ name: 'Theory', value: parseFloat(tut) });
         if (pract !== '') enteredComponents.push({ name: 'Practical', value: parseFloat(pract) });
         if (skill !== '') enteredComponents.push({ name: 'Skilling', value: parseFloat(skill) });
 
@@ -190,7 +190,7 @@ const LTPSCalculator = () => {
 
         const components = [
             { value: lect, weight: weights.lecture },
-            { value: tut, weight: weights.tutorial },
+            { value: tut, weight: weights.theory },
             { value: pract, weight: weights.practical },
             { value: skill, weight: weights.skilling }
         ];
@@ -213,8 +213,8 @@ const LTPSCalculator = () => {
             return;
         }
 
-        const calculatedPercentage = (totalScore / totalWeight) * 100;
-        const roundedPercentage = calculatedPercentage.toFixed(2);
+        const calculatedPercentage = Math.ceil((totalScore / totalWeight) * 100);
+        const roundedPercentage = calculatedPercentage;
 
         setAttendancePercentage(roundedPercentage);
         setErrorMessage('');
@@ -357,7 +357,7 @@ const LTPSCalculator = () => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {[
                                 { label: 'Lecture (L)', value: lect, setter: setLect, weight: 100 },
-                                { label: 'Tutorial (T)', value: tut, setter: setTut, weight: 25 },
+                                { label: 'Theory (T)', value: tut, setter: setTut, weight: 100 },
                                 { label: 'Practical (P)', value: pract, setter: setPract, weight: 50 },
                                 { label: 'Skilling (S)', value: skill, setter: setSkill, weight: 25 }
                             ].map((input, idx) => (

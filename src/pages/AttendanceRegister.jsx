@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 
 // Component weights matching the extension: L=100, T=25, P=50, S=25
-const WEIGHTS = { L: 100, T: 25, P: 50, S: 25 };
+const WEIGHTS = { L: 100, T: 100, P: 50, S: 25 };
 
 function getColor(pct) {
     if (pct >= 85) return 'text-emerald-600';
@@ -33,7 +33,7 @@ function BunkSimulator({ subject }) {
     // Always allow these 4 standard options
     const ALL_COMPS = [
         { id: 'L', label: 'Lecture' },
-        { id: 'T', label: 'Tutorial' },
+        { id: 'T', label: 'Theory' },
         { id: 'P', label: 'Practical' },
         { id: 'S', label: 'Skill' }
     ];
@@ -76,7 +76,7 @@ function BunkSimulator({ subject }) {
                 // attended doesn't increase since we bunked
             }
 
-            projectedActual = totalConductedW > 0 ? parseFloat(((totalAttendedW / totalConductedW) * 100).toFixed(2)) : null;
+            projectedActual = totalConductedW > 0 ? Math.ceil((totalAttendedW / totalConductedW) * 100) : null;
         } else {
             // Fallback for subjects with completely broken component names
             const parts = (subject.attended || '0/0').split('/');
@@ -270,7 +270,7 @@ const AttendanceRegister = () => {
                                                 {subject.components && Object.entries(subject.components).map(([compName, compData]) => (
                                                     <div key={compName} className="flex justify-between items-center gap-2">
                                                         <span className="text-slate-600 text-xs font-medium">
-                                                            {compName === 'L' ? 'Lecture' : compName === 'P' ? 'Practical' : compName === 'T' ? 'Tutorial' : compName === 'S' ? 'Skill' : compName}
+                                                            {compName === 'L' ? 'Lecture' : compName === 'P' ? 'Practical' : compName === 'T' ? 'Theory' : compName === 'S' ? 'Skill' : compName}
                                                         </span>
                                                         <div className="flex items-center gap-1 shrink-0">
                                                             <span className="text-slate-900 text-xs font-bold font-mono">{compData.attended}/{compData.conducted}</span>

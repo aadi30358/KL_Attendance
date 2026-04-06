@@ -46,8 +46,8 @@ const SubjectAttendance = () => {
             return;
         }
 
-        const percentage = (attended / total) * 100;
-        setResult(percentage.toFixed(2));
+        const percentage = Math.ceil((attended / total) * 100);
+        setResult(percentage);
     };
 
     const resetFields = () => {
