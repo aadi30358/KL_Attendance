@@ -1,40 +1,44 @@
 export const calculateProjections = (attended, total) => {
-    if (total === 0) return { canBunk: 0, mustAttend: 0, status: 'On Track' };
+    if (total === 0) return { canBunk: 0, mustAttend: 0, status: 'On Track', neededFor85: 0 };
 
     const currentPercent = (attended / total) * 100;
-    const target = 75;
 
-    // Case 1: Already below target - How many to attend to reach 75%?
-    // Formula: (attended + x) / (total + x) = 0.75
-    // attended + x = 0.75 * total + 0.75 * x
-    // 0.25 * x = 0.75 * total - attended
-    // x = (0.75 * total - attended) / 0.25
-    // x = 3 * total - 4 * attended
-    if (currentPercent < target) {
-        let needed = Math.ceil((0.75 * total - attended) / 0.25);
-        if (needed < 0) needed = 0; // Should not happen if percent < 75
+    // To reach 85%: Math.ceil((0.85 * total - attended) / 0.15)
+    let neededFor85 = Math.ceil((0.85 * total - attended) / 0.15);
+    if (neededFor85 < 0) neededFor85 = 0;
+
+    if (currentPercent < 75) {
+        let neededFor75 = Math.ceil((0.75 * total - attended) / 0.25);
+        if (neededFor75 < 0) neededFor75 = 0;
+
         return {
             canBunk: 0,
-            mustAttend: needed,
-            status: 'Shortage',
-            message: `Need to attend ${needed} more classes`
+            mustAttend: neededFor75,
+            neededFor85: neededFor85,
+            status: 'Below 75%',
+            message: `Attend ${neededFor75} more classes to reach 75%`
         };
-    }
-
-    // Case 2: Above target - How many can bunk and stay above 75%?
-    // Formula: attended / (total + x) = 0.75
-    // attended = 0.75 * total + 0.75 * x
-    // 0.75 * x = attended - 0.75 * total
-    // x = (attended - 0.75 * total) / 0.75
-    // x = (4/3) * attended - total
-    else {
+    } else if (currentPercent < 85) {
         let bunkable = Math.floor((attended - 0.75 * total) / 0.75);
         if (bunkable < 0) bunkable = 0;
+
         return {
             canBunk: bunkable,
             mustAttend: 0,
-            status: 'Eligible',
-            message: `Safe to bunk ${bunkable} classes`
+            neededFor85: neededFor85,
+            status: 'Lower than 85%',
+            message: `Attend ${neededFor85} more classes for 85%`
+        };
+    } else {
+        let bunkable = Math.floor((attended - 0.75 * total) / 0.75);
+        if (bunkable < 0) bunkable = 0;
+
+        return {
+            canBunk: bunkable,
+            mustAttend: 0,
+            neededFor85: 0,
+            status: 'Safe',
+            message: `Safe`
         };
     }
 };

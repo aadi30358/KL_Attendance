@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { BookOpen, Calendar, LogOut, ArrowLeft } from 'lucide-react';
 import { erpService } from '../services/erpService';
@@ -121,10 +121,10 @@ function BunkSimulator({ subject }) {
                 {projectedActual !== null && (
                     <p className={`text-[11px] font-semibold mt-1.5 ${projColor}`}>
                         {projectedActual >= 85
-                            ? `Still safe ✓ after bunking ${bunkCount} ${selectedComp || 'class'}${bunkCount > 1 ? (selectedComp ? 's' : 'es') : ''}`
+                            ? <span className="text-emerald-700">Safe</span>
                             : projectedActual >= 75
-                                ? `⚠ Drops below 85% but above 75% — risky`
-                                : `⛔ Will drop below 75% — shortage risk!`}
+                                ? <span className="text-amber-700">⚠️ Caution: Attendance below 85%, my friend — whatever the reason, too many skips ain’t cool. Reconsider before it’s a whole problem.</span>
+                                : <span className="text-red-700">⚠️ Attendance on thin ice, it’s giving detention vibes — don’t say I didn’t warn you.</span>}
                     </p>
                 )}
                 <p className="text-[10px] text-slate-400 italic font-medium mt-2">
@@ -354,6 +354,7 @@ const AttendanceRegister = () => {
                                     <option value="Odd">Odd Sem</option>
                                     <option value="Even">Even Sem</option>
                                     <option value="Summer">Summer Term</option>
+                                    <option value="Term3">Term 3</option>
                                 </select>
                                 <BookOpen className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                             </div>

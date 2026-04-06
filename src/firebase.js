@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth, signInAnonymously } from "firebase/auth";
 
 const firebaseConfig = {
     apiKey: "AIzaSyCrIvwPCEETzRJFMzRNZaifzJfMroSvg08",
@@ -18,5 +18,8 @@ const app = initializeApp(firebaseConfig);
 // Initialize services
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+
+// Sign in anonymously to bypass Firestore permission-denied for read-only config
+signInAnonymously(auth).catch(err => console.error("Firebase Anonymous Auth Error:", err));
 
 export default app;

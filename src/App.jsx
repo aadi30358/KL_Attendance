@@ -16,6 +16,8 @@ import Predictor from './pages/Predictor';
 import UserProfile from './pages/UserProfile';
 import { HelmetProvider } from 'react-helmet-async';
 
+import { Instagram } from 'lucide-react';
+
 const AppWithAuth = () => {
 
   return (
@@ -38,8 +40,17 @@ const AppWithAuth = () => {
         </Routes>
       </main>
 
-      <footer className="w-full py-6 text-center text-slate-400 text-sm border-t border-slate-200 bg-white/50 backdrop-blur-sm">
-        <p className="font-bold">© 2025, G.Yaswanth Adithya Reddy - 2400030358</p>
+      <footer className="w-full py-8 text-center text-slate-400 border-t border-slate-200 bg-white/50 backdrop-blur-sm flex flex-col items-center gap-3">
+        <p className="font-bold text-sm">© 2025, G.Yaswanth Adithya Reddy - 2400030358</p>
+        <a 
+          href="https://www.instagram.com/_aadi7781_/" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 hover:text-pink-600 transition-all duration-300 group bg-slate-50 px-4 py-1.5 rounded-full border border-slate-100 hover:border-pink-200 hover:bg-pink-50"
+        >
+          <Instagram size={16} className="group-hover:scale-110 transition-transform" />
+          <span className="font-bold text-sm tracking-wide">_aadi7781_</span>
+        </a>
       </footer>
     </div>
   );

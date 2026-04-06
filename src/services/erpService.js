@@ -139,7 +139,8 @@ export const erpService = {
         const semMap = {
             'Odd': '1',
             'Even': '2',
-            'Summer': '3'
+            'Summer': '3',
+            'Term3': '4'
         };
 
         const yearId = yearMap[year];

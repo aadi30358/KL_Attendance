@@ -20,11 +20,45 @@ const Sidebar = ({ isMobileOpen }) => {
         { name: 'LTPS Calculator', icon: BookOpen, path: '/ltps' },
         { name: 'Subject Attendance', icon: List, path: '/subject-attendance' },
         { name: 'Academic Calendar', icon: CalendarDays, path: '/calendar' },
-        { name: 'Study Hub', icon: LibraryBig, path: '/study' },
+        { name: 'Study Hub', icon: LibraryBig, path: '/study', comingSoon: true },
         { name: 'Admin Dashboard', icon: Building, path: '/admin' },
     ];
 
     const isActive = (path) => location.pathname === path;
+
+    const NavLink = ({ item, index }) => {
+        const content = (
+            <div
+                title={!hovered ? item.name : undefined}
+                className={`w-full flex items-center px-3 py-2.5 rounded-xl transition-all duration-200 group relative ${isActive(item.path)
+                    ? 'bg-indigo-50 text-indigo-700 font-bold shadow-sm border border-indigo-100'
+                    : item.comingSoon
+                        ? 'opacity-50 cursor-not-allowed text-slate-400'
+                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                    }`}
+            >
+                <span className="shrink-0 flex items-center justify-center w-5">
+                    <item.icon
+                        size={18}
+                        strokeWidth={isActive(item.path) ? 2.5 : 2}
+                        className={isActive(item.path) ? 'text-indigo-600' : 'text-slate-500 group-hover:text-slate-700'}
+                    />
+                </span>
+                <span className={`ml-3 text-sm whitespace-nowrap transition-all duration-300 ${hovered ? 'opacity-100' : 'opacity-0 w-0'} overflow-hidden`}>
+                    {item.name}
+                </span>
+                {item.comingSoon && hovered && (
+                    <span className="ml-auto text-[8px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-black tracking-tighter">SOON</span>
+                )}
+                {isActive(item.path) && hovered && (
+                    <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
+                )}
+            </div>
+        );
+
+        if (item.comingSoon) return <div key={index}>{content}</div>;
+        return <Link key={index} to={item.path}>{content}</Link>;
+    };
 
     return (
         <div
@@ -49,29 +83,7 @@ const Sidebar = ({ isMobileOpen }) => {
             {/* Navigation Menu */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden py-3 px-2 space-y-1">
                 {navItems.map((item, index) => (
-                    <Link
-                        key={index}
-                        to={item.path}
-                        title={!hovered ? item.name : undefined}
-                        className={`w-full flex items-center px-3 py-2.5 rounded-xl transition-all duration-200 group ${isActive(item.path)
-                            ? 'bg-indigo-50 text-indigo-700 font-bold shadow-sm border border-indigo-100'
-                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                            }`}
-                    >
-                        <span className="shrink-0 flex items-center justify-center w-5">
-                            <item.icon
-                                size={18}
-                                strokeWidth={isActive(item.path) ? 2.5 : 2}
-                                className={isActive(item.path) ? 'text-indigo-600' : 'text-slate-500 group-hover:text-slate-700'}
-                            />
-                        </span>
-                        <span className={`ml-3 text-sm whitespace-nowrap transition-all duration-300 ${hovered ? 'opacity-100' : 'opacity-0 w-0'} overflow-hidden`}>
-                            {item.name}
-                        </span>
-                        {isActive(item.path) && hovered && (
-                            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
-                        )}
-                    </Link>
+                    <NavLink key={index} item={item} index={index} />
                 ))}
             </div>
 

@@ -454,16 +454,18 @@ export default function Home() {
                     {/* 3. Study Hub */}
                     <div className="h-[350px]">
                         <ThreeDParallaxCard
-                            to="/study"
                             icon={BookOpen}
                             colorClass="text-amber-500"
                             accentColor="bg-amber-500"
                         >
                             <h3 className="text-2xl font-black text-slate-900 mb-2">Study Hub</h3>
-                            <p className="text-slate-500">Manage notes & academic portfolio.</p>
-                            <div className="mt-4 flex gap-2">
-                                <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-lg text-xs font-bold">Notes</span>
-                                <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-lg text-xs font-bold">AI Tutor</span>
+                            <p className="text-slate-500 mb-4">Manage notes & academic portfolio.</p>
+                            <div className="flex flex-col gap-4">
+                                <div className="flex gap-2">
+                                    <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-lg text-xs font-bold">Notes</span>
+                                    <span className="px-3 py-1 bg-amber-50 text-amber-700 rounded-lg text-xs font-bold">AI Tutor</span>
+                                </div>
+                                <span className="inline-block self-start px-3 py-1 bg-slate-100 text-slate-500 rounded-lg text-xs font-bold border border-slate-200">Coming Soon</span>
                             </div>
                         </ThreeDParallaxCard>
                     </div>

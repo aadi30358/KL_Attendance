@@ -131,6 +131,10 @@ const SubjectAttendance = () => {
                         const needed = Math.ceil((0.75 * total - attended) / 0.25);
                         projectionText = `Attend next ${needed} ${needed === 1 ? 'class' : 'classes'} to reach 75%`;
                         projectionColor = "text-red-700 bg-red-100/50";
+                    } else if (parseFloat(result) < 85) {
+                        const neededFor85 = Math.ceil((0.85 * total - attended) / 0.15);
+                        projectionText = `Attend next ${neededFor85} ${neededFor85 === 1 ? 'class' : 'classes'} for 85%`;
+                        projectionColor = "text-amber-700 bg-amber-100/50";
                     } else {
                         const bunkable = Math.floor((attended - 0.75 * total) / 0.75);
                         if (bunkable > 0) {
@@ -138,7 +142,7 @@ const SubjectAttendance = () => {
                             projectionColor = "text-emerald-700 bg-emerald-100/50";
                         } else {
                             projectionText = "On Track, don't skip the next class";
-                            projectionColor = "text-amber-700 bg-amber-100/50";
+                            projectionColor = "text-emerald-700 bg-emerald-100/50";
                         }
                     }
 

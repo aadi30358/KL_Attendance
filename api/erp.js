@@ -37,7 +37,6 @@ export default async function handler(req, res) {
 
         // Remove headers that cause issues
         delete fetchOptions.headers['connection'];
-        delete fetchOptions.headers['content-length'];
         delete fetchOptions.headers['accept-encoding'];
         delete fetchOptions.headers['x-forwarded-host'];
         delete fetchOptions.headers['x-forwarded-proto'];
@@ -65,9 +64,10 @@ export default async function handler(req, res) {
             } else if (lowerKey === 'location') {
                 // Prevent routing to http://newerp... by converting absolute ERP urls to relative paths
                 const rewrittenLocation = value.replace(/^https?:\/\/newerp\.kluniversity\.in/i, '');
-                res.setHeader('Location', rewrittenLocation);
+                res.setHeader('Location', rewrittenLocation.replace(/^http:/i, 'https:'));
             } else {
-                res.setHeader(key, value);
+                const safeValue = typeof value === 'string' ? value.replace(/^http:/i, 'https:') : value;
+                res.setHeader(key, safeValue);
             }
         }
 
