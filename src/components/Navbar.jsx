@@ -67,7 +67,7 @@ const Navbar = () => {
             name: 'ERP LOGIN',
             subText: hasErpSession && rememberedId ? rememberedId : null,
             path: '/login',
-            isErpHighlight: !hasErpSession // Highlight vividly when NOT logged in
+            isErpHighlight: !hasErpSession // Highlight ONLY when NOT logged in
         },
         ...(hasErpSession ? [{ name: 'CHANGE SEMESTER', path: '/attendance-register', isReset: true }] : [])
     ];
@@ -142,12 +142,12 @@ const Navbar = () => {
                                             scrolled
                                                 ? (isActive(item.path)
                                                     ? "text-indigo-700 bg-indigo-100"
-                                                    : item.isErpHighlight || item.isReset
+                                                    : item.isErpHighlight
                                                         ? "text-red-700 bg-red-50 border border-red-200 shadow-sm animate-pulse ring-2 ring-red-500/50"
                                                         : "text-slate-700 hover:bg-slate-100")
                                                 : (isActive(item.path)
                                                     ? "text-[#2196F3] bg-white shadow-xl transform scale-105"
-                                                    : item.isErpHighlight || item.isReset
+                                                    : item.isErpHighlight
                                                         ? "text-white bg-red-600 shadow-lg shadow-red-500/50 hover:bg-red-500 border border-red-400 animate-pulse ring-2 ring-white/50"
                                                         : "text-white hover:bg-white/20")
                                         )}
@@ -226,14 +226,14 @@ const Navbar = () => {
                                             else navigate(item.path);
                                             setIsOpen(false);
                                         }}
-                                        className={cn(
-                                            "block w-full text-left px-4 py-3 rounded-xl text-sm font-bold tracking-widest uppercase transition-all flex flex-col",
-                                            isActive(item.path)
-                                                ? "bg-indigo-50 text-indigo-600"
-                                                : item.isErpHighlight || item.isReset
-                                                    ? "bg-red-50 text-red-700 border border-red-200 animate-pulse shadow-sm ring-1 ring-red-500/50"
-                                                    : "text-slate-600 hover:bg-slate-50"
-                                        )}
+                                            className={cn(
+                                                "block w-full text-left px-4 py-3 rounded-xl text-sm font-bold tracking-widest uppercase transition-all flex flex-col",
+                                                isActive(item.path)
+                                                    ? "bg-indigo-50 text-indigo-600"
+                                                    : item.isErpHighlight
+                                                        ? "bg-red-50 text-red-700 border border-red-200 animate-pulse shadow-sm ring-1 ring-red-500/50"
+                                                        : "text-slate-600 hover:bg-slate-50"
+                                            )}
                                     >
                                         <span>{item.name}</span>
                                         {item.subText && (
