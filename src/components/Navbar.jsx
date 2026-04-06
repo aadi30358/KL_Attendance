@@ -27,6 +27,12 @@ const Navbar = () => {
         }
     };
 
+    const handleResetSemester = () => {
+        localStorage.removeItem('kleData');
+        navigate('/attendance-register');
+        window.location.reload(); // Force state refresh in AttendanceRegister
+    };
+
     // ... (Keep existing useEffect for announcement and scrolled state)
     useEffect(() => {
         const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -62,7 +68,8 @@ const Navbar = () => {
             subText: hasErpSession && rememberedId ? rememberedId : null,
             path: '/login',
             isErpHighlight: !hasErpSession // Highlight vividly when NOT logged in
-        }
+        },
+        ...(hasErpSession ? [{ name: 'CHANGE SEMESTER', path: '/attendance-register', isReset: true }] : [])
     ];
 
     const isActive = (path) => location.pathname === path;
@@ -127,20 +134,20 @@ const Navbar = () => {
                                         <span className="absolute -top-2 -right-2 text-[9px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full font-bold shadow-sm">SOON</span>
                                     </div>
                                 ) : (
-                                    <Link
+                                    <button
                                         key={item.path}
-                                        to={item.path}
+                                        onClick={item.isReset ? handleResetSemester : () => navigate(item.path)}
                                         className={cn(
                                             "px-3 py-2 text-[11px] lg:text-xs font-black tracking-wider uppercase rounded-lg transition-all duration-300 whitespace-nowrap lg:whitespace-normal text-center leading-tight max-w-[120px] flex flex-col items-center justify-center h-full",
                                             scrolled
                                                 ? (isActive(item.path)
                                                     ? "text-indigo-700 bg-indigo-100"
-                                                    : item.isErpHighlight
+                                                    : item.isErpHighlight || item.isReset
                                                         ? "text-red-700 bg-red-50 border border-red-200 shadow-sm animate-pulse ring-2 ring-red-500/50"
                                                         : "text-slate-700 hover:bg-slate-100")
                                                 : (isActive(item.path)
                                                     ? "text-[#2196F3] bg-white shadow-xl transform scale-105"
-                                                    : item.isErpHighlight
+                                                    : item.isErpHighlight || item.isReset
                                                         ? "text-white bg-red-600 shadow-lg shadow-red-500/50 hover:bg-red-500 border border-red-400 animate-pulse ring-2 ring-white/50"
                                                         : "text-white hover:bg-white/20")
                                         )}
@@ -151,7 +158,7 @@ const Navbar = () => {
                                                 ID: {item.subText}
                                             </span>
                                         )}
-                                    </Link>
+                                    </button>
                                 )
                             ))}
 
@@ -212,28 +219,31 @@ const Navbar = () => {
                                             <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full">SOON</span>
                                         </div>
                                     ) : (
-                                        <Link
-                                            key={item.path}
-                                            to={item.path}
-                                            onClick={() => setIsOpen(false)}
-                                            className={cn(
-                                                "block px-4 py-3 rounded-xl text-sm font-bold tracking-widest uppercase transition-all flex flex-col",
-                                                isActive(item.path)
-                                                    ? "bg-indigo-50 text-indigo-600"
-                                                    : item.isErpHighlight
-                                                        ? "bg-red-50 text-red-700 border border-red-200 animate-pulse shadow-sm ring-1 ring-red-500/50"
-                                                        : "text-slate-600 hover:bg-slate-50"
-                                            )}
-                                        >
-                                            <span>{item.name}</span>
-                                            {item.subText && (
-                                                <span className="text-[10px] mt-1 text-slate-500 font-mono normal-case break-all">
-                                                    ID: {item.subText}
-                                                </span>
-                                            )}
-                                        </Link>
-                                    )
-                                ))}
+                                    <button
+                                        key={item.path}
+                                        onClick={() => {
+                                            if (item.isReset) handleResetSemester();
+                                            else navigate(item.path);
+                                            setIsOpen(false);
+                                        }}
+                                        className={cn(
+                                            "block w-full text-left px-4 py-3 rounded-xl text-sm font-bold tracking-widest uppercase transition-all flex flex-col",
+                                            isActive(item.path)
+                                                ? "bg-indigo-50 text-indigo-600"
+                                                : item.isErpHighlight || item.isReset
+                                                    ? "bg-red-50 text-red-700 border border-red-200 animate-pulse shadow-sm ring-1 ring-red-500/50"
+                                                    : "text-slate-600 hover:bg-slate-50"
+                                        )}
+                                    >
+                                        <span>{item.name}</span>
+                                        {item.subText && (
+                                            <span className="text-[10px] mt-1 text-slate-500 font-mono normal-case break-all">
+                                                ID: {item.subText}
+                                            </span>
+                                        )}
+                                    </button>
+                                )
+                            ))}
 
                             </div>
                         </motion.div>
