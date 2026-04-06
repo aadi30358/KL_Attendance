@@ -73,7 +73,7 @@ const Dashboard = () => {
                             <div className="relative">
                                 <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-gray-300 ring-4 ring-white"></div>
                                 <div className="text-sm text-gray-500 mb-1">02:00 PM - 03:30 PM</div>
-                                <div className="font-medium text-gray-800">Machine Learning (Theory)</div>
+                                <div className="font-medium text-gray-800">Machine Learning (Tutorial)</div>
                                 <div className="text-sm text-gray-500">Room 401 • Block B</div>
                             </div>
                         </div>

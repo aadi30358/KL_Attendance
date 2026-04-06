@@ -5,7 +5,7 @@ import { erpService } from '../services/erpService';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 
-// Component weights matching the extension: L=100, T=25, P=50, S=25
+// Component weights matching the extension: L=100, T=100, P=50, S=25
 const WEIGHTS = { L: 100, T: 100, P: 50, S: 25 };
 
 function getColor(pct) {
@@ -33,7 +33,7 @@ function BunkSimulator({ subject }) {
     // Always allow these 4 standard options
     const ALL_COMPS = [
         { id: 'L', label: 'Lecture' },
-        { id: 'T', label: 'Theory' },
+        { id: 'T', label: 'Tutorial' },
         { id: 'P', label: 'Practical' },
         { id: 'S', label: 'Skill' }
     ];
@@ -270,7 +270,7 @@ const AttendanceRegister = () => {
                                                 {subject.components && Object.entries(subject.components).map(([compName, compData]) => (
                                                     <div key={compName} className="flex justify-between items-center gap-2">
                                                         <span className="text-slate-600 text-xs font-medium">
-                                                            {compName === 'L' ? 'Lecture' : compName === 'P' ? 'Practical' : compName === 'T' ? 'Theory' : compName === 'S' ? 'Skill' : compName}
+                                                            {compName === 'L' ? 'Lecture' : compName === 'P' ? 'Practical' : compName === 'T' ? 'Tutorial' : compName === 'S' ? 'Skill' : compName}
                                                         </span>
                                                         <div className="flex items-center gap-1 shrink-0">
                                                             <span className="text-slate-900 text-xs font-bold font-mono">{compData.attended}/{compData.conducted}</span>

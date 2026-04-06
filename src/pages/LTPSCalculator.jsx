@@ -39,9 +39,9 @@ const LTPSCalculator = () => {
 
     const [weights, setWeights] = useState({
         lecture: 100,
-        theory: 100,
+        tutorial: 100,
         practical: 50,
-        skilling: 25
+        skill: 25
     });
 
     useEffect(() => {
@@ -72,9 +72,9 @@ const LTPSCalculator = () => {
         const analysis = [];
         const enteredComponents = {
             Lecture: lect !== '' ? parseFloat(lect) : null,
-            Theory: tut !== '' ? parseFloat(tut) : null,
+            Tutorial: tut !== '' ? parseFloat(tut) : null,
             Practical: pract !== '' ? parseFloat(pract) : null,
-            Skilling: skill !== '' ? parseFloat(skill) : null
+            Skill: skill !== '' ? parseFloat(skill) : null
         };
 
         Object.entries(enteredComponents).forEach(([component, value]) => {
@@ -105,9 +105,9 @@ const LTPSCalculator = () => {
 
         const enteredComponents = [];
         if (lect !== '') enteredComponents.push({ name: 'Lecture', value: parseFloat(lect) });
-        if (tut !== '') enteredComponents.push({ name: 'Theory', value: parseFloat(tut) });
+        if (tut !== '') enteredComponents.push({ name: 'Tutorial', value: parseFloat(tut) });
         if (pract !== '') enteredComponents.push({ name: 'Practical', value: parseFloat(pract) });
-        if (skill !== '') enteredComponents.push({ name: 'Skilling', value: parseFloat(skill) });
+        if (skill !== '') enteredComponents.push({ name: 'Skill', value: parseFloat(skill) });
 
         enteredComponents.sort((a, b) => a.value - b.value);
 
@@ -190,9 +190,9 @@ const LTPSCalculator = () => {
 
         const components = [
             { value: lect, weight: weights.lecture },
-            { value: tut, weight: weights.theory },
+            { value: tut, weight: weights.tutorial },
             { value: pract, weight: weights.practical },
-            { value: skill, weight: weights.skilling }
+            { value: skill, weight: weights.skill }
         ];
 
         let hasValidInput = false;
@@ -357,9 +357,9 @@ const LTPSCalculator = () => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {[
                                 { label: 'Lecture (L)', value: lect, setter: setLect, weight: 100 },
-                                { label: 'Theory (T)', value: tut, setter: setTut, weight: 100 },
+                                { label: 'Tutorial (T)', value: tut, setter: setTut, weight: 100 },
                                 { label: 'Practical (P)', value: pract, setter: setPract, weight: 50 },
-                                { label: 'Skilling (S)', value: skill, setter: setSkill, weight: 25 }
+                                { label: 'Skill (S)', value: skill, setter: setSkill, weight: 25 }
                             ].map((input, idx) => (
                                 <motion.div key={idx} className="space-y-2" initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: idx * 0.1 }}>
                                     <div className="flex justify-between">
