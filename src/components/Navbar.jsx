@@ -55,7 +55,8 @@ const Navbar = () => {
 
     const hasErpSession = !!localStorage.getItem('erpDashboardHtml');
     const rememberedId = localStorage.getItem('rememberedId');
-    const showLogout = currentUser || hasErpSession;
+    const isAuthPage = location.pathname === '/' || location.pathname === '/login';
+    const showLogout = (currentUser || hasErpSession) && !isAuthPage;
 
     const navItems = [
         { name: 'HOME', path: '/' },
@@ -69,7 +70,7 @@ const Navbar = () => {
             path: '/login',
             isErpHighlight: !hasErpSession // Highlight ONLY when NOT logged in
         },
-        ...(hasErpSession ? [{ name: 'CHANGE SEMESTER', path: '/attendance-register', isReset: true }] : [])
+        ...(hasErpSession && !isAuthPage ? [{ name: 'CHANGE SEMESTER', path: '/attendance-register', isReset: true }] : [])
     ];
 
     const isActive = (path) => location.pathname === path;

