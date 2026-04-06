@@ -239,7 +239,7 @@ const AttendanceRegister = () => {
                                 key={index}
                                 initial={{ opacity: 0, y: 20 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: index * 0.06 }}
+                                transition={{ delay: index * 0.03 }}
                                 className="bg-white border-2 border-slate-900 rounded-2xl overflow-hidden shadow hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
                             >
                                 {/* Top color strip */}
