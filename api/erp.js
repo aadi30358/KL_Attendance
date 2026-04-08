@@ -35,7 +35,7 @@ export default async function handler(req, res) {
 
         const allowedHeaders = [
             'cookie', 'user-agent', 'accept', 'accept-language', 
-            'content-type', 'content-length', 'x-csrf-token', 'x-requested-with'
+            'content-type', 'x-csrf-token', 'x-requested-with'
         ];
         
         const cleanHeaders = {};
@@ -52,6 +52,11 @@ export default async function handler(req, res) {
         // Retain client IP cleanly without appending multiple
         const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '192.168.1.1';
         cleanHeaders['x-forwarded-for'] = clientIp.split(',')[0].trim();
+
+        // Print debug to terminal to track what Vercel sees before sending
+        console.log('Sending ERP Request =', erpUrl);
+        console.log('Final Headers =', JSON.stringify(cleanHeaders));
+        console.log('Final Body =', Buffer.isBuffer(rawBody) ? rawBody.toString('utf-8') : rawBody);
 
         const fetchOptions = {
             method: req.method,
@@ -71,13 +76,22 @@ export default async function handler(req, res) {
                 continue; // fetch already decompresses the body, let Vercel handle recompressing and length
             }
             if (lowerKey === 'set-cookie') {
-                const setCookies = response.headers.getSetCookie ? response.headers.getSetCookie() : [value];
+                let setCookies = [];
+                if (typeof response.headers.getSetCookie === 'function') {
+                    setCookies = response.headers.getSetCookie();
+                } else if (response.headers.raw && typeof response.headers.raw === 'function') {
+                    setCookies = response.headers.raw()['set-cookie'] || [value];
+                } else {
+                    // Fallback to split if multiple cookies are joined by comma, ignoring commas inside Expires dates
+                    setCookies = value.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+                }
+
                 const rewrittenCookies = setCookies.map(cookie => {
-                    let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');
+                    let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');     
                     // Force rigorous SameSite and Secure to bypass Chrome's strict privacy drops
                     if (!newCookie.includes('SameSite')) newCookie += '; SameSite=None';
-                    if (!newCookie.includes('Secure')) newCookie += '; Secure';
-                    return newCookie;
+                    if (!newCookie.includes('Secure')) newCookie += '; Secure'; 
+                    return newCookie.trim();
                 });
                 res.setHeader('Set-Cookie', rewrittenCookies);
             } else if (lowerKey === 'location') {
