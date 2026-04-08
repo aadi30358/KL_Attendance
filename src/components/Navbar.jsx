@@ -75,8 +75,10 @@ const Navbar = () => {
         ]),
 
         ...(currentUser?.email === 'yaswanthadithyareddy11@gmail.com' ? [{ name: 'ADMIN', path: '/admin' }] : []),
-        ...(hasErpSession && !isAuthPage ? [{ name: 'CHANGE SEMESTER', path: '/attendance-register', isReset: true }] : [])
+        ...(hasErpSession && !isAuthPage ? [{ name: 'CHANGE SEMESTER', path: '/attendance-register', isReset: true }] : []),
+        { name: 'INSTALL APP', path: '#install', isPwaInstall: true }
     ];
+
 
     const isActive = (path) => location.pathname === path;
 

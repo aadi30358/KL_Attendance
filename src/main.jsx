@@ -12,12 +12,25 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 )
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js')
-    .then(() => {
-      console.log('SW registered');
-      // Ensure engine is ready for installation
-      navigator.serviceWorker.ready.then(() => {
-        console.log('SW Ready and Active');
-      });
-    });
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => {
+        console.log('SW registered:', reg);
+        
+        reg.onupdatefound = () => {
+          const installingWorker = reg.installing;
+          installingWorker.onstatechange = () => {
+            if (installingWorker.state === 'installed') {
+              if (navigator.serviceWorker.controller) {
+                console.log('New content available; please refresh.');
+              } else {
+                console.log('Content cached for offline use.');
+              }
+            }
+          };
+        };
+      })
+      .catch(err => console.error('SW registration failed:', err));
+  });
 }
+

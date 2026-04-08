@@ -1,7 +1,9 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import AnnouncementBanner from './components/AnnouncementBanner';
+import PWAInstallPrompt from './components/PWAInstallPrompt';
 import { AuthProvider } from './context/AuthContext';
+
 import { AttendanceProvider } from './context/AttendanceContext';
 import Home from './pages/Home';
 import LTPSCalculator from './pages/LTPSCalculator';
@@ -25,7 +27,9 @@ const AppWithAuth = () => {
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-900">
       <AnnouncementBanner />
       <Navbar />
+      <PWAInstallPrompt />
       <main>
+
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
