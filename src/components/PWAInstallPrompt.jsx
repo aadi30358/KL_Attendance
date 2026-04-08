@@ -6,33 +6,38 @@ const PWAInstallPrompt = () => {
   const [isInstalling, setIsInstalling] = useState(false);
 
   useEffect(() => {
-    // TEMPORARY BYPASS: Force showing prompt even if standalone check fails
-    // if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
-    //   return;
-    // }
+    // Check if app is already running in standalone mode (installed)
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    
+    // If already installed, never show the prompt
+    if (isStandalone) {
+      setShowInstallPrompt(false);
+      return;
+    }
 
     const handleBeforeInstallPrompt = (e) => {
-      // Prevent Chrome 67 and earlier from automatically showing the prompt
+      // Prevent automatic behavior
       e.preventDefault();
-      // Stash the event so it can be triggered later
       setDeferredPrompt(e);
-      setShowInstallPrompt(true);
+      
+      // Only show if not dismissed in THIS specific session
+      const isDismissedThisSession = sessionStorage.getItem('pwa_prompt_dismissed') === 'true';
+      if (!isDismissedThisSession) {
+        setShowInstallPrompt(true);
+      }
     };
 
     const handleAppInstalled = () => {
-      console.log('PWA was installed');
       setDeferredPrompt(null);
       setShowInstallPrompt(false);
       setIsInstalling(false);
+      // Clean up dismissal flag on successful installation
+      sessionStorage.removeItem('pwa_prompt_dismissed');
     };
 
-    // Global trigger for manual installation (from Navbar etc)
     const handleManualTrigger = () => {
       if (deferredPrompt) {
         setShowInstallPrompt(true);
-      } else {
-        console.log("No deferred prompt available yet.");
-        // If no prompt, maybe show a "How to" guide
       }
     };
 
@@ -49,20 +54,13 @@ const PWAInstallPrompt = () => {
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
-
     setIsInstalling(true);
     
     try {
-      // Show the install prompt
       deferredPrompt.prompt();
-      
-      // Wait for the user to respond to the prompt
       const { outcome } = await deferredPrompt.userChoice;
-      
       if (outcome === 'accepted') {
-        console.log('User accepted the install prompt');
-      } else {
-        console.log('User dismissed the install prompt');
+        sessionStorage.removeItem('pwa_prompt_dismissed');
       }
     } catch (error) {
       console.error('Installation failed:', error);
@@ -75,10 +73,12 @@ const PWAInstallPrompt = () => {
 
   const handleDismiss = () => {
     setShowInstallPrompt(false);
-    setDeferredPrompt(null);
+    // Mark as dismissed only for the current browser session
+    sessionStorage.setItem('pwa_prompt_dismissed', 'true');
   };
 
   if (!showInstallPrompt) return null;
+
 
   return (
     <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-80 bg-white border-[3px] border-slate-900 rounded-[2rem] shadow-2xl p-6 z-[9999] backdrop-blur-xl bg-white/90">
