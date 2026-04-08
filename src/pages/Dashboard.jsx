@@ -55,29 +55,7 @@ const Dashboard = () => {
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-                        <h2 className="font-bold text-lg text-gray-800 mb-4">Timetable Today</h2>
-                        <div className="relative pl-4 space-y-6 before:absolute before:left-0 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200">
-                            <div className="relative">
-                                <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-blue-500 ring-4 ring-white"></div>
-                                <div className="text-sm text-gray-500 mb-1">09:00 AM - 10:30 AM</div>
-                                <div className="font-medium text-gray-800">Advanced Web Development</div>
-                                <div className="text-sm text-gray-500">Room 304 • Block C</div>
-                            </div>
-                            <div className="relative">
-                                <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-green-500 ring-4 ring-white"></div>
-                                <div className="text-sm text-gray-500 mb-1">11:00 AM - 12:30 PM</div>
-                                <div className="font-medium text-gray-800">Cloud Computing</div>
-                                <div className="text-sm text-gray-500">Lab 2 • Block A</div>
-                            </div>
-                            <div className="relative">
-                                <div className="absolute -left-[21px] top-1 w-3 h-3 rounded-full bg-gray-300 ring-4 ring-white"></div>
-                                <div className="text-sm text-gray-500 mb-1">02:00 PM - 03:30 PM</div>
-                                <div className="font-medium text-gray-800">Machine Learning (Tutorial)</div>
-                                <div className="text-sm text-gray-500">Room 401 • Block B</div>
-                            </div>
-                        </div>
-                    </div>
+
                 </div>
             </div>
         </DashboardLayout>

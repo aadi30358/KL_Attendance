@@ -54,7 +54,8 @@ const ERPLoginCard = () => {
                 <ul className="space-y-4 mb-10">
                     {[
                         "Securely login to university ERP",
-                        "Auto-fetch attendance and timetable",
+                        "Auto-fetch attendance records",
+
                         "Check eligibility without manual entry"
                     ].map((item, idx) => (
                         <li key={idx} className="flex items-start gap-3">

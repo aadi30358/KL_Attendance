@@ -135,9 +135,11 @@ function BunkSimulator({ subject }) {
     );
 }
 
-// ── Main Component ───────────────────────────────────────────────────
 const AttendanceRegister = () => {
     const { logout } = useAuth();
+    const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
+    const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
+
     const [year, setYear] = useState('');
     const [semester, setSemester] = useState('');
     const [subjects, setSubjects] = useState([]);
@@ -147,16 +149,19 @@ const AttendanceRegister = () => {
     const navigate = useNavigate();
 
     useEffect(() => {
-        const kleData = localStorage.getItem('kleData');
         const html = localStorage.getItem('erpDashboardHtml');
-        if (kleData) {
-            const data = JSON.parse(kleData);
-            setSubjects(data.attendance_data);
-            setShowDashboard(true);
-        } else if (!html) {
+        
+        // Always start on the selection form after login or refresh
+        // to satisfy the "it should ask like" requirement.
+        setShowDashboard(false);
+
+        if (!html) {
             navigate('/login');
         }
-    }, [navigate]);
+
+        // Cleanup any old flags
+        sessionStorage.removeItem('manual_sem_reset');
+    }, [navigate, storageKey]);
 
     const handleSearch = async (fetchYear = year, fetchSemester = semester) => {
         if (!fetchYear || !fetchSemester) { alert('Please select both Year and Semester'); return; }
@@ -166,7 +171,7 @@ const AttendanceRegister = () => {
             setSubjects(data);
             setShowDashboard(true);
             // Save fetched data to standard location for persistence
-            localStorage.setItem('kleData', JSON.stringify({ attendance_data: data }));
+            localStorage.setItem(storageKey, JSON.stringify({ attendance_data: data }));
             setYear(fetchYear);
             setSemester(fetchSemester);
         } catch (error) {
@@ -180,6 +185,11 @@ const AttendanceRegister = () => {
         setShowDashboard(false);
         setSubjects([]);
         setDebugHtml(null);
+        setYear('');
+        setSemester('');
+        if (activeId) {
+            localStorage.removeItem(`kleData_${activeId}`);
+        }
         localStorage.removeItem('kleData');
     };
 

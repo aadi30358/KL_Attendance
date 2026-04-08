@@ -1,3 +1,5 @@
+import { SEMESTER_MAP, getAcademicYearCode } from '../config/api';
+
 export const erpService = {
     // Fetch the login page to scrape CSRF token
     async getInitialState() {
@@ -122,29 +124,10 @@ export const erpService = {
 
     // Fetch Subjects and Attendance
     async fetchAttendance(year, semester) {
-        // Map the user-friendly string (e.g., '2023-2024') to the exact ERP database ID (e.g., '15')
-        const yearMap = {
-            '2026-2027': '29',
-            '2025-2026': '19',
-            '2024-2025': '16',
-            '2023-2024': '15',
-            '2022-2023': '14',
-            '2021-2022': '13',
-            '2020-2021': '10',
-            '2019-2020': '9',
-            '2018-2019': '8'
-        };
+        const yearId = getAcademicYearCode(year);
+        const semId = SEMESTER_MAP[semester];
 
-        // Map the semester string to ERP database ID
-        const semMap = {
-            'Odd': '1',
-            'Even': '2',
-            'Summer': '3',
-            'Term3': '4'
-        };
-
-        const yearId = yearMap[year];
-        const semId = semMap[semester];
+        console.log(`[ERP] Fetch Attendance -> Year: ${year} (ID: ${yearId}), Sem: ${semester} (ID: ${semId})`);
 
         if (!yearId || !semId) {
             throw new Error(`Invalid year (${year}) or semester (${semester}) selected.`);
@@ -186,7 +169,7 @@ export const erpService = {
         });
 
         const html = await response.text();
-        console.log("ERP Response HTML Length:", html.length);
+
 
         if (!response.ok) {
             console.error("ERP HTTP Error:", response.status, response.statusText);
@@ -194,7 +177,7 @@ export const erpService = {
         }
 
         const subjects = this.parseSubjects(html);
-        console.log("Parsed Subjects:", subjects);
+
 
         if (subjects.length === 0) {
             throw new Error("Failed to find any subjects in table. Html length: " + html.length);
@@ -300,8 +283,10 @@ export const erpService = {
         });
     },
 
-    getCaptchaUrl() {
-            const apiBase = import.meta.env.VITE_API_URL || '';
-    return `${apiBase}/api/captcha?v=${Math.random().toString(36).substring(7)}`;
+    async getCaptchaUrl() {
+        const apiBase = import.meta.env.VITE_API_URL || '';
+        return `${apiBase}/api/captcha?v=${Math.random().toString(36).substring(7)}`;
     }
 };
+
+

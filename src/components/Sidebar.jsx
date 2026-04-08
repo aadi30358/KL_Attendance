@@ -8,6 +8,7 @@ import {
     Users,
     Building,
     LibraryBig,
+    CalendarClock,
 } from 'lucide-react';
 
 const Sidebar = ({ isMobileOpen }) => {
@@ -19,6 +20,7 @@ const Sidebar = ({ isMobileOpen }) => {
         { name: 'Total Attendance', icon: Users, path: '/attendance' },
         { name: 'LTPS Calculator', icon: BookOpen, path: '/ltps' },
         { name: 'Subject Attendance', icon: List, path: '/subject-attendance' },
+
         { name: 'Academic Calendar', icon: CalendarDays, path: '/calendar' },
         { name: 'Study Hub', icon: LibraryBig, path: '/study', comingSoon: true },
         { name: 'Admin Dashboard', icon: Building, path: '/admin' },

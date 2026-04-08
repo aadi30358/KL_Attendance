@@ -13,7 +13,7 @@ const Navbar = () => {
     const [scrolled, setScrolled] = useState(false);
     const [announcement, setAnnouncement] = useState("");
 
-    const { currentUser, logout } = useAuth(); // Import logout here
+    const { currentUser, erpUser, logout } = useAuth(); // Import erpUser here
     const location = useLocation();
     const navigate = useNavigate();
 
@@ -28,9 +28,15 @@ const Navbar = () => {
     };
 
     const handleResetSemester = () => {
-        localStorage.removeItem('kleData');
+        const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
+        if (activeId) {
+            localStorage.removeItem(`kleData_${activeId}`);
+        }
+        localStorage.removeItem('kleData'); // Fallback
+        // Flag to prevent auto-fetch on the next load
+        sessionStorage.setItem('manual_sem_reset', 'true');
         navigate('/attendance-register');
-        window.location.reload(); // Force state refresh in AttendanceRegister
+        window.location.reload(); 
     };
 
     // ... (Keep existing useEffect for announcement and scrolled state)
@@ -53,8 +59,9 @@ const Navbar = () => {
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
-    const hasErpSession = !!localStorage.getItem('erpDashboardHtml');
+    const hasErpSession = !!erpUser;
     const rememberedId = localStorage.getItem('rememberedId');
+    const activeId = localStorage.getItem('activeErpUser') || rememberedId;
     const isAuthPage = location.pathname === '/' || location.pathname === '/login';
     const showLogout = (currentUser || hasErpSession) && !isAuthPage;
 
@@ -62,14 +69,12 @@ const Navbar = () => {
         { name: 'HOME', path: '/' },
         { name: 'ATTENDANCE BY L-T-P-S', path: '/ltps' },
         { name: 'ATTENDANCE WHEN ABSENT', path: '/attendance' },
+        ...(hasErpSession ? [] : [
+            { name: 'ACADEMIC CALENDAR', path: '/calendar' },
+            { name: 'ERP LOGIN', path: '/login', isErpHighlight: true }
+        ]),
+
         ...(currentUser?.email === 'yaswanthadithyareddy11@gmail.com' ? [{ name: 'ADMIN', path: '/admin' }] : []),
-        { name: 'ACADEMIC CALENDAR', path: '/calendar' },
-        {
-            name: 'ERP LOGIN',
-            subText: hasErpSession && rememberedId ? rememberedId : null,
-            path: '/login',
-            isErpHighlight: !hasErpSession // Highlight ONLY when NOT logged in
-        },
         ...(hasErpSession && !isAuthPage ? [{ name: 'CHANGE SEMESTER', path: '/attendance-register', isReset: true }] : [])
     ];
 
@@ -137,20 +142,24 @@ const Navbar = () => {
                                 ) : (
                                     <button
                                         key={item.path}
-                                        onClick={item.isReset ? handleResetSemester : () => navigate(item.path)}
+                                        onClick={() => {
+                                            if (item.isReset) handleResetSemester();
+                                            else if (item.isPwaInstall) window.dispatchEvent(new Event('triggerPWAInstall'));
+                                            else navigate(item.path);
+                                        }}
                                         className={cn(
                                             "px-3 py-2 text-[11px] lg:text-xs font-black tracking-wider uppercase rounded-lg transition-all duration-300 whitespace-nowrap lg:whitespace-normal text-center leading-tight max-w-[120px] flex flex-col items-center justify-center h-full",
                                             scrolled
-                                                ? (isActive(item.path)
-                                                    ? "text-indigo-700 bg-indigo-100"
-                                                    : item.isErpHighlight
-                                                        ? "text-red-700 bg-red-50 border border-red-200 shadow-sm animate-pulse ring-2 ring-red-500/50"
-                                                        : "text-slate-700 hover:bg-slate-100")
-                                                : (isActive(item.path)
-                                                    ? "text-[#2196F3] bg-white shadow-xl transform scale-105"
-                                                    : item.isErpHighlight
-                                                        ? "text-white bg-red-600 shadow-lg shadow-red-500/50 hover:bg-red-500 border border-red-400 animate-pulse ring-2 ring-white/50"
-                                                        : "text-white hover:bg-white/20")
+                                                    ? (isActive(item.path)
+                                                        ? "text-indigo-700 bg-indigo-100"
+                                                        : item.isErpHighlight
+                                                            ? "text-red-600 bg-red-50 border-2 border-red-200 shadow-lg shadow-red-100 animate-pulse ring-2 ring-red-500/20"
+                                                            : "text-slate-700 hover:bg-slate-100")
+                                                    : (isActive(item.path)
+                                                        ? "text-[#2196F3] bg-white shadow-xl transform scale-105"
+                                                        : item.isErpHighlight
+                                                            ? "text-white bg-red-600 shadow-xl shadow-red-500/40 hover:bg-red-700 border border-red-400 animate-pulse ring-2 ring-white/50"
+                                                            : "text-white hover:bg-white/20")
                                         )}
                                     >
                                         <span>{item.name}</span>
@@ -163,19 +172,33 @@ const Navbar = () => {
                                 )
                             ))}
 
-                            {/* Desktop Logout Button */}
+                            {/* Desktop User Account Section */}
                             {showLogout && (
-                                <button
-                                    onClick={handleLogout}
-                                    title="Logout Dashboard Session"
-                                    className={cn(
-                                        "flex items-center gap-2 px-3 py-2 text-[11px] lg:text-xs font-black tracking-wider uppercase rounded-lg transition-all duration-300",
-                                        scrolled ? "text-red-600 hover:bg-red-50" : "text-red-100 hover:bg-white/20"
+                                <div className={cn(
+                                    "flex items-center gap-1 p-1 rounded-xl transition-all",
+                                    scrolled ? "bg-slate-50 border border-slate-200" : "bg-white/10"
+                                )}>
+                                    {activeId && (
+                                        <div className={cn(
+                                            "flex items-center gap-2 px-3 py-1.5 rounded-lg font-black text-[10px] tracking-tighter",
+                                            scrolled ? "text-slate-900" : "text-white"
+                                        )}>
+                                            <span className="opacity-50 font-medium tracking-normal text-[9px] uppercase">ID:</span>
+                                            {activeId}
+                                        </div>
                                     )}
-                                >
-                                    <LogOut className="w-4 h-4" />
-                                    <span>Logout</span>
-                                </button>
+                                    <button
+                                        onClick={handleLogout}
+                                        title="Logout Dashboard Session"
+                                        className={cn(
+                                            "flex items-center gap-2 px-3 py-1.5 text-[11px] font-black tracking-wider uppercase rounded-lg transition-all",
+                                            scrolled ? "bg-red-50 text-red-600 hover:bg-red-100" : "bg-white/20 text-white hover:bg-white/30"
+                                        )}
+                                    >
+                                        <LogOut className="w-3.5 h-3.5" />
+                                        <span>Logout</span>
+                                    </button>
+                                </div>
                             )}
                         </div>
 
@@ -210,6 +233,17 @@ const Navbar = () => {
                             className="lg:hidden bg-white border-t border-slate-100 shadow-2xl overflow-hidden"
                         >
                             <div className="px-4 pt-4 pb-6 space-y-2">
+                                {showLogout && activeId && (
+                                    <div className="mx-4 mb-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between">
+                                        <div className="flex flex-col">
+                                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Active Student</span>
+                                            <span className="text-sm font-black text-slate-900 font-mono tracking-tighter">{activeId}</span>
+                                        </div>
+                                        <div className="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
+                                            <Bell className="w-5 h-5 animate-pulse" />
+                                        </div>
+                                    </div>
+                                )}
                                 {navItems.map((item) => (
                                     item.comingSoon ? (
                                         <div
@@ -224,16 +258,22 @@ const Navbar = () => {
                                         key={item.path}
                                         onClick={() => {
                                             if (item.isReset) handleResetSemester();
-                                            else navigate(item.path);
-                                            setIsOpen(false);
+                                            else if (item.isPwaInstall) {
+                                                window.dispatchEvent(new Event('triggerPWAInstall'));
+                                                setIsOpen(false);
+                                            }
+                                            else {
+                                                navigate(item.path);
+                                                setIsOpen(false);
+                                            }
                                         }}
                                             className={cn(
                                                 "block w-full text-left px-4 py-3 rounded-xl text-sm font-bold tracking-widest uppercase transition-all flex flex-col",
-                                                isActive(item.path)
-                                                    ? "bg-indigo-50 text-indigo-600"
-                                                    : item.isErpHighlight
-                                                        ? "bg-red-50 text-red-700 border border-red-200 animate-pulse shadow-sm ring-1 ring-red-500/50"
-                                                        : "text-slate-600 hover:bg-slate-50"
+                                                    isActive(item.path)
+                                                        ? "bg-indigo-50 text-indigo-600"
+                                                        : item.isErpHighlight
+                                                            ? "bg-red-600 text-white border-2 border-red-400 animate-pulse shadow-lg ring-2 ring-white/20"
+                                                            : "text-slate-600 hover:bg-slate-50"
                                             )}
                                     >
                                         <span>{item.name}</span>

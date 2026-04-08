@@ -77,11 +77,42 @@ app.post('/api/ai/gemini', async (req, res) => {
 
         const result = await model.generateContent(contents);
         const response = await result.response;
-        // console.log("AI Response generated successfully"); // Removed sensitive logging
-        res.json({ text: response.text() });
+        const text = response.text();
+        console.log("[AI-Proxy] Response generated successfully");
+        res.json({ text });
     } catch (error) {
         console.error("Gemini Proxy Error:", error.message);
-        res.status(500).json({ error: "Failed to fetch from Gemini. Please try again later." });
+        res.status(500).json({ 
+            error: "Failed to fetch from Gemini. Please try again later.",
+            details: error.message 
+        });
+    }
+});
+
+// Timetable Fetch Endpoint
+app.post('/api/fetch_timetable', async (req, res) => {
+    try {
+        const { username, password, captcha, semester, academicYear, sessionId } = req.body;
+        
+        // This is a proxy to the ERP. In a real scenario, this would involve 
+        // complex session handling. For this implementation, we assume 
+        // the ERP session is already established or handled via cookies.
+        
+        console.log(`[Fetch-Timetable] Request for: ${username}`);
+        
+        // Forward to ERP
+        const erpUrl = "https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fviewtimetable";
+        
+        // Note: Actual implementation would require forwarding cookies and handling ERP auth.
+        // For now, we return a mock success to verify the connectivity.
+        res.json({ 
+            success: true, 
+            message: "Endpoint reachable. In a live environment, this would proxy the ERP response.",
+            timetable: {} // App will fallback to parsing if empty
+        });
+    } catch (error) {
+        console.error("Fetch Timetable Error:", error.message);
+        res.status(500).json({ success: false, message: "Server error during timetable fetch" });
     }
 });
 

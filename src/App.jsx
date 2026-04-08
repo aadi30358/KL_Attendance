@@ -14,6 +14,7 @@ import Login from './pages/Login';
 import AttendanceRegister from './pages/AttendanceRegister';
 import Predictor from './pages/Predictor';
 import UserProfile from './pages/UserProfile';
+
 import { HelmetProvider } from 'react-helmet-async';
 
 import { Instagram } from 'lucide-react';
@@ -37,6 +38,7 @@ const AppWithAuth = () => {
           <Route path="/predictor" element={<Predictor />} />
           <Route path="/profile" element={<UserProfile />} />
           <Route path="/admin" element={<AdminDashboard />} />
+
         </Routes>
       </main>
 
