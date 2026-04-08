@@ -11,33 +11,32 @@ const PWAInstallPrompt = () => {
     
     // If already installed, never show the prompt
     if (isStandalone) {
+      console.log('PWA: Already in standalone mode.');
       setShowInstallPrompt(false);
       return;
     }
 
     const handleBeforeInstallPrompt = (e) => {
+      console.log('PWA: beforeinstallprompt received!');
       // Prevent automatic behavior
       e.preventDefault();
       setDeferredPrompt(e);
-      
-      // Only show if not dismissed in THIS specific session
-      const isDismissedThisSession = sessionStorage.getItem('pwa_prompt_dismissed') === 'true';
-      if (!isDismissedThisSession) {
-        setShowInstallPrompt(true);
-      }
+      setShowInstallPrompt(true);
     };
 
     const handleAppInstalled = () => {
+      console.log('PWA: Successfully installed on device.');
       setDeferredPrompt(null);
       setShowInstallPrompt(false);
       setIsInstalling(false);
-      // Clean up dismissal flag on successful installation
-      sessionStorage.removeItem('pwa_prompt_dismissed');
     };
 
     const handleManualTrigger = () => {
+      console.log('PWA: Manual trigger requested.');
       if (deferredPrompt) {
         setShowInstallPrompt(true);
+      } else {
+        console.warn('PWA: Manual trigger failed - no deferredPrompt available.');
       }
     };
 
@@ -53,17 +52,20 @@ const PWAInstallPrompt = () => {
   }, [deferredPrompt]);
 
   const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
+    if (!deferredPrompt) {
+      console.error('PWA: Install clicked but no deferredPrompt found.');
+      return;
+    }
+    
     setIsInstalling(true);
     
     try {
+      console.log('PWA: Triggering browser install prompt.');
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        sessionStorage.removeItem('pwa_prompt_dismissed');
-      }
+      console.log(`PWA: User choice outcome: ${outcome}`);
     } catch (error) {
-      console.error('Installation failed:', error);
+      console.error('PWA: Installation failed:', error);
     } finally {
       setIsInstalling(false);
       setDeferredPrompt(null);
@@ -72,12 +74,13 @@ const PWAInstallPrompt = () => {
   };
 
   const handleDismiss = () => {
+    console.log('PWA: User dismissed the prompt UI.');
     setShowInstallPrompt(false);
-    // Mark as dismissed only for the current browser session
-    sessionStorage.setItem('pwa_prompt_dismissed', 'true');
+    // REMOVED sessionStorage suppression to allow re-prompt on refresh as requested
   };
 
   if (!showInstallPrompt) return null;
+
 
 
   return (

@@ -1,6 +1,8 @@
 {
   "name": "KL Attendance",
+  "id": "kl-attendance-pwa",
   "short_name": "Attendance",
+
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

@@ -1,4 +1,5 @@
-const CACHE_NAME = 'kl-attendance-v2';
+const CACHE_NAME = 'kl-attendance-v3';
+
 
 const ASSETS_TO_CACHE = [
   '/',
