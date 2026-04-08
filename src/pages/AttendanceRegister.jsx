@@ -338,7 +338,7 @@ const AttendanceRegister = () => {
                         </div>
                         <h2 className="text-2xl font-black text-slate-900 mb-2">No Courses Found</h2>
                         <p className="text-slate-500 font-medium max-w-sm mx-auto">
-                            We couldn't find any registered courses for the selected semester. Please verify your selection or check back later.
+                            We couldn&apos;t find any registered courses for the selected semester. Please verify your selection or check back later.
                         </p>
                     </motion.div>
                 )}

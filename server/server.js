@@ -92,16 +92,13 @@ app.post('/api/ai/gemini', async (req, res) => {
 // Timetable Fetch Endpoint
 app.post('/api/fetch_timetable', async (req, res) => {
     try {
-        const { username, password, captcha, semester, academicYear, sessionId } = req.body;
+        const { username } = req.body;
         
         // This is a proxy to the ERP. In a real scenario, this would involve 
         // complex session handling. For this implementation, we assume 
         // the ERP session is already established or handled via cookies.
         
         console.log(`[Fetch-Timetable] Request for: ${username}`);
-        
-        // Forward to ERP
-        const erpUrl = "https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fviewtimetable";
         
         // Note: Actual implementation would require forwarding cookies and handling ERP auth.
         // For now, we return a mock success to verify the connectivity.
