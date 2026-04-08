@@ -131,5 +131,93 @@ async def fetch_attendance(req: LoginRequest):
         if driver:
             driver.quit()
 
+@app.post("/fetch_calendar_of_events")
+async def fetch_calendar_of_events_api(req: LoginRequest):
+    driver = None
+    try:
+        driver = get_driver()
+        login_url = 'https://student.kletech.ac.in/code/'
+        driver.get(login_url)
+
+        try:
+            passlist = req.dob.split('-')
+            dd = passlist[2]
+            mm = get_months()[passlist[1]]
+            yyyy = passlist[0]
+        except (IndexError, KeyError):
+            raise HTTPException(status_code=400, detail="Invalid DOB format. Use YYYY-MM-DD")
+
+        wait = WebDriverWait(driver, 15)
+
+        username_field = wait.until(EC.presence_of_element_located((By.ID, 'username')))
+        dd_field = driver.find_element(By.ID, 'dd')
+        mm_field = driver.find_element(By.ID, 'mm')
+        yyyy_field = driver.find_element(By.ID, 'yyyy')
+
+        username_field.send_keys(req.username)
+        dd_field.send_keys(dd)
+        mm_field.send_keys(mm)
+        yyyy_field.send_keys(yyyy)
+
+        submit_button = wait.until(EC.element_to_be_clickable((By.NAME, 'submit')))
+        submit_button.click()
+
+        try:
+            wait.until(EC.presence_of_element_located((By.ID, 'page_bg')))
+        except TimeoutException:
+            if "Invalid" in driver.page_source or "wrong" in driver.page_source.lower():
+                raise HTTPException(status_code=401, detail="Invalid Credentials")
+            raise HTTPException(status_code=504, detail="Timeout waiting for dashboard")
+
+        dashboard_url = 'https://student.kletech.ac.in/code/index.php?option=com_studentdashboard&controller=studentdashboard&task=dashboard'
+        driver.get(dashboard_url)
+        wait.until(EC.presence_of_element_located((By.ID, 'page-header')))
+
+        dashboard_soup = BeautifulSoup(driver.page_source, 'html.parser')
+        atagblock = dashboard_soup.find("div", class_="atag").find("a", class_="atagblock")
+        if not atagblock:
+            raise HTTPException(status_code=404, detail="Calendar option not found on dashboard")
+        
+        coe_url = "https://student.kletech.ac.in/code/" + atagblock.get("href")
+        driver.get(coe_url)
+        wait.until(EC.presence_of_element_located((By.ID, 'page-header')))
+
+        coe_soup = BeautifulSoup(driver.page_source, 'html.parser')
+        coe_tables = coe_soup.find_all('table')
+        
+        style_tag = coe_soup.find('style')
+        if style_tag:
+            style_tag.extract()
+
+        for i in range(min(3, len(coe_tables))):
+            coe_tables[i].extract()
+
+        main_coe_table = coe_soup.find('table')
+        if main_coe_table:
+            rows_to_remove = main_coe_table.find_all('tr')[:13]
+            for row in rows_to_remove:
+                row.extract()
+
+        table_form = coe_soup.find('form')
+        if table_form:
+            div_element = table_form.find('div')
+            if div_element:
+                for _ in range(3):
+                    next_div = div_element.find_next('div')
+                    if next_div:
+                        next_div.extract()
+
+        coe_html = repr(coe_soup).replace("\n", "").replace("\t", "").replace("\r", "")
+        return {"coe": coe_html}
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if driver:
+            driver.quit()
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
