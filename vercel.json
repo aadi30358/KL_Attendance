@@ -13,11 +13,15 @@
             "destination": "/sitemap.xml"
         },
         {
+            "source": "/assets/(.*)",
+            "destination": "/assets/$1"
+        },
+        {
             "source": "/index.php",
             "destination": "/api/erp"
         },
         {
-            "source": "/((?!api).*)",
+            "source": "/((?!api|assets).*)",
             "destination": "/index.html"
         }
     ]
