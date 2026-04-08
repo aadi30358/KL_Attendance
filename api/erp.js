@@ -17,29 +17,48 @@ export default async function handler(req, res) {
     const erpUrl = 'https://newerp.kluniversity.in/index.php' + (searchParams ? '?' + searchParams : '');
 
     try {
-        const rawBody = ['GET', 'HEAD'].includes(req.method) ? undefined : await getRawBody(req);
+        let rawBody = undefined;
+        if (!['GET', 'HEAD'].includes(req.method)) {
+            if (req.body && !Buffer.isBuffer(req.body) && Object.keys(req.body).length > 0) {
+                // If Vercel parsed the body despite bodyParser: false
+                if (typeof req.body === 'string') {
+                    rawBody = req.body;
+                } else {
+                    rawBody = new URLSearchParams(req.body).toString();
+                }
+            } else if (req.body && Buffer.isBuffer(req.body)) {
+                rawBody = req.body;
+            } else {
+                rawBody = await getRawBody(req);
+            }
+        }
+
+        const allowedHeaders = [
+            'cookie', 'user-agent', 'accept', 'accept-language', 
+            'content-type', 'content-length', 'x-csrf-token', 'x-requested-with'
+        ];
+        
+        const cleanHeaders = {};
+        for (const [key, value] of Object.entries(req.headers)) {
+            if (allowedHeaders.includes(key.toLowerCase())) {
+                cleanHeaders[key.toLowerCase()] = value;
+            }
+        }
+
+        cleanHeaders['host'] = 'newerp.kluniversity.in';
+        cleanHeaders['origin'] = 'https://newerp.kluniversity.in';
+        cleanHeaders['referer'] = 'https://newerp.kluniversity.in/';
+        
+        // Retain client IP cleanly without appending multiple
+        const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '192.168.1.1';
+        cleanHeaders['x-forwarded-for'] = clientIp.split(',')[0].trim();
 
         const fetchOptions = {
             method: req.method,
-            headers: {
-                ...req.headers,
-                host: 'newerp.kluniversity.in',
-                origin: 'https://newerp.kluniversity.in',
-                referer: 'https://newerp.kluniversity.in/',
-            },
+            headers: cleanHeaders,
             body: rawBody,
             redirect: 'manual'
         };
-
-        // Retain client IP to stabilize KL ERP's PHP session tracker and prevent forced logouts
-        const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '192.168.1.1';
-        fetchOptions.headers['x-forwarded-for'] = clientIp;
-
-        // Remove headers that cause issues
-        delete fetchOptions.headers['connection'];
-        delete fetchOptions.headers['accept-encoding'];
-        delete fetchOptions.headers['x-forwarded-host'];
-        delete fetchOptions.headers['x-forwarded-proto'];
 
         const response = await fetch(erpUrl, fetchOptions);
 
