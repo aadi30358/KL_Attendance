@@ -76,9 +76,9 @@ const Navbar = () => {
         ...(hasErpSession ? [{ name: 'ERP DASHBOARD', path: '/login', isMobileOnly: true }] : []),
 
         ...(currentUser?.email === 'yaswanthadithyareddy11@gmail.com' ? [{ name: 'ADMIN', path: '/admin' }] : []),
-        ...(hasErpSession && !isAuthPage ? [{ name: 'CHANGE SEMESTER', path: '/attendance-register', isReset: true }] : []),
-        { name: 'INSTALL APP', path: '#install', isPwaInstall: true, hiddenOnMobile: true }
+        ...(hasErpSession && !isAuthPage ? [{ name: 'CHANGE SEMESTER', path: '/attendance-register', isReset: true }] : [])
     ];
+
 
 
 

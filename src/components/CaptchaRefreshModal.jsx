@@ -103,12 +103,13 @@ export default function CaptchaRefreshModal({ onClose, onSuccess }) {
       
       if (data.success) {
         // If server returns timetable object, use it. Otherwise, assume it's just a trigger.
-        const attendanceData = data.attendance && Object.keys(data.attendance).length > 0 
-          ? data.attendance 
+        const attendanceData = data.timetable && Object.keys(data.timetable).length > 0 
+          ? data.timetable 
           : JSON.parse(localStorage.getItem(`attendance_${creds.idNumber || creds.username}`) || "{}");
           
         onSuccess(attendanceData);
         onClose();
+
 
       } else {
         setError(data.message || "ReSync failed");

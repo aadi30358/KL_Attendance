@@ -91,12 +91,13 @@ export default function CaptchaModal({ isOpen, onClose, onSuccess, friendCredent
       const data = await response.json();
       
       if (data.success) {
-        const attendanceData = data.attendance && Object.keys(data.attendance).length > 0 
-          ? data.attendance 
+        const attendanceData = data.timetable && Object.keys(data.timetable).length > 0 
+          ? data.timetable 
           : JSON.parse(localStorage.getItem(`attendance_${creds.idNumber || creds.username}`) || "{}");
           
         onSuccess(attendanceData);
         onClose();
+
       } else {
         setError(data.message || "Invalid CAPTCHA. Please try again.");
         loadCaptcha();
