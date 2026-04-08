@@ -40,4 +40,5 @@ if ('serviceWorker' in navigator) {
         refreshing = true;
         window.location.reload();
       }
-    });
+    });  });
+}
