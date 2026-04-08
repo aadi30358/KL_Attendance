@@ -118,6 +118,11 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
 });
 
+// Root path for the Render deploy link so it doesn't show "Cannot GET /"
+app.get('/', (req, res) => {
+    res.send('KL Attendance Backend is Running successfully!');
+});
+
 // Captcha endpoint
 app.get('/api/captcha', (req, res) => {
     try {
