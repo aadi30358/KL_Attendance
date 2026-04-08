@@ -490,9 +490,10 @@ export default function Home() {
                     </div>
 
                     {/* 6. ERP Access Card */}
-                    <div className="md:col-span-3 flex justify-center mt-8">
+                    <div className="h-[350px]">
                         <ERPLoginCard />
                     </div>
+
 
                 </div>
 

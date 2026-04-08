@@ -10,7 +10,8 @@ const ERPLoginCard = () => {
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="w-full max-w-sm bg-[#0a0a0a] border border-red-900/30 rounded-[2rem] p-8 shadow-2xl relative overflow-hidden group"
+            className="w-full h-full bg-[#0a0a0a] border border-red-900/30 rounded-[2rem] p-8 shadow-2xl relative overflow-hidden group"
+
         >
             {/* Ambient Red Glow */}
             <div className="absolute top-0 right-0 w-32 h-32 bg-red-600/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:bg-red-600/20 transition-colors" />
