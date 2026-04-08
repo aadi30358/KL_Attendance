@@ -20,11 +20,24 @@ export default async function handler(req, res) {
         let rawBody = undefined;
         if (!['GET', 'HEAD'].includes(req.method)) {
             if (req.body && !Buffer.isBuffer(req.body) && Object.keys(req.body).length > 0) {
-                // If Vercel parsed the body despite bodyParser: false
+                // If Vercel parsed the body despite bodyParser: false, rebuild the application/x-www-form-urlencoded
+                // string robustly even if it nested objects (e.g. DynamicModel: { academicyear: '19' })
                 if (typeof req.body === 'string') {
                     rawBody = req.body;
                 } else {
-                    rawBody = new URLSearchParams(req.body).toString();
+                    const flattenObj = (obj, prefix = '') => {
+                        return Object.keys(obj).reduce((acc, k) => {
+                            const pre = prefix.length ? prefix + '[' + k + ']' : k;
+                            if (typeof obj[k] === 'object' && obj[k] !== null) {
+                                Object.assign(acc, flattenObj(obj[k], pre));
+                            } else {
+                                acc[pre] = obj[k];
+                            }
+                            return acc;
+                        }, {});
+                    };
+                    const flat = flattenObj(req.body);
+                    rawBody = new URLSearchParams(flat).toString();
                 }
             } else if (req.body && Buffer.isBuffer(req.body)) {
                 rawBody = req.body;

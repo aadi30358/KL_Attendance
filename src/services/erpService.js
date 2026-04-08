@@ -147,25 +147,23 @@ export const erpService = {
             throw new Error(`Invalid year (${year}) or semester (${semester}) selected.`);
         }
 
-        // Proactively fetch a fresh CSRF token from the index page
-        // to ensure we have the latest session state/token.
+// Use the exact CSRF token captured at the exact moment of login.
+        // Fetching a "fresh" one before a POST creates race conditions and 400 Bad Requests
+        // if the server rotates tokens rapidly or cookie headers desync across proxies.
         let csrfToken = null;
         try {
-            const state = await this.getInitialState();
-            csrfToken = state.csrfToken;
-            console.log(`[ERP] Fresh CSRF Token Obtained: ${csrfToken ? 'Success' : 'Failed'}`);
-        } catch (e) {
-            console.warn("[ERP] Failed to fetch fresh CSRF token, falling back to cached HTML", e);
             const dashboardHtml = localStorage.getItem('erpDashboardHtml');
             if (dashboardHtml) {
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(dashboardHtml, 'text/html');
                 csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
             }
+        } catch (e) {
+            console.warn("[ERP] Failed to parse cached dashboard HTML", e);
         }
 
         if (!csrfToken) {
-            console.error("[ERP] No CSRF token available for request");
+            console.error("[ERP] No CSRF token available for request. Session likely wiped.");
         }
 
         const formData = new URLSearchParams();
@@ -198,9 +196,14 @@ export const erpService = {
 
         const html = await response.text();
 
+        // Check if ERP returned a 400 Bad Request indicating CSRF or Session failure
+        if (response.status === 400 && html.includes('Unable to verify your data submission')) {
+            throw new Error("Your session has expired. Please completely sign out and log in again.");
+        }
+
         if (!response.ok) {
             console.error("ERP HTTP Error:", response.status, response.statusText);
-            throw new Error(`HTTP Error: ${response.status}`);
+            throw new Error(`Session error (${response.status}). Please log out and sign in again.`);
         }
 
         const subjects = this.parseSubjects(html);
