@@ -149,9 +149,9 @@ const Navbar = () => {
                                         key={item.path}
                                         onClick={() => {
                                             if (item.isReset) handleResetSemester();
-                                            else if (item.isPwaInstall) window.dispatchEvent(new Event('triggerPWAInstall'));
-                                            else navigate(item.path);
+                                            else if (item.path) navigate(item.path);
                                         }}
+
                                         className={cn(
                                             "px-3 py-2 text-[11px] lg:text-xs font-black tracking-wider uppercase rounded-lg transition-all duration-300 whitespace-nowrap lg:whitespace-normal text-center leading-tight max-w-[120px] flex flex-col items-center justify-center h-full",
                                             scrolled
@@ -265,15 +265,12 @@ const Navbar = () => {
                                         key={item.path}
                                         onClick={() => {
                                             if (item.isReset) handleResetSemester();
-                                            else if (item.isPwaInstall) {
-                                                window.dispatchEvent(new Event('triggerPWAInstall'));
-                                                setIsOpen(false);
-                                            }
-                                            else {
+                                            else if (item.path) {
                                                 navigate(item.path);
                                                 setIsOpen(false);
                                             }
                                         }}
+
                                             className={cn(
                                                 "block w-full text-left px-4 py-3 rounded-xl text-sm font-bold tracking-widest uppercase transition-all flex flex-col",
                                                     isActive(item.path)
