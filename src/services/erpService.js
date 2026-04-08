@@ -133,28 +133,37 @@ export const erpService = {
             throw new Error(`Invalid year (${year}) or semester (${semester}) selected.`);
         }
 
-        console.log(`Setting up AJAX POST for Year: ${year} (ID: ${yearId}), Sem: ${semester} (ID: ${semId})`);
+        // Proactively fetch a fresh CSRF token from the index page
+        // to ensure we have the latest session state/token.
+        let csrfToken = null;
+        try {
+            const state = await this.getInitialState();
+            csrfToken = state.csrfToken;
+            console.log(`[ERP] Fresh CSRF Token Obtained: ${csrfToken ? 'Success' : 'Failed'}`);
+        } catch (e) {
+            console.warn("[ERP] Failed to fetch fresh CSRF token, falling back to cached HTML", e);
+            const dashboardHtml = localStorage.getItem('erpDashboardHtml');
+            if (dashboardHtml) {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(dashboardHtml, 'text/html');
+                csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            }
+        }
+
+        if (!csrfToken) {
+            console.error("[ERP] No CSRF token available for request");
+        }
 
         const formData = new URLSearchParams();
-        // The required parameters identified by scraping the native form:
         formData.append('DynamicModel[academicyear]', yearId);
         formData.append('DynamicModel[semesterid]', semId);
-
-        // Include the CSRF token for Yii2
-        let csrfToken = null;
-        const dashboardHtml = localStorage.getItem('erpDashboardHtml');
-        if (dashboardHtml) {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(dashboardHtml, 'text/html');
-            csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-            if (csrfToken) {
-                formData.append('_csrf', csrfToken);
-            }
+        if (csrfToken) {
+            formData.append('_csrf', csrfToken);
         }
 
         const headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Requested-With': 'XMLHttpRequest' // Crucial: Tell Yii2 this is the AJAX call!
+            'X-Requested-With': 'XMLHttpRequest'
         };
         if (csrfToken) {
             headers['X-CSRF-Token'] = csrfToken;
@@ -170,7 +179,6 @@ export const erpService = {
 
         const html = await response.text();
 
-
         if (!response.ok) {
             console.error("ERP HTTP Error:", response.status, response.statusText);
             throw new Error(`HTTP Error: ${response.status}`);
@@ -178,9 +186,14 @@ export const erpService = {
 
         const subjects = this.parseSubjects(html);
 
-
         if (subjects.length === 0) {
-            throw new Error("Failed to find any subjects in table. Html length: " + html.length);
+            // Check if we are redirected to login page
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            if (doc.getElementById('login-form')) {
+                throw new Error("Your session has expired. Please log out and sign in again.");
+            }
+            throw new Error("Failed to find any subjects. Please try again or verify your connection.");
         }
 
         return subjects;
