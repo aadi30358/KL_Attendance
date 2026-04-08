@@ -35,7 +35,16 @@ export function AuthProvider({ children }) {
     }
 
     useEffect(() => {
+        // Safety timeout: Ensure app renders after 3 seconds even if Firebase hangs
+        const timer = setTimeout(() => {
+            if (loading) {
+                console.warn("[Auth] Firebase initialization timed out, proceeding to render...");
+                setLoading(false);
+            }
+        }, 3000);
+
         const unsubscribe = onAuthStateChanged(auth, (user) => {
+            clearTimeout(timer);
             setCurrentUser(user);
 
             // Hydrate ERP user from localStorage if exists
@@ -47,8 +56,11 @@ export function AuthProvider({ children }) {
             setLoading(false);
         });
 
-        return unsubscribe;
-    }, []);
+        return () => {
+            unsubscribe();
+            clearTimeout(timer);
+        };
+    }, [loading]);
 
     const value = {
         currentUser,
