@@ -6,48 +6,36 @@ const PWAInstallPrompt = () => {
   const [isInstalling, setIsInstalling] = useState(false);
 
   const [isIOS, setIsIOS] = useState(false);
-  const [useFallback, setUseFallback] = useState(false);
   const [isInApp, setIsInApp] = useState(false);
 
   useEffect(() => {
     // Check if app is already running in standalone mode (installed)
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
     
-    // Detect iOS
+    // Detect environment
     const ua = navigator.userAgent || navigator.vendor || window.opera;
     const isIOSDevice = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
-    setIsIOS(isIOSDevice);
-
-    // Detect Restricted In-App Browsers (Instagram, FB, WhatsApp, LinkedIn)
     const isInAppBrowser = /Instagram|FBAN|FBAV|WhatsApp|LinkedInApp/.test(ua);
+    
+    setIsIOS(isIOSDevice);
     setIsInApp(isInAppBrowser);
 
-    // If already installed, never show the prompt
-    if (isStandalone) {
+    // GUARANTEED UI: Always show prompt if not installed
+    if (!isStandalone) {
+      setShowInstallPrompt(true);
+    } else {
       setShowInstallPrompt(false);
-      return;
     }
 
-    // ULTRA AGGRESSIVE TIMER: Force show after 1 second if not standalone
-    const timer = setTimeout(() => {
-      if (!isStandalone) {
-        setUseFallback(true);
-        setShowInstallPrompt(true);
-      }
-    }, 1000);
-
     const handleBeforeInstallPrompt = (e) => {
-      console.log('PWA: browser-native install event fired');
       e.preventDefault();
       setDeferredPrompt(e);
-      setUseFallback(false);
-      setShowInstallPrompt(true);
-      clearTimeout(timer);
+      // No need to set showInstallPrompt specifically as it's already true by default
     };
 
     const handleAppInstalled = () => {
-      setDeferredPrompt(null);
       setShowInstallPrompt(false);
+      setDeferredPrompt(null);
       setIsInstalling(false);
     };
 
@@ -57,9 +45,8 @@ const PWAInstallPrompt = () => {
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
-      clearTimeout(timer);
     };
-  }, [deferredPrompt]);
+  }, []);
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
@@ -67,8 +54,8 @@ const PWAInstallPrompt = () => {
     try {
       deferredPrompt.prompt();
       await deferredPrompt.userChoice;
-    } catch (error) {
-      console.error('PWA: Installation failed:', error);
+    } catch (err) {
+      console.error('PWA install error:', err);
     } finally {
       setIsInstalling(false);
       setDeferredPrompt(null);
@@ -92,22 +79,22 @@ const PWAInstallPrompt = () => {
                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                </svg>
             ) : (
-              <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
-              </svg>
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
             )}
           </div>
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-xl font-black text-slate-900 tracking-tight">
-            {isInApp ? "Restricted Browser" : "Install KL Attendance"}
+             {isInApp ? "Open in Browser" : "Download App"}
           </h3>
           <p className="text-sm text-slate-500 font-medium mt-1 leading-relaxed">
             {isInApp 
-              ? "Installation is blocked in this app. Please open the link in Chrome or Safari to install."
-              : useFallback 
-                ? (isIOS ? "Tap 'Share' and 'Add to Home Screen' for the best experience." : "Find 'Install App' in your browser's menu to install.")
-                : "Install now for full attendance tracking and dashboard features."}
+              ? "To install, tap the menu (⋮) and select 'Open in Chrome/Safari'."
+              : deferredPrompt 
+                ? "Get the full experience with our native attendance dashboard."
+                : (isIOS ? "Tap 'Share' and 'Add to Home Screen' to install." : "Find 'Install' in your browser menu to install.")}
           </p>
         </div>
         <button
@@ -122,18 +109,18 @@ const PWAInstallPrompt = () => {
       
       {isInApp ? (
          <div className="mt-6 bg-amber-50 rounded-2xl p-4 border border-amber-100">
-            <p className="text-xs font-bold text-amber-700 uppercase tracking-widest mb-1">In-App Browser Detected</p>
+            <p className="text-xs font-bold text-amber-700 uppercase tracking-widest mb-1">Restricted Browser</p>
             <p className="text-[13px] text-amber-900 font-medium">
                1. Tap the 3 dots (⋮) or (⋯)<br/>
                2. Select <b>'Open in Chrome'</b> or <b>'Open in Safari'</b>
             </p>
          </div>
-      ) : !useFallback ? (
+      ) : deferredPrompt ? (
         <div className="mt-6 flex space-x-3">
           <button
             onClick={handleInstallClick}
             disabled={isInstalling}
-            className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-black py-4 px-4 rounded-2xl transition-all duration-200 shadow-lg"
+            className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-black py-4 px-4 rounded-2xl shadow-lg transition-all"
           >
             {isInstalling ? 'Installing...' : 'Install Now'}
           </button>
@@ -148,17 +135,18 @@ const PWAInstallPrompt = () => {
         <div className="mt-6 bg-slate-50 rounded-2xl p-4 border border-slate-100">
            <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest mb-2 flex items-center gap-2">
              <span className="w-2 h-2 bg-indigo-500 rounded-full animate-ping" />
-             Setup Required
+             Manual Setup
            </p>
            <p className="text-[13px] text-slate-700 font-medium leading-relaxed">
              {isIOS 
-               ? "1. Tap 'Share' button at bottom\n2. Scroll down & 'Add to Home Screen'"
-               : "Click the menu (⋮) and select 'Install' or 'Add to home screen'."}
+               ? "1. Tap 'Share' button\n2. Select 'Add to Home Screen'"
+               : "Open your browser menu (⋮) and tap 'Install App' or 'Add to home screen'."}
            </p>
         </div>
       )}
     </div>
   );
+
 
 
 };
