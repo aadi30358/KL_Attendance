@@ -328,28 +328,7 @@ const Login = () => {
                         </motion.p>
                         <p className="text-slate-400 text-xs mt-1">Please wait a moment</p>
 
-                        {/* Premium Instagram Handle for Splash - Matches user image */}
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: 0.3 }}
-                            className="mt-12"
-                        >
-                            <a 
-                                href="https://www.instagram.com/_aadi7781_/" 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-3 bg-white/90 px-5 py-2 rounded-full border-2 border-pink-100 shadow-sm transition-all duration-300 hover:scale-105 active:scale-95 group relative"
-                            >
-                                <div className="p-1.5 bg-pink-50 rounded-lg">
-                                    <Instagram size={18} className="text-pink-600" />
-                                </div>
-                                <div className="flex items-center gap-1">
-                                    <span className="font-bold text-pink-600 text-lg tracking-tight">_aadi7781_</span>
-                                    <Sparkles size={14} className="text-amber-400 fill-amber-400 absolute -top-1 -right-1" />
-                                </div>
-                            </a>
-                        </motion.div>
+
 
                         {/* Keyframes injected inline */}
                         <style>{`
