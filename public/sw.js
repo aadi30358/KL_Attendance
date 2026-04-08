@@ -2,13 +2,14 @@ const CACHE_NAME = 'kl-attendance-v3';
 
 
 const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/vite.svg',
-  '/icon-192.png',
-  '/icon-512.png'
+  './',
+  'index.html',
+  'manifest.json',
+  'vite.svg',
+  'icon-192.png',
+  'icon-512.png'
 ];
+
 
 self.addEventListener('install', event => {
   event.waitUntil(
