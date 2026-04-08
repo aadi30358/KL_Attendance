@@ -91,10 +91,11 @@ export default function CaptchaModal({ isOpen, onClose, onSuccess, friendCredent
       const data = await response.json();
       
       if (data.success) {
-        if (!friendCredentials) {
-          localStorage.setItem("timetable", JSON.stringify(data.timetable));
-        }
-        onSuccess(data.timetable);
+        const attendanceData = data.attendance && Object.keys(data.attendance).length > 0 
+          ? data.attendance 
+          : JSON.parse(localStorage.getItem(`attendance_${creds.idNumber || creds.username}`) || "{}");
+          
+        onSuccess(attendanceData);
         onClose();
       } else {
         setError(data.message || "Invalid CAPTCHA. Please try again.");
@@ -135,9 +136,10 @@ export default function CaptchaModal({ isOpen, onClose, onSuccess, friendCredent
                 <RefreshCw size={24} className={`text-white ${isLoading || refreshing ? 'animate-spin' : ''}`} />
               </div>
               <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-                {friendCredentials ? `Sync ${friendCredentials.name || 'Friend'}'s Timetable` : 'Sync Timetable'}
+                {friendCredentials ? `Sync ${friendCredentials.name || 'Friend'}'s Data` : 'Sync Attendance'}
               </h2>
-              <p className="text-slate-500 text-sm font-medium mt-1">Enter ERP captcha to fetch schedule</p>
+              <p className="text-slate-500 text-sm font-medium mt-1">Enter ERP captcha to fetch records</p>
+
             </div>
 
             <button 

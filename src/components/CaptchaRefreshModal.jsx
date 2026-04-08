@@ -103,12 +103,13 @@ export default function CaptchaRefreshModal({ onClose, onSuccess }) {
       
       if (data.success) {
         // If server returns timetable object, use it. Otherwise, assume it's just a trigger.
-        const timetable = data.timetable && Object.keys(data.timetable).length > 0 
-          ? data.timetable 
-          : JSON.parse(localStorage.getItem(`timetable_${creds.idNumber || creds.username}`) || "{}");
+        const attendanceData = data.attendance && Object.keys(data.attendance).length > 0 
+          ? data.attendance 
+          : JSON.parse(localStorage.getItem(`attendance_${creds.idNumber || creds.username}`) || "{}");
           
-        onSuccess(timetable);
+        onSuccess(attendanceData);
         onClose();
+
       } else {
         setError(data.message || "ReSync failed");
         loadCaptcha();
@@ -136,8 +137,9 @@ export default function CaptchaRefreshModal({ onClose, onSuccess }) {
           <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
             <RefreshCw size={24} className={`text-white ${isLoading ? 'animate-spin' : ''}`} />
           </div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">ReSync Timetable</h2>
+          <h2 className="text-2xl font-black text-slate-900 tracking-tight">ReSync Attendance</h2>
           <p className="text-slate-500 text-sm font-medium mt-1">Enter the new CAPTCHA to update</p>
+
         </div>
 
         <button 
