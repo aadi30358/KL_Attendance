@@ -1,8 +1,7 @@
 import { APP_CONFIG } from '../config';
 
 export const API_CONFIG = {
-  CAPTCHA_URL: `${APP_CONFIG.API_URL}/api/captcha`,
-  FETCH_URL: `${APP_CONFIG.API_URL}/api/fetch_timetable`
+  CAPTCHA_URL: `${APP_CONFIG.API_URL}/api/captcha`
 };
 
 

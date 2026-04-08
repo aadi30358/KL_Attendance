@@ -57,6 +57,11 @@ const Login = () => {
             const response = await fetch('/index.php?r=site%2Fcaptcha&v=' + Math.random(), {
                 method: "GET",
                 credentials: "include",
+                cache: 'no-store',
+                headers: {
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache'
+                }
             });
             const blob = await response.blob();
 

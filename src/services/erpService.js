@@ -3,7 +3,15 @@ import { SEMESTER_MAP, getAcademicYearCode } from '../config/api';
 export const erpService = {
     // Fetch the login page to scrape CSRF token
     async getInitialState() {
-        const response = await fetch('/index.php', { credentials: 'include' });
+        const timestamp = new Date().getTime();
+        const response = await fetch(`/index.php?_t=${timestamp}`, { 
+            credentials: 'include',
+            cache: 'no-store',
+            headers: {
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache'
+            }
+        });
         const html = await response.text();
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
@@ -25,9 +33,12 @@ export const erpService = {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache'
             },
             body: formData,
-            credentials: 'include' // Guarantee the browser saves the new Set-Cookie header
+            credentials: 'include', // Guarantee the browser saves the new Set-Cookie header
+            cache: 'no-store'
         });
 
         const html = await response.text();
@@ -86,9 +97,12 @@ export const erpService = {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
+                        'Pragma': 'no-cache',
+                        'Cache-Control': 'no-cache'
                     },
                     body: formData,
-                    credentials: 'include'
+                    credentials: 'include',
+                    cache: 'no-store'
                 });
                 console.log("Successfully destroyed ERP session cookie.");
             }
@@ -172,9 +186,14 @@ export const erpService = {
         // We found the TRUE endpoint hidden in the page's Javascript:
         const response = await fetch('/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist', {
             method: 'POST',
-            headers: headers,
+            headers: {
+                ...headers,
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache'
+            },
             body: formData,
-            credentials: 'include' // Force browser to send the newest session cookie!
+            credentials: 'include', // Force browser to send the newest session cookie!
+            cache: 'no-store'
         });
 
         const html = await response.text();

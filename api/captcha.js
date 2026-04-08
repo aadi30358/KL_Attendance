@@ -21,6 +21,9 @@ export default function handler(req, res) {
     
     // Send SVG with proper content type
     res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.setHeader('X-Captcha-ID', captchaId);
     res.status(200).send(captcha.data);
   } catch (error) {
