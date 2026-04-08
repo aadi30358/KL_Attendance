@@ -403,7 +403,8 @@ export default function Home() {
                 <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-8 perspective-2000">
 
                     {/* 1. LTPS Engine - Large Card */}
-                    <div className="md:col-span-2 h-[400px]">
+                    <div className="md:col-span-2 h-[320px] md:h-[400px]">
+
                         <ThreeDParallaxCard
                             to="/ltps"
                             icon={Calculator}
@@ -426,7 +427,8 @@ export default function Home() {
                     </div>
 
                     {/* 2. Status Check */}
-                    <div className="h-[400px]">
+                    <div className="h-[320px] md:h-[400px]">
+
                         <ThreeDParallaxCard
                             to="/attendance"
                             icon={ShieldCheck}
@@ -454,7 +456,8 @@ export default function Home() {
 
 
                     {/* 4. Predictions */}
-                    <div className="h-[350px]">
+                    <div className="h-[300px] md:h-[350px]">
+
                         <ThreeDParallaxCard
                             icon={TrendingUp}
                             colorClass="text-sky-500"
@@ -467,7 +470,8 @@ export default function Home() {
                     </div>
 
                     {/* 5. Calendar */}
-                    <div className="h-[350px]">
+                    <div className="h-[300px] md:h-[350px]">
+
                         <ThreeDParallaxCard
                             colorClass="text-purple-500"
                             accentColor="bg-purple-600"
@@ -490,7 +494,8 @@ export default function Home() {
                     </div>
 
                     {/* 6. ERP Access Card */}
-                    <div className="h-[350px]">
+                    <div className="h-[300px] md:h-[350px]">
+
                         <ERPLoginCard />
                     </div>
 

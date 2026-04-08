@@ -73,11 +73,13 @@ const Navbar = () => {
             { name: 'ACADEMIC CALENDAR', path: '/calendar' },
             { name: 'ERP LOGIN', path: '/login', isErpHighlight: true }
         ]),
+        ...(hasErpSession ? [{ name: 'ERP DASHBOARD', path: '/login', isMobileOnly: true }] : []),
 
         ...(currentUser?.email === 'yaswanthadithyareddy11@gmail.com' ? [{ name: 'ADMIN', path: '/admin' }] : []),
         ...(hasErpSession && !isAuthPage ? [{ name: 'CHANGE SEMESTER', path: '/attendance-register', isReset: true }] : []),
-        { name: 'INSTALL APP', path: '#install', isPwaInstall: true }
+        { name: 'INSTALL APP', path: '#install', isPwaInstall: true, hiddenOnMobile: true }
     ];
+
 
 
     const isActive = (path) => location.pathname === path;
@@ -129,8 +131,9 @@ const Navbar = () => {
 
                         {/* Desktop Menu */}
                         <div className="hidden lg:flex items-center gap-8">
-                            {navItems.map((item) => (
+                            {navItems.filter(item => !item.isMobileOnly).map((item) => (
                                 item.comingSoon ? (
+
                                     <div
                                         key={item.path}
                                         className={cn(
@@ -246,9 +249,11 @@ const Navbar = () => {
                                         </div>
                                     </div>
                                 )}
-                                {navItems.map((item) => (
+                                {navItems.filter(item => !item.hiddenOnMobile).map((item) => (
+
                                     item.comingSoon ? (
                                         <div
+
                                             key={item.path}
                                             className="block px-4 py-3 rounded-xl text-sm font-bold tracking-widest uppercase transition-all text-slate-400 bg-slate-50 cursor-not-allowed flex justify-between items-center"
                                         >
