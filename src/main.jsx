@@ -14,16 +14,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js')
-
       .then(reg => {
         console.log('SW registered:', reg);
-        
+
         reg.onupdatefound = () => {
           const installingWorker = reg.installing;
           installingWorker.onstatechange = () => {
             if (installingWorker.state === 'installed') {
               if (navigator.serviceWorker.controller) {
-                console.log('New content available; please refresh.');
+                console.log('New content available; automatically refreshing...');
+                // Force a page reload to aggressively un-brick and get new assets
+                window.location.reload();
               } else {
                 console.log('Content cached for offline use.');
               }
@@ -32,6 +33,11 @@ if ('serviceWorker' in navigator) {
         };
       })
       .catch(err => console.error('SW registration failed:', err));
-  });
-}
 
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true;
+        window.location.reload();
+      }
+    });

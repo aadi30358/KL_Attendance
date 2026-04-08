@@ -1,5 +1,4 @@
-const CACHE_NAME = 'kl-attendance-v4';
-
+const CACHE_NAME = 'kl-attendance-v5';
 
 const ASSETS_TO_CACHE = [
   './',
@@ -9,7 +8,6 @@ const ASSETS_TO_CACHE = [
   'icon-192.png',
   'icon-512.png'
 ];
-
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -34,6 +32,22 @@ self.addEventListener('fetch', event => {
   // Only cache GET requests
   if (event.request.method !== 'GET') return;
 
+  // Network-First strategy for Navigation (HTML)
+  // Ensures users ALWAYS get the latest index.html and clears bricked cache automatically
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseToCache));
+          return response;
+        })
+        .catch(() => caches.match(event.request).then(res => res || caches.match('/')))
+    );
+    return;
+  }
+
+  // Cache-First strategy for Assets (JS, CSS, images)
   event.respondWith(
     caches.match(event.request)
       .then(response => {
@@ -42,19 +56,14 @@ self.addEventListener('fetch', event => {
           if (!fetchResponse || fetchResponse.status !== 200 || fetchResponse.type !== 'basic') {
             return fetchResponse;
           }
-          
+
           const responseToCache = fetchResponse.clone();
           caches.open(CACHE_NAME).then(cache => {
             cache.put(event.request, responseToCache);
           });
-          
+
           return fetchResponse;
         });
-      }).catch(() => {
-        // Fallback for when both cache and network fail
-        if (event.request.mode === 'navigate') {
-          return caches.match('/');
-        }
       })
   );
 });
