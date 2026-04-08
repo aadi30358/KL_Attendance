@@ -187,13 +187,13 @@ export const erpService = {
         const subjects = this.parseSubjects(html);
 
         if (subjects.length === 0) {
-            // Check if we are redirected to login page
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             if (doc.getElementById('login-form')) {
                 throw new Error("Your session has expired. Please log out and sign in again.");
             }
-            throw new Error("Failed to find any subjects. Please try again or verify your connection.");
+            // If it's a valid page but just has no subjects, return empty array instead of throwing.
+            return [];
         }
 
         return subjects;

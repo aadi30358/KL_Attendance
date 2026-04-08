@@ -145,6 +145,7 @@ const AttendanceRegister = () => {
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
     const [debugHtml, setDebugHtml] = useState(null);
+    const [fetchError, setFetchError] = useState(null);
     const [showDashboard, setShowDashboard] = useState(false);
     const navigate = useNavigate();
 
@@ -164,8 +165,13 @@ const AttendanceRegister = () => {
     }, [navigate, storageKey]);
 
     const handleSearch = async (fetchYear = year, fetchSemester = semester) => {
-        if (!fetchYear || !fetchSemester) { alert('Please select both Year and Semester'); return; }
-        setLoading(true); setDebugHtml(null);
+        if (!fetchYear || !fetchSemester) { 
+            setFetchError('Please select both Year and Semester'); 
+            return; 
+        }
+        setLoading(true); 
+        setDebugHtml(null);
+        setFetchError(null);
         try {
             const data = await erpService.fetchAttendance(fetchYear, fetchSemester);
             setSubjects(data);
@@ -175,9 +181,17 @@ const AttendanceRegister = () => {
             setYear(fetchYear);
             setSemester(fetchSemester);
         } catch (error) {
-            if (error.message?.startsWith('DEBUG_HTML:')) { setDebugHtml(error.message.replace('DEBUG_HTML:', '')); setShowDashboard(true); }
-            else if (error.message?.startsWith('No table found')) { setDebugHtml(error.message); setShowDashboard(true); }
-            else alert('Failed to fetch attendance. Verify your login status or selected semester.');
+            if (error.message?.startsWith('DEBUG_HTML:')) { 
+                setDebugHtml(error.message.replace('DEBUG_HTML:', '')); 
+                setShowDashboard(true); 
+            }
+            else if (error.message?.startsWith('No table found')) { 
+                setDebugHtml(error.message); 
+                setShowDashboard(true); 
+            }
+            else {
+                setFetchError(error.message || 'Failed to fetch attendance. Please verify your login status.');
+            }
         } finally { setLoading(false); }
     };
 
@@ -185,6 +199,7 @@ const AttendanceRegister = () => {
         setShowDashboard(false);
         setSubjects([]);
         setDebugHtml(null);
+        setFetchError(null);
         setYear('');
         setSemester('');
         if (activeId) {
@@ -239,78 +254,94 @@ const AttendanceRegister = () => {
                 )}
 
                 {/* Cards Grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-7xl mx-auto">
-                    {subjects.map((subject, index) => {
-                        const pct = subject.percent;
-                        const status = getStatusLabel(pct);
+                {subjects.length > 0 ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-7xl mx-auto">
+                        {subjects.map((subject, index) => {
+                            const pct = subject.percent;
+                            const status = getStatusLabel(pct);
 
-                        return (
-                            <motion.div
-                                key={index}
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: index * 0.03 }}
-                                className="bg-white border-2 border-slate-900 rounded-2xl overflow-hidden shadow hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
-                            >
-                                {/* Top color strip */}
-                                <div className={`h-1.5 w-full ${getBgStrip(pct)}`} />
+                            return (
+                                <motion.div
+                                    key={index}
+                                    initial={{ opacity: 0, y: 20 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: index * 0.03 }}
+                                    className="bg-white border-2 border-slate-900 rounded-2xl overflow-hidden shadow hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+                                >
+                                    {/* Top color strip */}
+                                    <div className={`h-1.5 w-full ${getBgStrip(pct)}`} />
 
-                                <div className="p-5">
-                                    {/* Title row */}
-                                    <div className="flex justify-between items-start gap-4 mb-4">
-                                        <div className="flex-1 min-w-0">
-                                            <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide leading-snug">{subject.title}</h3>
-                                            <p className="text-slate-400 text-[11px] mt-0.5 font-mono">{subject.code}</p>
-                                        </div>
-                                        <div className="text-right shrink-0">
-                                            <div className={`text-3xl font-black tabular-nums leading-none ${getColor(pct)}`}>{pct}%</div>
-                                            <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full mt-1.5 ring-1 ${status.cls}`}>
-                                                {status.text}
-                                            </span>
-                                        </div>
-                                    </div>
-
-                                    <div className="border-t border-slate-100 mb-4" />
-
-                                    <div className="flex flex-col gap-5">
-                                        {/* Components */}
-                                        <div>
-                                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.12em] mb-2.5">Components</p>
-                                            <div className="space-y-1.5">
-                                                {subject.components && Object.entries(subject.components).map(([compName, compData]) => (
-                                                    <div key={compName} className="flex justify-between items-center gap-2">
-                                                        <span className="text-slate-600 text-xs font-medium">
-                                                            {compName === 'L' ? 'Lecture' : compName === 'P' ? 'Practical' : compName === 'T' ? 'Tutorial' : compName === 'S' ? 'Skill' : compName}
-                                                        </span>
-                                                        <div className="flex items-center gap-1 shrink-0">
-                                                            <span className="text-slate-900 text-xs font-bold font-mono">{compData.attended}/{compData.conducted}</span>
-                                                            <span className={`text-[10px] font-semibold ${getColor(compData.percent)}`}>({compData.percent}%)</span>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                                {(!subject.components || Object.keys(subject.components).length === 0) && (
-                                                    <div className="flex justify-between items-center">
-                                                        <span className="text-slate-600 text-xs font-medium">Classes</span>
-                                                        <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended}</span>
-                                                    </div>
-                                                )}
-                                                {subject.components && Object.keys(subject.components).length > 0 && (
-                                                    <div className="flex justify-between items-center pt-2 border-t border-slate-100 mt-1">
-                                                        <span className="text-slate-700 text-xs font-bold">Total (Raw)</span>
-                                                        <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended}</span>
-                                                    </div>
-                                                )}
+                                    <div className="p-5">
+                                        {/* Title row */}
+                                        <div className="flex justify-between items-start gap-4 mb-4">
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide leading-snug">{subject.title}</h3>
+                                                <p className="text-slate-400 text-[11px] mt-0.5 font-mono">{subject.code}</p>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                                <div className={`text-3xl font-black tabular-nums leading-none ${getColor(pct)}`}>{pct}%</div>
+                                                <span className={`inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full mt-1.5 ring-1 ${status.cls}`}>
+                                                    {status.text}
+                                                </span>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    {/* Bunk Simulator */}
-                                    <BunkSimulator subject={subject} />
-                                </div>
-                            </motion.div>
-                        );
-                    })}
-                </div>
+                                        <div className="border-t border-slate-100 mb-4" />
+
+                                        <div className="flex flex-col gap-5">
+                                            {/* Components */}
+                                            <div>
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.12em] mb-2.5">Components</p>
+                                                <div className="space-y-1.5">
+                                                    {subject.components && Object.entries(subject.components).map(([compName, compData]) => (
+                                                        <div key={compName} className="flex justify-between items-center gap-2">
+                                                            <span className="text-slate-600 text-xs font-medium">
+                                                                {compName === 'L' ? 'Lecture' : compName === 'P' ? 'Practical' : compName === 'T' ? 'Tutorial' : compName === 'S' ? 'Skill' : compName}
+                                                            </span>
+                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                <span className="text-slate-900 text-xs font-bold font-mono">{compData.attended}/{compData.conducted}</span>
+                                                                <span className={`text-[10px] font-semibold ${getColor(compData.percent)}`}>({compData.percent}%)</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                    {(!subject.components || Object.keys(subject.components).length === 0) && (
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-slate-600 text-xs font-medium">Classes</span>
+                                                            <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended}</span>
+                                                        </div>
+                                                    )}
+                                                    {subject.components && Object.keys(subject.components).length > 0 && (
+                                                        <div className="flex justify-between items-center pt-2 border-t border-slate-100 mt-1">
+                                                            <span className="text-slate-700 text-xs font-bold">Total (Raw)</span>
+                                                            <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Bunk Simulator */}
+                                        <BunkSimulator subject={subject} />
+                                    </div>
+                                </motion.div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="max-w-2xl mx-auto bg-white border-2 border-slate-900 rounded-[2.5rem] p-12 text-center shadow-xl"
+                    >
+                        <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                            <BookOpen className="w-10 h-10 text-slate-300" />
+                        </div>
+                        <h2 className="text-2xl font-black text-slate-900 mb-2">No Courses Found</h2>
+                        <p className="text-slate-500 font-medium max-w-sm mx-auto">
+                            We couldn't find any registered courses for the selected semester. Please verify your selection or check back later.
+                        </p>
+                    </motion.div>
+                )}
             </div>
         );
     }
@@ -369,6 +400,21 @@ const AttendanceRegister = () => {
                                 <BookOpen className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                             </div>
                         </div>
+
+                        {fetchError && (
+                            <motion.div 
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                className="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-start gap-3"
+                            >
+                                <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                                    <span className="text-red-600 text-xs font-black">!</span>
+                                </div>
+                                <p className="text-xs font-bold text-red-700 leading-relaxed">
+                                    {fetchError}
+                                </p>
+                            </motion.div>
+                        )}
 
                         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                             onClick={() => handleSearch(year, semester)} disabled={loading}
