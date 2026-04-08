@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kl-attendance-v5';
+const CACHE_NAME = 'kl-attendance-v6';
 
 const ASSETS_TO_CACHE = [
   './',
@@ -31,6 +31,14 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   // Only cache GET requests
   if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+  
+  // CRITICAL: NEVER cache API calls or the ERP proxy
+  // If we cache /index.php, it caches a STALE CSRF token, breaking login!
+  if (url.pathname.startsWith('/api') || url.pathname.includes('index.php')) {
+    return; // Bypass service worker entirely, go straight to network
+  }
 
   // Network-First strategy for Navigation (HTML)
   // Ensures users ALWAYS get the latest index.html and clears bricked cache automatically
