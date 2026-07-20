@@ -17,6 +17,14 @@
             "destination": "/assets/$1"
         },
         {
+            "source": "/api/ai/(.*)",
+            "destination": "https://kl-attendance-backend.onrender.com/api/ai/$1"
+        },
+        {
+            "source": "/api/fetch_timetable",
+            "destination": "https://kl-attendance-backend.onrender.com/api/fetch_timetable"
+        },
+        {
             "source": "/index.php",
             "destination": "/api/erp"
         },
