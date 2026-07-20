@@ -189,11 +189,11 @@ const Login = () => {
 
     // Auto-solve captcha when it refreshes
     useEffect(() => {
-        if (captchaUrl && !captcha && rawCaptchaBlob) {
+        if (captchaUrl && !captcha && rawCaptchaBlob && !isSolving) {
             const timer = setTimeout(solveCaptchaWithAI, 800);
             return () => clearTimeout(timer);
         }
-    }, [captchaUrl, captcha, solveCaptchaWithAI, rawCaptchaBlob]);
+    }, [captchaUrl, captcha, solveCaptchaWithAI, rawCaptchaBlob, isSolving]);
 
     // Auto-login logic
     useEffect(() => {
@@ -213,8 +213,8 @@ const Login = () => {
         setError('');
 
         try {
-            // Start the splash timer (increased for AI background sync)
-            const splashTimer = new Promise(resolve => setTimeout(resolve, 2500));
+            // Start the splash timer (shortened to 500ms for fast speed and no lag)
+            const splashTimer = new Promise(resolve => setTimeout(resolve, 500));
             const loginPromise = erpService.login(idNumber, password, captcha, csrfToken);
 
             // Wait for login first
