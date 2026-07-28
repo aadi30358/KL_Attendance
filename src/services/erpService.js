@@ -1,4 +1,4 @@
-import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml } from '../config/api';
+import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear } from '../config/api';
 
 export const erpService = {
     // Fetch the login page to scrape CSRF token
@@ -239,14 +239,8 @@ export const erpService = {
             console.error("[ERP] No CSRF token available for request. Session likely wiped.");
         }
 
-        // Try candidate year IDs if primary returns 0 subjects
-        const candidateYearIds = Array.from(new Set([
-            liveYearId,
-            htmlYearId,
-            year,
-            calculatedYearId,
-            '18', '22', '19', '17', '20', '21', '16'
-        ])).filter(Boolean);
+        // Try candidate year IDs strictly belonging to the requested year ONLY (prevents returning wrong year's data)
+        const candidateYearIds = getCandidateYearIdsForYear(year, liveYearId, htmlYearId);
 
         for (const candidateId of candidateYearIds) {
             try {
