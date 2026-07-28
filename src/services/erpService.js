@@ -1,4 +1,4 @@
-import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear } from '../config/api';
+import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear, findSemesterFromHtml } from '../config/api';
 
 export const erpService = {
     // Fetch the login page to scrape CSRF token
@@ -182,7 +182,7 @@ export const erpService = {
     },
 
     // Fetch live attendance index page to scrape real option values & CSRF token
-    async getAttendancePageOptions(year) {
+    async getAttendancePageOptions(year, semester) {
         try {
             const timestamp = new Date().getTime();
             const response = await fetch(`/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex&_t=${timestamp}`, {
@@ -199,7 +199,8 @@ export const erpService = {
                 const doc = parser.parseFromString(html, 'text/html');
                 const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
                 const parsedYearId = findAcademicYearFromHtml(html, year);
-                return { csrfToken, parsedYearId, html };
+                const parsedSemId = findSemesterFromHtml(html, semester);
+                return { csrfToken, parsedYearId, parsedSemId, html };
             }
         } catch (e) {
             console.warn("[ERP] Failed to fetch live attendance index page options", e);
@@ -210,7 +211,7 @@ export const erpService = {
     // Fetch Subjects and Attendance
     async fetchAttendance(year, semester) {
         let dashboardHtml = localStorage.getItem('erpDashboardHtml') || '';
-        const liveOptions = await this.getAttendancePageOptions(year);
+        const liveOptions = await this.getAttendancePageOptions(year, semester);
 
         let csrfToken = liveOptions?.csrfToken || null;
         if (!csrfToken && dashboardHtml) {
@@ -224,12 +225,13 @@ export const erpService = {
         }
 
         const liveYearId = liveOptions?.parsedYearId;
+        const liveSemId = liveOptions?.parsedSemId;
         const htmlYearId = findAcademicYearFromHtml(dashboardHtml, year);
         const calculatedYearId = getAcademicYearCode(year);
-        const semId = SEMESTER_MAP[semester];
+        const semId = SEMESTER_MAP[semester] || '1';
 
         const primaryYearId = liveYearId || htmlYearId || calculatedYearId;
-        console.log(`[ERP] Fetch Attendance -> Year: ${year} (Primary ID: ${primaryYearId}, Live ID: ${liveYearId}, HTML ID: ${htmlYearId}, Calc ID: ${calculatedYearId}), Sem: ${semester} (ID: ${semId})`);
+        console.log(`[ERP] Fetch Attendance -> Year: ${year} (Primary ID: ${primaryYearId}, Live Year ID: ${liveYearId}), Sem: ${semester} (Live Sem ID: ${liveSemId}, Sem ID: ${semId})`);
 
         if (!primaryYearId || !semId) {
             throw new Error(`Invalid year (${year}) or semester (${semester}) selected.`);
@@ -242,20 +244,29 @@ export const erpService = {
         // Candidate year IDs strictly isolated for requested academic year
         const candidateYearIds = getCandidateYearIdsForYear(year, liveYearId, htmlYearId);
 
-        for (const candidateId of candidateYearIds) {
-            try {
-                console.log(`[ERP] Trying candidate yearId: ${candidateId}...`);
-                const { subjects } = await this._postFetchAttendance(candidateId, semId, csrfToken);
-                if (subjects && subjects.length > 0) {
-                    console.log(`[ERP] Successfully fetched ${subjects.length} subjects with yearId: ${candidateId}`);
-                    return subjects;
+        // Candidate semester IDs (e.g. '1', 'Odd Sem', 'Odd')
+        const candidateSemIds = Array.from(new Set([
+            liveSemId,
+            semId,
+            semester,
+            semester === 'Odd' ? 'Odd Sem' : semester === 'Even' ? 'Even Sem' : semester
+        ])).filter(Boolean);
+
+        for (const candidateYearId of candidateYearIds) {
+            for (const candidateSemId of candidateSemIds) {
+                try {
+                    console.log(`[ERP] Trying candidate yearId: ${candidateYearId}, semId: ${candidateSemId}...`);
+                    const { subjects } = await this._postFetchAttendance(candidateYearId, candidateSemId, csrfToken);
+                    if (subjects && subjects.length > 0) {
+                        console.log(`[ERP] Successfully fetched ${subjects.length} subjects with yearId: ${candidateYearId}, semId: ${candidateSemId}`);
+                        return subjects;
+                    }
+                } catch (err) {
+                    if (err.message?.includes('session has expired') || err.message?.includes('Session error')) {
+                        throw err;
+                    }
+                    console.warn(`[ERP] Candidate yearId ${candidateYearId} / semId ${candidateSemId} failed:`, err);
                 }
-            } catch (err) {
-                // If it's a session error, throw immediately instead of retrying
-                if (err.message?.includes('session has expired') || err.message?.includes('Session error')) {
-                    throw err;
-                }
-                console.warn(`[ERP] Candidate yearId ${candidateId} failed:`, err);
             }
         }
 

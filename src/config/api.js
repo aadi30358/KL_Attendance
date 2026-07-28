@@ -121,6 +121,33 @@ export const findAcademicYearFromHtml = (html, year) => {
   return null;
 };
 
+export const findSemesterFromHtml = (html, semester) => {
+  if (!html || !semester) return null;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const selects = doc.querySelectorAll('select');
+    const semLower = semester.toLowerCase();
+
+    for (const select of selects) {
+      const nameOrId = (select.getAttribute('name') || select.getAttribute('id') || '').toLowerCase();
+      if (nameOrId.includes('sem') || nameOrId.includes('dynamicmodel')) {
+        const options = select.querySelectorAll('option');
+        for (const opt of options) {
+          const text = opt.textContent.trim().toLowerCase();
+          const val = opt.getAttribute('value');
+          if (val && (text.includes(semLower) || (semLower.includes('odd') && text.includes('odd')) || (semLower.includes('even') && text.includes('even')))) {
+            return val;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to parse semester from HTML", e);
+  }
+  return null;
+};
+
 export const getFormData = (username, password, captcha, semester, academicYear, sessionId) => {
   const formData = new FormData();
   formData.append('username', username);
