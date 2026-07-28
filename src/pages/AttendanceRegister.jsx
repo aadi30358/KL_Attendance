@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Calendar, LogOut, ArrowLeft } from 'lucide-react';
+import { BookOpen, Calendar, LogOut, ArrowLeft, Sparkles } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -73,7 +73,6 @@ function BunkSimulator({ subject }) {
             if (!selectedCompFound) {
                 const w = WEIGHTS[selectedComp] || 1;
                 totalConductedW += bunkCount * w;
-                // attended doesn't increase since we bunked
             }
 
             projectedActual = totalConductedW > 0 ? Math.ceil((totalAttendedW / totalConductedW) * 100) : null;
@@ -98,25 +97,20 @@ function BunkSimulator({ subject }) {
                     <select
                         value={selectedComp}
                         onChange={(e) => setSelectedComp(e.target.value)}
-                        className="bg-white border-2 border-indigo-300 text-slate-700 text-xs rounded-xl px-2 py-2 focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold w-[110px] shrink-0 shadow-sm transition-all cursor-pointer"
+                        className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 font-semibold focus:outline-none focus:border-indigo-400 cursor-pointer"
                     >
-                        {ALL_COMPS.map((comp) => (
-                            <option key={comp.id} value={comp.id}>{comp.label}</option>
+                        {ALL_COMPS.map(c => (
+                            <option key={c.id} value={c.id}>{c.label}</option>
                         ))}
                     </select>
                     <input
                         type="number"
-                        min="0"
-                        placeholder="Classes to bunk"
+                        min="1"
+                        placeholder="Classes bunked..."
                         value={bunkInput}
-                        onChange={e => setBunkInput(e.target.value)}
-                        className="flex-1 min-w-0 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50"
+                        onChange={(e) => setBunkInput(e.target.value)}
+                        className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 font-semibold placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
                     />
-                    {projectedActual !== null && (
-                        <div className={`text-sm font-black tabular-nums shrink-0 ${projColor}`}>
-                            → {projectedActual}%
-                        </div>
-                    )}
                 </div>
                 {projectedActual !== null && (
                     <p className={`text-[11px] font-semibold mt-1.5 ${projColor}`}>
@@ -140,7 +134,27 @@ const AttendanceRegister = () => {
     const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
-    const [year, setYear] = useState('2026-2027');
+    // Compute Academic Year shortcuts dynamically based on student registration ID prefix (e.g. 23 -> Y23 batch)
+    const yearShortcuts = useMemo(() => {
+        let yy = 23; // default Y23
+        if (activeId && /^\d{2}/.test(activeId)) {
+            const parsedYY = parseInt(activeId.slice(0, 2), 10);
+            if (parsedYY >= 18 && parsedYY <= 30) {
+                yy = parsedYY;
+            }
+        }
+        const adm = 2000 + yy;
+        return [
+            { label: '1st Year', year: `${adm}-${adm + 1}` },
+            { label: '2nd Year', year: `${adm + 1}-${adm + 2}` },
+            { label: '3rd Year', year: `${adm + 2}-${adm + 3}` },
+            { label: '4th Year', year: `${adm + 3}-${adm + 4}` }
+        ];
+    }, [activeId]);
+
+    const default3rdYear = yearShortcuts[2]?.year || '2025-2026';
+
+    const [year, setYear] = useState(default3rdYear);
     const [semester, setSemester] = useState('Odd');
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -392,8 +406,33 @@ const AttendanceRegister = () => {
                     </div>
 
                     <div className="space-y-5 relative z-10">
-                        <div className="space-y-1.5">
-                            <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
+                        <div className="space-y-2">
+                            <div className="flex justify-between items-center ml-1">
+                                <label className="text-slate-600 text-xs font-bold uppercase tracking-widest">Academic Year</label>
+                                <span className="text-[10px] font-bold text-indigo-600 flex items-center gap-1">
+                                    <Sparkles className="w-3 h-3" /> Auto-detected Batch
+                                </span>
+                            </div>
+
+                            {/* Batch Year Shortcuts */}
+                            <div className="grid grid-cols-2 gap-2 mb-1">
+                                {yearShortcuts.map((item, idx) => (
+                                    <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => setYear(item.year)}
+                                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-between ${
+                                            year === item.year
+                                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-200'
+                                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                        }`}
+                                    >
+                                        <span>{item.label}</span>
+                                        <span className={`text-[10px] font-semibold ${year === item.year ? 'text-indigo-100' : 'text-slate-400'}`}>{item.year}</span>
+                                    </button>
+                                ))}
+                            </div>
+
                             <div className="relative">
                                 <select value={year} onChange={e => setYear(e.target.value)}
                                     className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
