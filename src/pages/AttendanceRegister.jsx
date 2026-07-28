@@ -336,10 +336,30 @@ const AttendanceRegister = () => {
                         <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
                             <BookOpen className="w-10 h-10 text-slate-300" />
                         </div>
-                        <h2 className="text-2xl font-black text-slate-900 mb-2">No Courses Found</h2>
-                        <p className="text-slate-500 font-medium max-w-sm mx-auto">
-                            We couldn&apos;t find any registered courses for the selected semester. Please verify your selection or check back later.
+                        <h2 className="text-2xl font-black text-slate-900 mb-2">No Courses Found for {year} ({semester} Sem)</h2>
+                        <p className="text-slate-500 font-medium max-w-md mx-auto mb-6">
+                            We couldn&apos;t find any registered courses for {year} {semester} semester on KL ERP. Your registered courses may be under another academic year.
                         </p>
+                        <div className="flex flex-wrap gap-3 justify-center">
+                            <button
+                                onClick={() => handleSearch('2025-2026', 'Odd')}
+                                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all"
+                            >
+                                Try 2025-2026 Odd Sem
+                            </button>
+                            <button
+                                onClick={() => handleSearch('2025-2026', 'Even')}
+                                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-md transition-all"
+                            >
+                                Try 2025-2026 Even Sem
+                            </button>
+                            <button
+                                onClick={handleBack}
+                                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all"
+                            >
+                                Change Selection
+                            </button>
+                        </div>
                     </motion.div>
                 )}
             </div>
