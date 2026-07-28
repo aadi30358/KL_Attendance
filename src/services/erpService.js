@@ -181,29 +181,58 @@ export const erpService = {
         return { subjects, html };
     },
 
+    // Fetch live attendance index page to scrape real option values & CSRF token
+    async getAttendancePageOptions(year) {
+        try {
+            const timestamp = new Date().getTime();
+            const response = await fetch(`/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex&_t=${timestamp}`, {
+                credentials: 'include',
+                cache: 'no-store',
+                headers: {
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache'
+                }
+            });
+            if (response.ok) {
+                const html = await response.text();
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+                const parsedYearId = findAcademicYearFromHtml(html, year);
+                return { csrfToken, parsedYearId, html };
+            }
+        } catch (e) {
+            console.warn("[ERP] Failed to fetch live attendance index page options", e);
+        }
+        return null;
+    },
+
     // Fetch Subjects and Attendance
     async fetchAttendance(year, semester) {
-        const dashboardHtml = localStorage.getItem('erpDashboardHtml') || '';
+        let dashboardHtml = localStorage.getItem('erpDashboardHtml') || '';
+        const liveOptions = await this.getAttendancePageOptions(year);
+
+        let csrfToken = liveOptions?.csrfToken || null;
+        if (!csrfToken && dashboardHtml) {
+            try {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(dashboardHtml, 'text/html');
+                csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            } catch (e) {
+                console.warn("[ERP] Failed to parse cached dashboard HTML", e);
+            }
+        }
+
+        const liveYearId = liveOptions?.parsedYearId;
         const htmlYearId = findAcademicYearFromHtml(dashboardHtml, year);
         const calculatedYearId = getAcademicYearCode(year);
         const semId = SEMESTER_MAP[semester];
 
-        const primaryYearId = htmlYearId || calculatedYearId;
-        console.log(`[ERP] Fetch Attendance -> Year: ${year} (Primary ID: ${primaryYearId}, HTML ID: ${htmlYearId}, Calc ID: ${calculatedYearId}), Sem: ${semester} (ID: ${semId})`);
+        const primaryYearId = liveYearId || htmlYearId || calculatedYearId;
+        console.log(`[ERP] Fetch Attendance -> Year: ${year} (Primary ID: ${primaryYearId}, Live ID: ${liveYearId}, HTML ID: ${htmlYearId}, Calc ID: ${calculatedYearId}), Sem: ${semester} (ID: ${semId})`);
 
         if (!primaryYearId || !semId) {
             throw new Error(`Invalid year (${year}) or semester (${semester}) selected.`);
-        }
-
-        let csrfToken = null;
-        try {
-            if (dashboardHtml) {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(dashboardHtml, 'text/html');
-                csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-            }
-        } catch (e) {
-            console.warn("[ERP] Failed to parse cached dashboard HTML", e);
         }
 
         if (!csrfToken) {
@@ -212,10 +241,11 @@ export const erpService = {
 
         // Try candidate year IDs if primary returns 0 subjects
         const candidateYearIds = Array.from(new Set([
+            liveYearId,
             htmlYearId,
             year,
             calculatedYearId,
-            '18', '17', '19', '20', '21', '22', '16'
+            '18', '22', '19', '17', '20', '21', '16'
         ])).filter(Boolean);
 
         for (const candidateId of candidateYearIds) {
