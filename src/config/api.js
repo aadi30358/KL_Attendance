@@ -70,6 +70,29 @@ export const getCandidateYearIdsForYear = (academicYear, liveYearId, htmlYearId)
   ])).filter(Boolean);
 };
 
+export const isHtmlMatchingRequestedYear = (html, requestedYear) => {
+  if (!html || !requestedYear) return true;
+  try {
+    let reqFirst = requestedYear.split('-')[0].trim();
+    let reqFirstNum = parseInt(reqFirst, 10);
+    if (isNaN(reqFirstNum)) return true;
+    let reqFull = reqFirstNum < 100 ? (2000 + reqFirstNum).toString() : reqFirst;
+
+    const foundYears = html.match(/\b(20\d{2})-(20\d{2}|\d{2})\b/g);
+    if (foundYears && foundYears.length > 0) {
+      const hasMatch = foundYears.some(y => y.startsWith(reqFull) || y.startsWith(reqFull.slice(-2)));
+      const hasMismatch = foundYears.some(y => !y.startsWith(reqFull) && !y.startsWith(reqFull.slice(-2)));
+      if (!hasMatch && hasMismatch) {
+        console.warn(`[ERP] HTML contained year ${foundYears[0]} which does not match requested year ${requestedYear}`);
+        return false;
+      }
+    }
+  } catch (e) {
+    console.warn("Error validating HTML matching year", e);
+  }
+  return true;
+};
+
 export const findAcademicYearFromHtml = (html, year) => {
   if (!html || !year) return null;
   try {

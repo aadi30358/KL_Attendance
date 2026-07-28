@@ -1,4 +1,4 @@
-import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear } from '../config/api';
+import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear, isHtmlMatchingRequestedYear } from '../config/api';
 
 export const erpService = {
     // Fetch the login page to scrape CSRF token
@@ -245,8 +245,12 @@ export const erpService = {
         for (const candidateId of candidateYearIds) {
             try {
                 console.log(`[ERP] Trying candidate yearId: ${candidateId}...`);
-                const { subjects } = await this._postFetchAttendance(candidateId, semId, csrfToken);
+                const { subjects, html } = await this._postFetchAttendance(candidateId, semId, csrfToken);
                 if (subjects.length > 0) {
+                    if (!isHtmlMatchingRequestedYear(html, year)) {
+                        console.warn(`[ERP] Candidate ${candidateId} returned subjects from wrong academic year. Skipping...`);
+                        continue;
+                    }
                     console.log(`[ERP] Successfully fetched ${subjects.length} subjects with yearId: ${candidateId}`);
                     return subjects;
                 }
