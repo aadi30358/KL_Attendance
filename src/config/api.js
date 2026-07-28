@@ -47,21 +47,19 @@ export const getCandidateYearIdsForYear = (academicYear, liveYearId, htmlYearId)
   if (isNaN(firstYear)) return [];
   if (firstYear < 100) firstYear += 2000;
 
-  const historicalMap = {
-    '2026': ['22', '2026-2027', '26-27'],
-    '2025': ['19', '17', '2025-2026', '25-26'],
-    '2024': ['16', '18', '2024-2025', '24-25'],
-    '2023': ['15', '2023-2024', '23-24'],
-    '2022': ['14', '2022-2023', '22-23'],
-    '2021': ['13', '2021-2022', '21-22'],
-    '2020': ['10', '2020-2021', '20-21']
+  const strictYearMap = {
+    '2026': ['2026-2027', '26-27', '22'],
+    '2025': ['2025-2026', '25-26', '19', '17'],
+    '2024': ['2024-2025', '24-25', '16', '18'],
+    '2023': ['2023-2024', '23-24', '15'],
+    '2022': ['2022-2023', '22-23', '14'],
+    '2021': ['2021-2022', '21-22', '13'],
+    '2020': ['2020-2021', '20-21', '10']
   };
 
-  const primaryCode = (16 + (firstYear - 2024) * 3).toString();
   const rawYear = academicYear.trim();
   const shortYear = `${firstYear.toString().slice(-2)}-${(firstYear + 1).toString().slice(-2)}`;
-
-  const knownCandidates = historicalMap[firstYear] || [primaryCode, rawYear, shortYear];
+  const knownCandidates = strictYearMap[firstYear] || [rawYear, shortYear];
 
   return Array.from(new Set([
     liveYearId,
