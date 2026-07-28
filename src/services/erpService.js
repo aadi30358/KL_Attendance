@@ -212,7 +212,9 @@ export const erpService = {
 
         // Try candidate year IDs if primary returns 0 subjects
         const candidateYearIds = Array.from(new Set([
-            primaryYearId,
+            htmlYearId,
+            year,
+            calculatedYearId,
             '18', '17', '19', '20', '21', '22', '16'
         ])).filter(Boolean);
 
