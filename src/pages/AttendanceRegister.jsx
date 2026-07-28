@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Calendar, LogOut, ArrowLeft, Sparkles, Plus, Trash2, X } from 'lucide-react';
+import { BookOpen, Calendar, LogOut, ArrowLeft } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -134,27 +134,7 @@ const AttendanceRegister = () => {
     const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
-    // Compute Academic Year shortcuts dynamically based on student registration ID prefix (e.g. 23 -> Y23 batch)
-    const yearShortcuts = useMemo(() => {
-        let yy = 23; // default Y23
-        if (activeId && /^\d{2}/.test(activeId)) {
-            const parsedYY = parseInt(activeId.slice(0, 2), 10);
-            if (parsedYY >= 18 && parsedYY <= 30) {
-                yy = parsedYY;
-            }
-        }
-        const adm = 2000 + yy;
-        return [
-            { label: '1st Year', year: `${adm}-${adm + 1}` },
-            { label: '2nd Year', year: `${adm + 1}-${adm + 2}` },
-            { label: '3rd Year', year: `${adm + 2}-${adm + 3}` },
-            { label: '4th Year', year: `${adm + 3}-${adm + 4}` }
-        ];
-    }, [activeId]);
-
-    const default3rdYear = yearShortcuts[2]?.year || '2025-2026';
-
-    const [year, setYear] = useState(default3rdYear);
+    const [year, setYear] = useState('2026-2027');
     const [semester, setSemester] = useState('Odd');
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -162,13 +142,6 @@ const AttendanceRegister = () => {
     const [fetchError, setFetchError] = useState(null);
     const [showDashboard, setShowDashboard] = useState(false);
     const navigate = useNavigate();
-
-    // Custom Course Creation state
-    const [showAddModal, setShowAddModal] = useState(false);
-    const [newCourseCode, setNewCourseCode] = useState('');
-    const [newCourseTitle, setNewCourseTitle] = useState('');
-    const [compConducted, setCompConducted] = useState({ L: 0, T: 0, P: 0, S: 0 });
-    const [compAttended, setCompAttended] = useState({ L: 0, T: 0, P: 0, S: 0 });
 
     useEffect(() => {
         const html = localStorage.getItem('erpDashboardHtml');
@@ -195,16 +168,10 @@ const AttendanceRegister = () => {
         setFetchError(null);
         try {
             const data = await erpService.fetchAttendance(fetchYear, fetchSemester);
-            
-            // Merge manually added custom courses for this specific year & semester
-            const customKey = `customSubjects_${activeId || 'user'}_${fetchYear}_${fetchSemester}`;
-            const savedCustom = JSON.parse(localStorage.getItem(customKey) || '[]');
-            const combined = [...data, ...savedCustom];
-
-            setSubjects(combined);
+            setSubjects(data);
             setShowDashboard(true);
             // Save fetched data to standard location for persistence
-            localStorage.setItem(storageKey, JSON.stringify({ attendance_data: combined }));
+            localStorage.setItem(storageKey, JSON.stringify({ attendance_data: data }));
             setYear(fetchYear);
             setSemester(fetchSemester);
         } catch (error) {
@@ -220,81 +187,6 @@ const AttendanceRegister = () => {
                 setFetchError(error.message || 'Failed to fetch attendance. Please verify your login status.');
             }
         } finally { setLoading(false); }
-    };
-
-    const handleSaveCourse = (e) => {
-        e?.preventDefault();
-        if (!newCourseCode.trim() || !newCourseTitle.trim()) {
-            alert('Please enter both Course Code and Course Title');
-            return;
-        }
-
-        const components = {};
-        let totalConductedW = 0;
-        let totalAttendedW = 0;
-        const ltpsArray = [];
-
-        const weightMap = { L: 100, T: 100, P: 50, S: 25 };
-        const labelMap = { L: 'Lecture', T: 'Tutorial', P: 'Practical', S: 'Skill' };
-
-        ['L', 'T', 'P', 'S'].forEach(key => {
-            const cond = parseInt(compConducted[key], 10) || 0;
-            const att = parseInt(compAttended[key], 10) || 0;
-            if (cond > 0) {
-                const label = labelMap[key];
-                ltpsArray.push(label);
-                const pct = parseFloat(((att / cond) * 100).toFixed(2));
-                components[label] = { conducted: cond, attended: att, percent: pct };
-                totalConductedW += cond * weightMap[key];
-                totalAttendedW += att * weightMap[key];
-            }
-        });
-
-        // Fallback component if none provided
-        if (Object.keys(components).length === 0) {
-            components['Lecture'] = { conducted: 0, attended: 0, percent: 0 };
-            ltpsArray.push('Lecture');
-        }
-
-        const overallPct = totalConductedW > 0 ? Math.ceil((totalAttendedW / totalConductedW) * 100) : 0;
-
-        const newSubject = {
-            code: newCourseCode.trim().toUpperCase(),
-            title: newCourseTitle.trim(),
-            ltpsArray,
-            components,
-            percent: overallPct,
-            totalConducted: totalConductedW,
-            totalAttended: totalAttendedW,
-            isCustom: true
-        };
-
-        const targetYear = year || '2026-2027';
-        const targetSem = semester || 'Odd';
-
-        const customKey = `customSubjects_${activeId || 'user'}_${targetYear}_${targetSem}`;
-        const existingCustom = JSON.parse(localStorage.getItem(customKey) || '[]');
-        const updatedCustom = [...existingCustom, newSubject];
-        localStorage.setItem(customKey, JSON.stringify(updatedCustom));
-
-        setSubjects(prev => [...prev, newSubject]);
-        setShowDashboard(true);
-        setShowAddModal(false);
-
-        // Reset form
-        setNewCourseCode('');
-        setNewCourseTitle('');
-        setCompConducted({ L: 0, T: 0, P: 0, S: 0 });
-        setCompAttended({ L: 0, T: 0, P: 0, S: 0 });
-    };
-
-    const handleDeleteCustomCourse = (codeToDelete) => {
-        const customKey = `customSubjects_${activeId || 'user'}_${year}_${semester}`;
-        const existingCustom = JSON.parse(localStorage.getItem(customKey) || '[]');
-        const updatedCustom = existingCustom.filter(s => s.code !== codeToDelete);
-        localStorage.setItem(customKey, JSON.stringify(updatedCustom));
-
-        setSubjects(prev => prev.filter(s => s.code !== codeToDelete));
     };
 
     const handleBack = () => {
@@ -336,12 +228,6 @@ const AttendanceRegister = () => {
                         </p>
                     </div>
                     <div className="flex gap-2 w-full sm:w-auto">
-                        <button
-                            onClick={() => setShowAddModal(true)}
-                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-all flex items-center justify-center gap-1.5 border border-emerald-500 text-sm font-bold shadow-sm"
-                        >
-                            <Plus className="w-4 h-4" /> Add Course
-                        </button>
                         <button onClick={handleBack} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl hover:bg-indigo-100 hover:text-indigo-800 transition-colors text-sm font-bold shadow-sm flex items-center justify-center gap-2">
                             <ArrowLeft className="w-4 h-4" /> Back to Selection
                         </button>
@@ -350,8 +236,6 @@ const AttendanceRegister = () => {
                         </button>
                     </div>
                 </div>
-
-
 
                 {/* Debug view */}
                 {debugHtml && (
@@ -383,24 +267,8 @@ const AttendanceRegister = () => {
                                         {/* Title row */}
                                         <div className="flex justify-between items-start gap-4 mb-4">
                                             <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide leading-snug">{subject.title}</h3>
-                                                    {subject.isCustom && (
-                                                        <span className="text-[9px] font-extrabold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full uppercase">Added Manually</span>
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center gap-2 mt-0.5">
-                                                    <p className="text-slate-400 text-[11px] font-mono">{subject.code}</p>
-                                                    {subject.isCustom && (
-                                                        <button
-                                                            onClick={() => handleDeleteCustomCourse(subject.code)}
-                                                            className="text-red-500 hover:text-red-700 p-0.5 rounded transition-colors"
-                                                            title="Delete custom course"
-                                                        >
-                                                            <Trash2 className="w-3.5 h-3.5" />
-                                                        </button>
-                                                    )}
-                                                </div>
+                                                <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide leading-snug">{subject.title}</h3>
+                                                <p className="text-slate-400 text-[11px] mt-0.5 font-mono">{subject.code}</p>
                                             </div>
                                             <div className="text-right shrink-0">
                                                 <div className={`text-3xl font-black tabular-nums leading-none ${getColor(pct)}`}>{pct}%</div>
@@ -462,15 +330,9 @@ const AttendanceRegister = () => {
                         </div>
                         <h2 className="text-2xl font-black text-slate-900 mb-2">No Courses Found for {year} ({semester} Sem)</h2>
                         <p className="text-slate-500 font-medium max-w-md mx-auto mb-6">
-                            We couldn&apos;t find any registered courses for {year} {semester} semester on KL ERP. You can add your registered courses manually below!
+                            We couldn&apos;t find any registered courses for {year} {semester} semester on KL ERP. Your registered courses may be under another academic year.
                         </p>
                         <div className="flex flex-wrap gap-3 justify-center">
-                            <button
-                                onClick={() => setShowAddModal(true)}
-                                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
-                            >
-                                <Plus className="w-4 h-4" /> Add Courses Manually
-                            </button>
                             <button
                                 onClick={() => handleSearch('2025-2026', 'Odd')}
                                 className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all"
@@ -485,108 +347,6 @@ const AttendanceRegister = () => {
                             </button>
                         </div>
                     </motion.div>
-                )}
-
-                {/* Add Custom Course Modal Overlay */}
-                {showAddModal && (
-                    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border border-slate-100 relative max-h-[90vh] overflow-y-auto"
-                        >
-                            <button
-                                onClick={() => setShowAddModal(false)}
-                                className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 transition-all"
-                            >
-                                <X className="w-5 h-5" />
-                            </button>
-
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="w-10 h-10 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center font-bold">
-                                    <Plus className="w-5 h-5" />
-                                </div>
-                                <div>
-                                    <h2 className="text-xl font-extrabold text-slate-900">Add Course</h2>
-                                    <p className="text-xs text-slate-500 font-medium">Add course for {year || '2026-2027'} ({semester || 'Odd'} Sem)</p>
-                                </div>
-                            </div>
-
-                            <form onSubmit={handleSaveCourse} className="space-y-4">
-                                <div>
-                                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-1">Course Code</label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. 24CS3101"
-                                        value={newCourseCode}
-                                        onChange={e => setNewCourseCode(e.target.value)}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
-                                        required
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-1">Course Title</label>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. Advanced Web Development"
-                                        value={newCourseTitle}
-                                        onChange={e => setNewCourseTitle(e.target.value)}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-800 focus:outline-none focus:border-indigo-500"
-                                        required
-                                    />
-                                </div>
-
-                                <div>
-                                    <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-2">LTPS Attendance Components</label>
-                                    <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
-                                        {[
-                                            { id: 'L', name: 'Lecture (L)' },
-                                            { id: 'T', name: 'Tutorial (T)' },
-                                            { id: 'P', name: 'Practical (P)' },
-                                            { id: 'S', name: 'Skill (S)' }
-                                        ].map(comp => (
-                                            <div key={comp.id} className="flex items-center gap-3">
-                                                <span className="w-28 text-xs font-extrabold text-slate-700">{comp.name}</span>
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    placeholder="Conducted"
-                                                    value={compConducted[comp.id] || ''}
-                                                    onChange={e => setCompConducted({ ...compConducted, [comp.id]: e.target.value })}
-                                                    className="w-1/2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-indigo-500"
-                                                />
-                                                <input
-                                                    type="number"
-                                                    min="0"
-                                                    placeholder="Attended"
-                                                    value={compAttended[comp.id] || ''}
-                                                    onChange={e => setCompAttended({ ...compAttended, [comp.id]: e.target.value })}
-                                                    className="w-1/2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-indigo-500"
-                                                />
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="flex gap-3 pt-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowAddModal(false)}
-                                        className="flex-1 py-3 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl hover:bg-slate-200 transition-all"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="submit"
-                                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-1.5"
-                                    >
-                                        <Plus className="w-4 h-4" /> Save Course
-                                    </button>
-                                </div>
-                            </form>
-                        </motion.div>
-                    </div>
                 )}
             </div>
         );
@@ -618,33 +378,8 @@ const AttendanceRegister = () => {
                     </div>
 
                     <div className="space-y-5 relative z-10">
-                        <div className="space-y-2">
-                            <div className="flex justify-between items-center ml-1">
-                                <label className="text-slate-600 text-xs font-bold uppercase tracking-widest">Academic Year</label>
-                                <span className="text-[10px] font-bold text-indigo-600 flex items-center gap-1">
-                                    <Sparkles className="w-3 h-3" /> Auto-detected Batch
-                                </span>
-                            </div>
-
-                            {/* Batch Year Shortcuts */}
-                            <div className="grid grid-cols-2 gap-2 mb-1">
-                                {yearShortcuts.map((item, idx) => (
-                                    <button
-                                        key={idx}
-                                        type="button"
-                                        onClick={() => setYear(item.year)}
-                                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border flex items-center justify-between ${
-                                            year === item.year
-                                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-200'
-                                                : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                                        }`}
-                                    >
-                                        <span>{item.label}</span>
-                                        <span className={`text-[10px] font-semibold ${year === item.year ? 'text-indigo-100' : 'text-slate-400'}`}>{item.year}</span>
-                                    </button>
-                                ))}
-                            </div>
-
+                        <div className="space-y-1.5">
+                            <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
                             <div className="relative">
                                 <select value={year} onChange={e => setYear(e.target.value)}
                                     className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
