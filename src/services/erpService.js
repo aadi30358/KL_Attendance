@@ -136,6 +136,8 @@ export const erpService = {
         const formData = new URLSearchParams();
         formData.append('DynamicModel[academicyear]', yearId);
         formData.append('DynamicModel[semesterid]', semId);
+        formData.append('academicyear', yearId);
+        formData.append('semesterid', semId);
         if (csrfToken) {
             formData.append('_csrf', csrfToken);
         }
@@ -148,7 +150,7 @@ export const erpService = {
             headers['X-CSRF-Token'] = csrfToken;
         }
 
-        const response = await fetch('/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist', {
+        let response = await fetch('/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist', {
             method: 'POST',
             headers: {
                 ...headers,
@@ -160,7 +162,7 @@ export const erpService = {
             cache: 'no-store'
         });
 
-        const html = await response.text();
+        let html = await response.text();
 
         if (response.status === 400 && html.includes('Unable to verify your data submission')) {
             throw new Error("Your session has expired. Please completely sign out and log in again.");
@@ -172,12 +174,39 @@ export const erpService = {
         }
 
         const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
+        let doc = parser.parseFromString(html, 'text/html');
         if (doc.getElementById('login-form')) {
             throw new Error("Your session has expired. Please log out and sign in again.");
         }
 
-        const subjects = this.parseSubjects(html);
+        let subjects = this.parseSubjects(html);
+
+        // Fallback: If courselist yielded 0 subjects, attempt posting to index route
+        if (!subjects || subjects.length === 0) {
+            try {
+                const indexResp = await fetch('/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex', {
+                    method: 'POST',
+                    headers: {
+                        ...headers,
+                        'Pragma': 'no-cache',
+                        'Cache-Control': 'no-cache'
+                    },
+                    body: formData,
+                    credentials: 'include',
+                    cache: 'no-store'
+                });
+                if (indexResp.ok) {
+                    const indexHtml = await indexResp.text();
+                    const indexSubjects = this.parseSubjects(indexHtml);
+                    if (indexSubjects && indexSubjects.length > 0) {
+                        return { subjects: indexSubjects, html: indexHtml };
+                    }
+                }
+            } catch (e) {
+                console.warn("[ERP] Index POST fallback failed", e);
+            }
+        }
+
         return { subjects, html };
     },
 
@@ -292,74 +321,92 @@ export const erpService = {
         rows.forEach(row => {
             if (row.querySelector('th')) return;
 
-            const cols = row.querySelectorAll('td');
+            const cols = Array.from(row.querySelectorAll('td')).map(td => td.textContent.trim());
+            if (cols.length < 2) return;
+
+            // Detect course code and title
+            let code = '';
+            let title = '';
+            let ltps = 'N/A';
+            let rawConducted = 0;
+            let rawAttended = 0;
+
             if (cols.length >= 4) {
-                const code = cols[1]?.textContent.trim();
-                const title = cols[2]?.textContent.trim();
-                const ltps = cols[3]?.textContent.trim() || 'N/A';
+                // Standard ERP table structure
+                code = cols[1];
+                title = cols[2];
+                ltps = cols[3] || 'N/A';
+            }
 
-                if (!code || !title || code.toLowerCase().includes('course') || title.toLowerCase().includes('title')) {
-                    return;
+            // Fallback for non-standard column index: search for code matching pattern or column
+            if (!code || !/^[A-Za-z0-9\s-]{4,15}$/.test(code) || code.toLowerCase().includes('course') || title.toLowerCase().includes('title')) {
+                const codeIdx = cols.findIndex(c => /\b[0-9]{2}[A-Za-z0-9]{3,8}\b/.test(c) || /^[0-9]{2}[A-Z]{2,4}[0-9]{3,4}$/.test(c));
+                if (codeIdx !== -1) {
+                    code = cols[codeIdx];
+                    title = cols[codeIdx + 1] || cols[codeIdx - 1] || '';
+                    if (cols[codeIdx + 2] && ['L', 'T', 'P', 'S', 'Lecture', 'Tutorial', 'Practical', 'Skill'].some(k => cols[codeIdx + 2].includes(k))) {
+                        ltps = cols[codeIdx + 2];
+                    }
+                }
+            }
+
+            if (!code || !title || code.toLowerCase().includes('course') || title.toLowerCase().includes('title')) {
+                return;
+            }
+
+            // Extract numbers for conducted & attended
+            if (cols.length >= 10) {
+                rawConducted = parseInt(cols[8] || '0', 10) || 0;
+                rawAttended = parseInt(cols[9] || '0', 10) || 0;
+            } else {
+                const numbers = cols.map(c => parseInt(c, 10)).filter(n => !isNaN(n) && n >= 0);
+                if (numbers.length >= 2) {
+                    rawConducted = numbers[numbers.length - 2];
+                    rawAttended = numbers[numbers.length - 1];
+                }
+            }
+
+            const weight = getWeight(ltps);
+            const conducted = rawConducted * weight;
+            const attended = rawAttended * weight;
+
+            const componentName = ltps !== 'N/A' && ltps !== '' ? ltps : 'Unknown';
+            const componentPercent = rawConducted > 0 ? ((rawAttended / rawConducted) * 100).toFixed(2) : 0;
+            const componentData = {
+                conducted: rawConducted,
+                attended: rawAttended,
+                percent: parseFloat(componentPercent)
+            };
+
+            if (!subjectMap.has(code)) {
+                subjectMap.set(code, {
+                    code: code,
+                    title: title,
+                    ltpsArray: ltps !== 'N/A' && ltps !== '' ? [ltps] : [],
+                    components: { [componentName]: componentData },
+                    totalConducted: conducted,
+                    totalAttended: attended,
+                    rawConducted: rawConducted,
+                    rawAttended: rawAttended
+                });
+            } else {
+                const existing = subjectMap.get(code);
+                if (ltps !== 'N/A' && ltps !== '' && !existing.ltpsArray.includes(ltps)) {
+                    existing.ltpsArray.push(ltps);
                 }
 
-                let rawConducted = 0;
-                let rawAttended = 0;
-
-                if (cols.length >= 10) {
-                    rawConducted = parseInt(cols[8]?.textContent.trim() || '0', 10) || 0;
-                    rawAttended = parseInt(cols[9]?.textContent.trim() || '0', 10) || 0;
+                if (existing.components[componentName]) {
+                    existing.components[componentName].conducted += rawConducted;
+                    existing.components[componentName].attended += rawAttended;
+                    existing.components[componentName].percent = parseFloat((existing.components[componentName].conducted > 0 ? (existing.components[componentName].attended / existing.components[componentName].conducted) * 100 : 0).toFixed(2));
                 } else {
-                    for (let i = 4; i < cols.length; i++) {
-                        const val = parseInt(cols[i]?.textContent.trim(), 10);
-                        if (!isNaN(val)) {
-                            if (rawConducted === 0) rawConducted = val;
-                            else if (rawAttended === 0) { rawAttended = val; break; }
-                        }
-                    }
+                    existing.components[componentName] = componentData;
                 }
 
-                const weight = getWeight(ltps);
-                const conducted = rawConducted * weight;
-                const attended = rawAttended * weight;
-
-                const componentName = ltps !== 'N/A' && ltps !== '' ? ltps : 'Unknown';
-                const componentPercent = rawConducted > 0 ? ((rawAttended / rawConducted) * 100).toFixed(2) : 0;
-                const componentData = {
-                    conducted: rawConducted,
-                    attended: rawAttended,
-                    percent: parseFloat(componentPercent)
-                };
-
-                if (!subjectMap.has(code)) {
-                    subjectMap.set(code, {
-                        code: code,
-                        title: title,
-                        ltpsArray: ltps !== 'N/A' && ltps !== '' ? [ltps] : [],
-                        components: { [componentName]: componentData },
-                        totalConducted: conducted,
-                        totalAttended: attended,
-                        rawConducted: rawConducted,
-                        rawAttended: rawAttended
-                    });
-                } else {
-                    const existing = subjectMap.get(code);
-                    if (ltps !== 'N/A' && ltps !== '' && !existing.ltpsArray.includes(ltps)) {
-                        existing.ltpsArray.push(ltps);
-                    }
-
-                    if (existing.components[componentName]) {
-                        existing.components[componentName].conducted += rawConducted;
-                        existing.components[componentName].attended += rawAttended;
-                        existing.components[componentName].percent = parseFloat((existing.components[componentName].conducted > 0 ? (existing.components[componentName].attended / existing.components[componentName].conducted) * 100 : 0).toFixed(2));
-                    } else {
-                        existing.components[componentName] = componentData;
-                    }
-
-                    existing.totalConducted += conducted;
-                    existing.totalAttended += attended;
-                    existing.rawConducted += rawConducted;
-                    existing.rawAttended += rawAttended;
-                }
+                existing.totalConducted += conducted;
+                existing.totalAttended += attended;
+                existing.rawConducted += rawConducted;
+                existing.rawAttended += rawAttended;
             }
         });
 
