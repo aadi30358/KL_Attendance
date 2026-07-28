@@ -24,6 +24,8 @@ export const getAcademicYearCode = (academicYear) => {
   
   // Historical mapping observed from the ERP
   const historicalMap = {
+    '2026': '18',
+    '2025': '17',
     '2024': '16',
     '2023': '15',
     '2022': '14',
@@ -35,9 +37,38 @@ export const getAcademicYearCode = (academicYear) => {
   
   if (historicalMap[firstYear]) return historicalMap[firstYear];
   
-  // Dynamic formula for 2025 and beyond (using step of 3 as per user code)
-  // 2024 is 16, so 2025 is 19, 2026 is 22...
-  return (16 + (firstYear - 2024) * 3).toString();
+  // Dynamic formula for 2027 and beyond (step of 1 per academic year)
+  return (16 + (firstYear - 2024)).toString();
+};
+
+export const findAcademicYearFromHtml = (html, year) => {
+  if (!html || !year) return null;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const selects = doc.querySelectorAll('select');
+    let firstYearStr = year.split('-')[0].trim();
+    if (parseInt(firstYearStr, 10) < 100) {
+      firstYearStr = (2000 + parseInt(firstYearStr, 10)).toString();
+    }
+    
+    for (const select of selects) {
+      const nameOrId = (select.getAttribute('name') || select.getAttribute('id') || '').toLowerCase();
+      if (nameOrId.includes('year') || nameOrId.includes('academic') || nameOrId.includes('dynamicmodel')) {
+        const options = select.querySelectorAll('option');
+        for (const opt of options) {
+          const text = opt.textContent.trim();
+          const val = opt.getAttribute('value');
+          if (val && text.includes(firstYearStr)) {
+            return val;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to parse academic year from HTML", e);
+  }
+  return null;
 };
 
 export const getFormData = (username, password, captcha, semester, academicYear, sessionId) => {

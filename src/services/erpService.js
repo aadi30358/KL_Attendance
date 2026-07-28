@@ -1,4 +1,4 @@
-import { SEMESTER_MAP, getAcademicYearCode } from '../config/api';
+import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml } from '../config/api';
 
 export const erpService = {
     // Fetch the login page to scrape CSRF token
@@ -116,17 +116,12 @@ export const erpService = {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        // Selectors need to be adjusted based on real HTML. 
-        // Assuming some standard classes for now.
-        // Option 1: Look for user profile in sidebar
         let name = "Student";
         let image = "/assets/default-user.png"; // Fallback
 
-        // Try to find name
         const nameEl = doc.querySelector('.profile_info h2') || doc.querySelector('.user-profile');
         if (nameEl) name = nameEl.textContent.trim();
 
-        // Try to find image
         const imgEl = doc.querySelector('.profile_pic img') || doc.querySelector('img.img-circle');
         if (imgEl) {
             const src = imgEl.getAttribute('src');
@@ -136,36 +131,8 @@ export const erpService = {
         return { name, image };
     },
 
-    // Fetch Subjects and Attendance
-    async fetchAttendance(year, semester) {
-        const yearId = getAcademicYearCode(year);
-        const semId = SEMESTER_MAP[semester];
-
-        console.log(`[ERP] Fetch Attendance -> Year: ${year} (ID: ${yearId}), Sem: ${semester} (ID: ${semId})`);
-
-        if (!yearId || !semId) {
-            throw new Error(`Invalid year (${year}) or semester (${semester}) selected.`);
-        }
-
-// Use the exact CSRF token captured at the exact moment of login.
-        // Fetching a "fresh" one before a POST creates race conditions and 400 Bad Requests
-        // if the server rotates tokens rapidly or cookie headers desync across proxies.
-        let csrfToken = null;
-        try {
-            const dashboardHtml = localStorage.getItem('erpDashboardHtml');
-            if (dashboardHtml) {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(dashboardHtml, 'text/html');
-                csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-            }
-        } catch (e) {
-            console.warn("[ERP] Failed to parse cached dashboard HTML", e);
-        }
-
-        if (!csrfToken) {
-            console.error("[ERP] No CSRF token available for request. Session likely wiped.");
-        }
-
+    // Single request helper
+    async _postFetchAttendance(yearId, semId, csrfToken) {
         const formData = new URLSearchParams();
         formData.append('DynamicModel[academicyear]', yearId);
         formData.append('DynamicModel[semesterid]', semId);
@@ -181,7 +148,6 @@ export const erpService = {
             headers['X-CSRF-Token'] = csrfToken;
         }
 
-        // We found the TRUE endpoint hidden in the page's Javascript:
         const response = await fetch('/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist', {
             method: 'POST',
             headers: {
@@ -190,13 +156,12 @@ export const erpService = {
                 'Cache-Control': 'no-cache'
             },
             body: formData,
-            credentials: 'include', // Force browser to send the newest session cookie!
+            credentials: 'include',
             cache: 'no-store'
         });
 
         const html = await response.text();
 
-        // Check if ERP returned a 400 Bad Request indicating CSRF or Session failure
         if (response.status === 400 && html.includes('Unable to verify your data submission')) {
             throw new Error("Your session has expired. Please completely sign out and log in again.");
         }
@@ -206,19 +171,69 @@ export const erpService = {
             throw new Error(`Session error (${response.status}). Please log out and sign in again.`);
         }
 
-        const subjects = this.parseSubjects(html);
-
-        if (subjects.length === 0) {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            if (doc.getElementById('login-form')) {
-                throw new Error("Your session has expired. Please log out and sign in again.");
-            }
-            // If it's a valid page but just has no subjects, return empty array instead of throwing.
-            return [];
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        if (doc.getElementById('login-form')) {
+            throw new Error("Your session has expired. Please log out and sign in again.");
         }
 
-        return subjects;
+        const subjects = this.parseSubjects(html);
+        return { subjects, html };
+    },
+
+    // Fetch Subjects and Attendance
+    async fetchAttendance(year, semester) {
+        const dashboardHtml = localStorage.getItem('erpDashboardHtml') || '';
+        const htmlYearId = findAcademicYearFromHtml(dashboardHtml, year);
+        const calculatedYearId = getAcademicYearCode(year);
+        const semId = SEMESTER_MAP[semester];
+
+        const primaryYearId = htmlYearId || calculatedYearId;
+        console.log(`[ERP] Fetch Attendance -> Year: ${year} (Primary ID: ${primaryYearId}, HTML ID: ${htmlYearId}, Calc ID: ${calculatedYearId}), Sem: ${semester} (ID: ${semId})`);
+
+        if (!primaryYearId || !semId) {
+            throw new Error(`Invalid year (${year}) or semester (${semester}) selected.`);
+        }
+
+        let csrfToken = null;
+        try {
+            if (dashboardHtml) {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(dashboardHtml, 'text/html');
+                csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            }
+        } catch (e) {
+            console.warn("[ERP] Failed to parse cached dashboard HTML", e);
+        }
+
+        if (!csrfToken) {
+            console.error("[ERP] No CSRF token available for request. Session likely wiped.");
+        }
+
+        // Try candidate year IDs if primary returns 0 subjects
+        const candidateYearIds = Array.from(new Set([
+            primaryYearId,
+            '18', '17', '19', '20', '21', '22', '16'
+        ])).filter(Boolean);
+
+        for (const candidateId of candidateYearIds) {
+            try {
+                console.log(`[ERP] Trying candidate yearId: ${candidateId}...`);
+                const { subjects } = await this._postFetchAttendance(candidateId, semId, csrfToken);
+                if (subjects.length > 0) {
+                    console.log(`[ERP] Successfully fetched ${subjects.length} subjects with yearId: ${candidateId}`);
+                    return subjects;
+                }
+            } catch (err) {
+                // If it's a session error, throw immediately instead of retrying
+                if (err.message?.includes('session has expired') || err.message?.includes('Session error')) {
+                    throw err;
+                }
+                console.warn(`[ERP] Candidate yearId ${candidateId} failed:`, err);
+            }
+        }
+
+        return [];
     },
     // Parse Subjects from Attendance Page
     parseSubjects(html) {
