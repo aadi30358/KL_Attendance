@@ -1,4 +1,4 @@
-import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear, findSemesterFromHtml } from '../config/api';
+import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear, findSemesterFromHtml, isHtmlMatchingRequestedYear } from '../config/api';
 
 export const erpService = {
     // Fetch the login page to scrape CSRF token
@@ -284,11 +284,12 @@ export const erpService = {
         for (const candidateYearId of candidateYearIds) {
             for (const candidateSemId of candidateSemIds) {
                 try {
-                    console.log(`[ERP] Trying candidate yearId: ${candidateYearId}, semId: ${candidateSemId}...`);
-                    const { subjects } = await this._postFetchAttendance(candidateYearId, candidateSemId, csrfToken);
-                    if (subjects && subjects.length > 0) {
-                        console.log(`[ERP] Successfully fetched ${subjects.length} subjects with yearId: ${candidateYearId}, semId: ${candidateSemId}`);
+                    const { subjects, html } = await this._postFetchAttendance(candidateYearId, candidateSemId, csrfToken);
+                    if (subjects && subjects.length > 0 && isHtmlMatchingRequestedYear(html, year)) {
+                        console.log(`[ERP] Successfully fetched ${subjects.length} subjects for requested year ${year} with yearId: ${candidateYearId}, semId: ${candidateSemId}`);
                         return subjects;
+                    } else if (subjects && subjects.length > 0) {
+                        console.warn(`[ERP] Discarding fetched subjects for yearId ${candidateYearId} because returned HTML does not match requested year ${year}`);
                     }
                 } catch (err) {
                     if (err.message?.includes('session has expired') || err.message?.includes('Session error')) {
