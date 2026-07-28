@@ -341,8 +341,8 @@ export const erpService = {
             }
 
             // Fallback for non-standard column index: search for code matching pattern or column
-            if (!code || !/^[A-Za-z0-9\s-]{4,15}$/.test(code) || code.toLowerCase().includes('course') || title.toLowerCase().includes('title')) {
-                const codeIdx = cols.findIndex(c => /\b[0-9]{2}[A-Za-z0-9]{3,8}\b/.test(c) || /^[0-9]{2}[A-Z]{2,4}[0-9]{3,4}$/.test(c));
+            if (!code || !/^[A-Za-z0-9\s-]{4,15}$/.test(code) || /^\d+$/.test(code) || code.toLowerCase().includes('course') || title.toLowerCase().includes('title')) {
+                const codeIdx = cols.findIndex(c => /\b[0-9]{2}[A-Z]{1,5}[0-9]{3,5}[A-Z]?\b/i.test(c));
                 if (codeIdx !== -1) {
                     code = cols[codeIdx];
                     title = cols[codeIdx + 1] || cols[codeIdx - 1] || '';
@@ -352,7 +352,7 @@ export const erpService = {
                 }
             }
 
-            if (!code || !title || code.toLowerCase().includes('course') || title.toLowerCase().includes('title')) {
+            if (!code || !title || /^\d+$/.test(code) || code.toLowerCase().includes('course') || title.toLowerCase().includes('title')) {
                 return;
             }
 
@@ -437,16 +437,17 @@ export const erpService = {
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(combinedHtml, 'text/html');
 
-                const elements = doc.querySelectorAll('tr, li, div.card, div.box, div.panel, p, span, td, a, select option');
+                const elements = doc.querySelectorAll('tr, li, div.card, div.box, div.panel, p, span, td, a');
                 elements.forEach(el => {
                     const text = el.textContent.trim();
-                    const match = text.match(/\b([0-9]{2}[A-Z0-9]{4,10})\b/);
-                    if (match) {
-                        const code = match[1];
-                        let title = text.replace(code, '').replace(/[\s\-_:=]+/g, ' ').trim();
+                    // Match valid KL University course codes like 24CS3101, 23SDCS11, 22EC2101, 24UC1101
+                    const match = text.match(/\b([0-9]{2}[A-Z]{1,5}[0-9]{3,5}[A-Z]?)\b/i);
+                    if (match && /[A-Za-z]/.test(match[1]) && /\d{3,}/.test(match[1])) {
+                        const code = match[1].toUpperCase();
+                        let title = text.replace(match[1], '').replace(/[\s\-_:=]+/g, ' ').trim();
                         title = title.split('\n')[0].trim();
                         if (title.length > 50) title = title.slice(0, 50);
-                        if (!title) title = `Course ${code}`;
+                        if (!title || /^\d+$/.test(title)) title = `Course ${code}`;
 
                         if (!subjectMap.has(code) && !code.toLowerCase().includes('course')) {
                             subjectMap.set(code, {
