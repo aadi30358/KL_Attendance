@@ -15,7 +15,12 @@ export const SEMESTER_MAP = {
 };
 
 export const getAcademicYearCode = (academicYear) => {
-  const firstYear = parseInt(academicYear.split('-')[0]);
+  if (!academicYear) return null;
+  let firstYear = parseInt(academicYear.split('-')[0], 10);
+  if (isNaN(firstYear)) return null;
+  if (firstYear < 100) {
+    firstYear += 2000;
+  }
   
   // Historical mapping observed from the ERP
   const historicalMap = {

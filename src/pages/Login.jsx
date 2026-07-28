@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogIn, RefreshCcw, Loader2, Check, Sparkles, Instagram } from 'lucide-react';
+import { LogIn, RefreshCcw, Loader2, Check, Sparkles } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { erpService } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
@@ -123,30 +123,6 @@ const Login = () => {
             setIsSolving(false);
         }
     }, [rawCaptchaBlob]);
-
-    const getBase64ForExternal = async (blob) => {
-        const reader = new FileReader();
-        return new Promise((resolve) => {
-            reader.onloadend = () => resolve(reader.result.split(',')[1]);
-            reader.readAsDataURL(blob);
-        });
-    };
-
-    const solveCaptchaExternal = async (blob) => {
-        const base64Data = await getBase64ForExternal(blob);
-        const prompt = "What is the 5-character alphanumeric code in this image? Respond ONLY with the code.";
-        const apiBase = APP_CONFIG.API_URL || "";
-        const response = await fetch(`${apiBase}/api/ai/gemini`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ text: prompt }, { inlineData: { data: base64Data, mimeType: blob.type || "image/png" } }],
-                systemInstruction: "You are an expert captcha solver. Provide ONLY the 5 alphanumeric characters found in the image."
-            })
-        });
-        const data = await response.json();
-        return data.text ? data.text.trim().replace(/[^a-zA-Z0-9]/g, '').substring(0, 5) : null;
-    };
 
     const hasInitRan = useRef(false);
 

@@ -11,8 +11,8 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         cookieDomainRewrite: { "*": "" }, // Crucial for session cookies to be saved locally regardless of IP/localhost
-        configure: (proxy, _options) => {
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
             proxyReq.setHeader('origin', 'https://newerp.kluniversity.in');
             proxyReq.setHeader('referer', 'https://newerp.kluniversity.in/');
             // Forward IP to simulate real requester

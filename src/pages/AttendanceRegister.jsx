@@ -140,8 +140,8 @@ const AttendanceRegister = () => {
     const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
-    const [year, setYear] = useState('');
-    const [semester, setSemester] = useState('');
+    const [year, setYear] = useState('2026-2027');
+    const [semester, setSemester] = useState('Odd');
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
     const [debugHtml, setDebugHtml] = useState(null);
@@ -378,7 +378,8 @@ const AttendanceRegister = () => {
                                 <select value={year} onChange={e => setYear(e.target.value)}
                                     className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
                                     <option value="">Select Academic Year</option>
-                                    <option value="2026-2027">2026-2027</option>
+                                    <option value="2026-2027">2026-2027 (26-27)</option>
+                                    <option value="26-27">26-27</option>
                                     <option value="2025-2026">2025-2026</option>
                                     <option value="2024-2025">2024-2025</option>
                                     <option value="2023-2024">2023-2024</option>

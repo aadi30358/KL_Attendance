@@ -8,7 +8,6 @@ import {
     Users,
     Building,
     LibraryBig,
-    CalendarClock,
 } from 'lucide-react';
 
 const Sidebar = ({ isMobileOpen }) => {

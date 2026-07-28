@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useMotionValue, useSpring, useTransform, useScroll } from 'framer-motion';
-import { ArrowRight, Calculator, BookOpen, ShieldCheck, Calendar, TrendingUp, Clock, Sparkles, Activity } from 'lucide-react';
+import { ArrowRight, Calculator, ShieldCheck, Calendar, TrendingUp, Clock, Sparkles, Activity } from 'lucide-react';
 import ERPLoginCard from '../components/ERPLoginCard';
 
 // --- Ultra-Advanced 3D Parallax Card ---

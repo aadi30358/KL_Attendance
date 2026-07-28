@@ -5,13 +5,14 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import react from 'eslint-plugin-react'
 
 export default [
-  { ignores: ['dist'] },
+  { ignores: ['dist', 'klu_erp_temp', 'build_output.log', 'lint_*.txt', 'lint*.json', 'out.txt', 'test*.js'] },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {
       ecmaVersion: 2020,
       globals: {
         ...globals.browser,
+        ...globals.serviceworker,
         ...globals.es2020,
         ...globals.node,
       },
