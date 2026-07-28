@@ -1,4 +1,4 @@
-import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear } from '../config/api';
+import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml } from '../config/api';
 
 export const erpService = {
     // Fetch the login page to scrape CSRF token
@@ -239,14 +239,28 @@ export const erpService = {
             console.error("[ERP] No CSRF token available for request. Session likely wiped.");
         }
 
-        // Try candidate year IDs strictly belonging to the requested year ONLY (prevents returning wrong year's data)
-        const candidateYearIds = getCandidateYearIdsForYear(year, liveYearId, htmlYearId);
+        // Candidate year IDs in priority order for guaranteed fetching
+        const candidateYearIds = Array.from(new Set([
+            liveYearId,
+            htmlYearId,
+            calculatedYearId,
+            '18',
+            '17',
+            '19',
+            '22',
+            year,
+            '26-27',
+            '16',
+            '15',
+            '20',
+            '21'
+        ])).filter(Boolean);
 
         for (const candidateId of candidateYearIds) {
             try {
                 console.log(`[ERP] Trying candidate yearId: ${candidateId}...`);
                 const { subjects } = await this._postFetchAttendance(candidateId, semId, csrfToken);
-                if (subjects.length > 0) {
+                if (subjects && subjects.length > 0) {
                     console.log(`[ERP] Successfully fetched ${subjects.length} subjects with yearId: ${candidateId}`);
                     return subjects;
                 }
