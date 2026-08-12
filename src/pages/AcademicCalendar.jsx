@@ -109,7 +109,7 @@ export default function AcademicCalendar() {
                     </a>
 
                     <p className="text-sm text-slate-400 font-bold uppercase tracking-widest">
-                        Updated Dec 2025
+                        Updated August 2026
                     </p>
                 </motion.div>
             </div>

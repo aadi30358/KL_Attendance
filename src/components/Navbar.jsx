@@ -70,7 +70,7 @@ const Navbar = () => {
         { name: 'ATTENDANCE BY L-T-P-S', path: '/ltps' },
         { name: 'ATTENDANCE WHEN ABSENT', path: '/attendance' },
         ...(hasErpSession && location.pathname !== '/' ? [] : [
-            { name: 'ACADEMIC CALENDAR', path: '/calendar', isErpHighlight: true },
+            { name: 'ACADEMIC CALENDAR', path: '/calendar' },
             { name: 'ERP LOGIN', path: '/login', isErpHighlight: true }
         ]),
         ...(hasErpSession ? [{ name: 'ERP DASHBOARD', path: '/login', isMobileOnly: true }] : []),
