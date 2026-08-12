@@ -19,7 +19,7 @@ import UserProfile from './pages/UserProfile';
 
 import { HelmetProvider } from 'react-helmet-async';
 
-import { Instagram } from 'lucide-react';
+
 
 const AppWithAuth = () => {
 

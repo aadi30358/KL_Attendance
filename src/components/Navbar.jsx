@@ -69,8 +69,8 @@ const Navbar = () => {
         { name: 'HOME', path: '/' },
         { name: 'ATTENDANCE BY L-T-P-S', path: '/ltps' },
         { name: 'ATTENDANCE WHEN ABSENT', path: '/attendance' },
-        ...(hasErpSession ? [] : [
-            { name: 'ACADEMIC CALENDAR', path: '/calendar' },
+        ...(hasErpSession && location.pathname !== '/' ? [] : [
+            { name: 'ACADEMIC CALENDAR', path: '/calendar', isErpHighlight: true },
             { name: 'ERP LOGIN', path: '/login', isErpHighlight: true }
         ]),
         ...(hasErpSession ? [{ name: 'ERP DASHBOARD', path: '/login', isMobileOnly: true }] : []),

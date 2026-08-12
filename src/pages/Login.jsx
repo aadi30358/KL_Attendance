@@ -177,6 +177,7 @@ const Login = () => {
             hasAutoLoggedIn.current = true;
             handleLogin();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rememberMe, idNumber, password, captcha, csrfToken, isLoading]);
 
     const handleLogin = async () => {
