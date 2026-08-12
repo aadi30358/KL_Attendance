@@ -1,4 +1,6 @@
 import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear, findSemesterFromHtml, isHtmlMatchingRequestedYear } from '../config/api';
+import { db } from '../firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export const erpService = {
     // Fetch the login page to scrape CSRF token
@@ -238,8 +240,52 @@ export const erpService = {
         return null;
     },
 
-    // Fetch Subjects and Attendance
+    // Fetch Subjects and Attendance (Wrapped with Firebase Cache)
     async fetchAttendance(year, semester) {
+        const username = sessionStorage.getItem('erp_username');
+        const cacheDocId = username ? `${username}_${year}_${semester}` : null;
+        
+        // 1. Read from Cache
+        if (cacheDocId) {
+            try {
+                const docRef = doc(db, 'attendanceCache', cacheDocId);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    const now = new Date().getTime();
+                    // 6 hours cache validity (21600000 ms)
+                    if (now - data.last_updated < 21600000) {
+                        console.log(`[ERP] Fetched attendance from Firebase cache for ${year} ${semester}`);
+                        return data.subjects;
+                    }
+                }
+            } catch (err) {
+                console.warn("[ERP] Firebase cache read error:", err);
+            }
+        }
+
+        // 2. Scrape from ERP
+        const subjects = await this._fetchAttendanceFromERP(year, semester);
+
+        // 3. Write to Cache
+        if (cacheDocId && subjects && subjects.length > 0) {
+            try {
+                const docRef = doc(db, 'attendanceCache', cacheDocId);
+                await setDoc(docRef, {
+                    subjects: subjects,
+                    last_updated: new Date().getTime()
+                });
+                console.log(`[ERP] Saved attendance to Firebase cache for ${year} ${semester}`);
+            } catch (err) {
+                console.warn("[ERP] Firebase cache write error:", err);
+            }
+        }
+
+        return subjects;
+    },
+
+    // Actual Scraping Logic
+    async _fetchAttendanceFromERP(year, semester) {
         let dashboardHtml = localStorage.getItem('erpDashboardHtml') || '';
         const liveOptions = await this.getAttendancePageOptions(year, semester);
 

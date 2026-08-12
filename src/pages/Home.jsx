@@ -125,10 +125,10 @@ const ExamCountdownSection = () => {
         const calculateTimeLeft = () => {
             const now = new Date();
             const dates = {
-                semIn1: new Date('2026-02-02T00:00:00'),
-                labSemIn: new Date('2026-03-09T00:00:00'),
-                semIn2: new Date('2026-04-13T00:00:00'),
-                semEnd: new Date('2026-04-20T00:00:00'),
+                semIn1: new Date('2026-09-07T00:00:00'),
+                labSemIn: new Date('2026-10-12T00:00:00'),
+                semIn2: new Date('2026-11-09T00:00:00'),
+                semEnd: new Date('2026-11-16T00:00:00'),
             };
             const calc = (target) => {
                 const diff = target - now;
@@ -153,17 +153,17 @@ const ExamCountdownSection = () => {
     }, []);
 
     const items = [
-        { label: "Sem-In 1", date: "02 Feb", time: timeLeft.semIn1, color: "from-blue-400 to-indigo-600", shadow: "shadow-blue-200" },
-        { label: "Lab Sem-In", date: "09 Mar", time: timeLeft.labSemIn, color: "from-emerald-400 to-teal-600", shadow: "shadow-emerald-200" },
-        { label: "Sem-In 2", date: "13 Apr", time: timeLeft.semIn2, color: "from-violet-400 to-fuchsia-600", shadow: "shadow-violet-200" },
-        { label: "Sem End", date: "20 Apr", time: timeLeft.semEnd, color: "from-amber-400 to-orange-600", shadow: "shadow-amber-200" }
+        { label: "Sem-In 1", date: "07 Sep", time: timeLeft.semIn1, color: "from-blue-400 to-indigo-600", shadow: "shadow-blue-200" },
+        { label: "Lab Sem-In", date: "12 Oct", time: timeLeft.labSemIn, color: "from-emerald-400 to-teal-600", shadow: "shadow-emerald-200" },
+        { label: "Sem-In 2", date: "09 Nov", time: timeLeft.semIn2, color: "from-violet-400 to-fuchsia-600", shadow: "shadow-violet-200" },
+        { label: "Sem End", date: "16 Nov", time: timeLeft.semEnd, color: "from-amber-400 to-orange-600", shadow: "shadow-amber-200" }
     ];
 
     return (
         <div className="w-full mt-32 relative z-10">
             <div className="flex items-center gap-4 mb-10 px-4">
                 <div className="h-10 w-1 bg-indigo-600 rounded-full" />
-                <h2 className="text-3xl font-bold text-slate-900">Y24 Even Sem. Countdown for Exams</h2>
+                <h2 className="text-3xl font-bold text-slate-900">2026-27 Odd Sem. Countdown for Exams</h2>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -483,7 +483,7 @@ export default function Home() {
                                     <p className="text-slate-500 text-sm">Official KLU Schedule 2025.</p>
                                 </div>
                                 <a
-                                    href="/academic_calendar.pdf"
+                                    href="/1.Academic_Calendar_2026_27_III_and_IV_Year_UG_Engineering_Programs.pdf"
                                     target="_blank"
                                     className="w-full py-3 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-center border border-slate-200 transition-colors"
                                 >

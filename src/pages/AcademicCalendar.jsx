@@ -89,8 +89,8 @@ export default function AcademicCalendar() {
                     transition={{ delay: 0.4 }}
                 >
                     <a
-                        href="/academic_calendar.pdf"
-                        download="KLU_Academic_Calendar_26.pdf"
+                        href="/1.Academic_Calendar_2026_27_III_and_IV_Year_UG_Engineering_Programs.pdf"
+                        download="1.Academic_Calendar_2026_27_III_and_IV_Year_UG_Engineering_Programs.pdf"
                         className="group relative px-10 py-5 bg-slate-900 text-white rounded-2xl font-bold flex items-center gap-3 shadow-2xl shadow-slate-200 transition-all hover:bg-black hover:scale-105"
                     >
                         <Download className="w-5 h-5 group-hover:-translate-y-1 transition-transform" />
@@ -99,7 +99,7 @@ export default function AcademicCalendar() {
                     </a>
 
                     <a
-                        href="/academic_calendar.pdf"
+                        href="/1.Academic_Calendar_2026_27_III_and_IV_Year_UG_Engineering_Programs.pdf"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="group px-10 py-5 bg-white text-slate-700 border border-slate-200 rounded-2xl font-bold flex items-center gap-3 shadow-lg shadow-slate-100 transition-all hover:bg-slate-50 hover:scale-105 hover:border-indigo-200 hover:text-indigo-600"
@@ -133,13 +133,13 @@ export default function AcademicCalendar() {
                         {/* PDF Viewer */}
                         <div className="w-full h-full p-4 md:p-12 flex items-center justify-center">
                             <object
-                                data="/academic_calendar.pdf#view=FitH"
+                                data="/1.Academic_Calendar_2026_27_III_and_IV_Year_UG_Engineering_Programs.pdf#view=FitH"
                                 type="application/pdf"
                                 className="w-full h-full rounded-2xl shadow-2xl border border-slate-200 bg-slate-100"
                                 title="Academic Calendar PDF"
                             >
                                 <iframe
-                                    src="/academic_calendar.pdf#view=FitH"
+                                    src="/1.Academic_Calendar_2026_27_III_and_IV_Year_UG_Engineering_Programs.pdf#view=FitH"
                                     className="w-full h-full rounded-2xl border-none"
                                     title="Academic Calendar PDF Fallback"
                                 />
