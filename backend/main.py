@@ -11,7 +11,22 @@ from selenium.common.exceptions import TimeoutException
 from bs4 import BeautifulSoup
 import uvicorn
 import os
+import firebase_admin
+from firebase_admin import credentials, firestore
+from dotenv import load_dotenv
+from datetime import datetime, timedelta, timezone
 
+load_dotenv()
+
+# Initialize Firebase
+firebase_cred_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "backend/firebase_credentials.json")
+if os.path.exists(firebase_cred_path):
+    cred = credentials.Certificate(firebase_cred_path)
+    firebase_admin.initialize_app(cred)
+    db = firestore.client()
+else:
+    print(f"Warning: Firebase credentials not found at {firebase_cred_path}")
+    db = None
 app = FastAPI(title="KLE Tech ERP Proxy API")
 
 app.add_middleware(
@@ -51,6 +66,24 @@ def get_driver():
 
 @app.post("/fetch_attendance")
 async def fetch_attendance(req: LoginRequest):
+    if db:
+        try:
+            user_ref = db.collection("users").document(req.username)
+            doc = user_ref.get()
+            if doc.exists:
+                data = doc.to_dict()
+                last_updated = data.get("last_updated")
+                if last_updated:
+                    now = datetime.now(timezone.utc)
+                    if now - last_updated < timedelta(hours=6):
+                        return {
+                            "personal_data": data.get("personal_data"),
+                            "attendance_data": data.get("attendance_data"),
+                            "cached": True
+                        }
+        except Exception as e:
+            print(f"Firestore cache read error: {e}")
+
     driver = None
     try:
         driver = get_driver()
@@ -117,10 +150,23 @@ async def fetch_attendance(req: LoginRequest):
                 })
                 j += 1
 
-        return {
+        result = {
             "personal_data": personal_data,
             "attendance_data": attendance_data
         }
+
+        if db:
+            try:
+                user_ref = db.collection("users").document(req.username)
+                user_ref.set({
+                    "personal_data": personal_data,
+                    "attendance_data": attendance_data,
+                    "last_updated": datetime.now(timezone.utc)
+                }, merge=True)
+            except Exception as e:
+                print(f"Firestore cache write error: {e}")
+
+        return result
 
     except HTTPException as he:
         raise he
@@ -133,6 +179,21 @@ async def fetch_attendance(req: LoginRequest):
 
 @app.post("/fetch_calendar_of_events")
 async def fetch_calendar_of_events_api(req: LoginRequest):
+    if db:
+        try:
+            user_ref = db.collection("users").document(req.username)
+            doc = user_ref.get()
+            if doc.exists:
+                data = doc.to_dict()
+                coe = data.get("calendar_of_events")
+                coe_last_updated = data.get("coe_last_updated")
+                if coe and coe_last_updated:
+                    now = datetime.now(timezone.utc)
+                    if now - coe_last_updated < timedelta(hours=24):
+                        return {"coe": coe, "cached": True}
+        except Exception as e:
+            print(f"Firestore cache read error: {e}")
+
     driver = None
     try:
         driver = get_driver()
@@ -208,6 +269,17 @@ async def fetch_calendar_of_events_api(req: LoginRequest):
                         next_div.extract()
 
         coe_html = repr(coe_soup).replace("\n", "").replace("\t", "").replace("\r", "")
+        
+        if db:
+            try:
+                user_ref = db.collection("users").document(req.username)
+                user_ref.set({
+                    "calendar_of_events": coe_html,
+                    "coe_last_updated": datetime.now(timezone.utc)
+                }, merge=True)
+            except Exception as e:
+                print(f"Firestore cache write error: {e}")
+
         return {"coe": coe_html}
 
     except HTTPException as he:

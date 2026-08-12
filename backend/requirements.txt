@@ -3,3 +3,5 @@ uvicorn
 selenium
 beautifulsoup4
 pydantic
+firebase-admin
+python-dotenv

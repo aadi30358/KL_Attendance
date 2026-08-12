@@ -214,7 +214,8 @@ export const erpService = {
     async getAttendancePageOptions(year, semester) {
         try {
             const timestamp = new Date().getTime();
-            const response = await fetch(`/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex&_t=${timestamp}`, {
+            const response = await fetch(`/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
+                method: 'GET',
                 credentials: 'include',
                 cache: 'no-store',
                 headers: {
@@ -281,15 +282,26 @@ export const erpService = {
             semester === 'Odd' ? 'Odd Sem' : semester === 'Even' ? 'Even Sem' : semester
         ])).filter(Boolean);
 
+        let fallbackSubjects = null;
+        let fallbackCandidate = null;
+
         for (const candidateYearId of candidateYearIds) {
             for (const candidateSemId of candidateSemIds) {
                 try {
                     const { subjects, html } = await this._postFetchAttendance(candidateYearId, candidateSemId, csrfToken);
-                    if (subjects && subjects.length > 0 && isHtmlMatchingRequestedYear(html, year)) {
-                        console.log(`[ERP] Successfully fetched ${subjects.length} subjects for requested year ${year} with yearId: ${candidateYearId}, semId: ${candidateSemId}`);
-                        return subjects;
-                    } else if (subjects && subjects.length > 0) {
-                        console.warn(`[ERP] Discarding fetched subjects for yearId ${candidateYearId} because returned HTML does not match requested year ${year}`);
+                    const isLiveId = (candidateYearId === liveYearId);
+                    
+                    if (subjects && subjects.length > 0) {
+                        if (isLiveId || isHtmlMatchingRequestedYear(html, year)) {
+                            console.log(`[ERP] Successfully fetched ${subjects.length} subjects for requested year ${year} with yearId: ${candidateYearId}, semId: ${candidateSemId}`);
+                            return subjects;
+                        } else {
+                            console.warn(`[ERP] Saving fallback subjects for yearId ${candidateYearId} despite HTML mismatch with requested year ${year}`);
+                            if (!fallbackSubjects) {
+                                fallbackSubjects = subjects;
+                                fallbackCandidate = { yearId: candidateYearId, semId: candidateSemId };
+                            }
+                        }
                     }
                 } catch (err) {
                     if (err.message?.includes('session has expired') || err.message?.includes('Session error')) {
@@ -300,9 +312,18 @@ export const erpService = {
             }
         }
 
+        if (fallbackSubjects && fallbackSubjects.length > 0) {
+            console.log(`[ERP] Using fallback subjects from candidate yearId ${fallbackCandidate.yearId} because no perfect HTML match was found.`);
+            return fallbackSubjects;
+        }
+
         // Auto-extract registered subjects from user data / dashboard HTML
-        console.log(`[ERP] Auto-extracting registered subjects for ${year} (${semester} Sem) from user data...`);
-        return this.extractRegisteredCoursesFromUserData(dashboardHtml, liveOptions?.html, year);
+        if (isHtmlMatchingRequestedYear(dashboardHtml, year)) {
+            console.log(`[ERP] Auto-extracting registered subjects for ${year} (${semester} Sem) from user data...`);
+            return this.extractRegisteredCoursesFromUserData(dashboardHtml, liveOptions?.html);
+        } else {
+            throw new Error(`No attendance data found for ${year} ${semester} Semester`);
+        }
     },
     // Parse Subjects from Attendance Page
     parseSubjects(html) {
@@ -429,7 +450,7 @@ export const erpService = {
         });
     },
 
-    extractRegisteredCoursesFromUserData(dashboardHtml, liveHtml, year) {
+    extractRegisteredCoursesFromUserData(dashboardHtml, liveHtml) {
         const combinedHtml = (dashboardHtml || '') + ' ' + (liveHtml || '');
         const subjectMap = new Map();
 
@@ -476,87 +497,8 @@ export const erpService = {
             return Array.from(subjectMap.values());
         }
 
-        // Default 3rd Year (2026-2027) registered courses auto-population from user curriculum
-        if (year === '2026-2027') {
-            return [
-                {
-                    code: '24CS3101',
-                    title: 'Design and Analysis of Algorithms',
-                    ltps: 'L + T + P',
-                    components: {
-                        'Lecture': { conducted: 0, attended: 0, percent: 0 },
-                        'Tutorial': { conducted: 0, attended: 0, percent: 0 },
-                        'Practical': { conducted: 0, attended: 0, percent: 0 }
-                    },
-                    attended: '0/0',
-                    percent: 0,
-                    isAutoExtracted: true
-                },
-                {
-                    code: '24CS3102',
-                    title: 'Database Management Systems',
-                    ltps: 'L + P',
-                    components: {
-                        'Lecture': { conducted: 0, attended: 0, percent: 0 },
-                        'Practical': { conducted: 0, attended: 0, percent: 0 }
-                    },
-                    attended: '0/0',
-                    percent: 0,
-                    isAutoExtracted: true
-                },
-                {
-                    code: '24CS3103',
-                    title: 'Operating Systems',
-                    ltps: 'L + P',
-                    components: {
-                        'Lecture': { conducted: 0, attended: 0, percent: 0 },
-                        'Practical': { conducted: 0, attended: 0, percent: 0 }
-                    },
-                    attended: '0/0',
-                    percent: 0,
-                    isAutoExtracted: true
-                },
-                {
-                    code: '24CS3104',
-                    title: 'Computer Networks',
-                    ltps: 'L + T + P',
-                    components: {
-                        'Lecture': { conducted: 0, attended: 0, percent: 0 },
-                        'Tutorial': { conducted: 0, attended: 0, percent: 0 },
-                        'Practical': { conducted: 0, attended: 0, percent: 0 }
-                    },
-                    attended: '0/0',
-                    percent: 0,
-                    isAutoExtracted: true
-                },
-                {
-                    code: '24CS3105',
-                    title: 'Web Development & Full Stack Frameworks',
-                    ltps: 'L + P + S',
-                    components: {
-                        'Lecture': { conducted: 0, attended: 0, percent: 0 },
-                        'Practical': { conducted: 0, attended: 0, percent: 0 },
-                        'Skill': { conducted: 0, attended: 0, percent: 0 }
-                    },
-                    attended: '0/0',
-                    percent: 0,
-                    isAutoExtracted: true
-                },
-                {
-                    code: '24SDCS11',
-                    title: 'Skill Development Course - III',
-                    ltps: 'S',
-                    components: {
-                        'Skill': { conducted: 0, attended: 0, percent: 0 }
-                    },
-                    attended: '0/0',
-                    percent: 0,
-                    isAutoExtracted: true
-                }
-            ];
-        }
-
-        return [];
+        // Output debug HTML if nothing worked
+        throw new Error(`DEBUG_HTML:` + (liveHtml || dashboardHtml || 'No HTML available to debug.'));
     },
 
     async getCaptchaUrl() {

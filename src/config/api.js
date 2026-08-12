@@ -48,13 +48,13 @@ export const getCandidateYearIdsForYear = (academicYear, liveYearId, htmlYearId)
   if (firstYear < 100) firstYear += 2000;
 
   const strictYearMap = {
-    '2026': ['2026-2027', '2026-27', '26-27', '22', '26', '2026'],
-    '2025': ['2025-2026', '2025-26', '25-26', '19', '25', '2025'],
-    '2024': ['2024-2025', '2024-25', '24-25', '18', '24', '2024'],
-    '2023': ['2023-2024', '2023-24', '23-24', '15', '23', '2023'],
-    '2022': ['2022-2023', '2022-23', '22-23', '14', '22', '2022'],
-    '2021': ['2021-2022', '2021-22', '21-22', '13', '21', '2021'],
-    '2020': ['2020-2021', '2020-21', '20-21', '10', '20', '2020']
+    '2026': ['22', '23', '24', '25', '21', '20', '19', '18', '26', '2026-2027', '2026-27', '26-27', '2026'],
+    '2025': ['19', '18', '17', '2025-2026', '2025-26', '25-26', '25', '2025'],
+    '2024': ['16', '17', '18', '2024-2025', '2024-25', '24-25', '24', '2024'],
+    '2023': ['15', '2023-2024', '2023-24', '23-24', '23', '2023'],
+    '2022': ['14', '2022-2023', '2022-23', '22-23', '22', '2022'],
+    '2021': ['13', '2021-2022', '2021-22', '21-22', '21', '2021'],
+    '2020': ['10', '2020-2021', '2020-21', '20-21', '20', '2020']
   };
 
   const rawYear = academicYear.trim();
@@ -84,11 +84,15 @@ export const isHtmlMatchingRequestedYear = (html, requestedYear) => {
         console.warn(`[ERP] HTML contained year ${foundYears[0]} which does not match requested year ${requestedYear}`);
         return false;
       }
+      return hasMatch; // Only return true if it strictly matched
     }
+    
+    // Strict mode: If no years found, and it's not the liveId, reject it.
+    return false;
   } catch (e) {
     console.warn("Error validating HTML matching year", e);
   }
-  return true;
+  return false;
 };
 
 export const findAcademicYearFromHtml = (html, year) => {
@@ -98,6 +102,7 @@ export const findAcademicYearFromHtml = (html, year) => {
     const doc = parser.parseFromString(html, 'text/html');
     const selects = doc.querySelectorAll('select');
     let firstYearStr = year.split('-')[0].trim();
+    let shortYearStr = firstYearStr.slice(-2);
     if (parseInt(firstYearStr, 10) < 100) {
       firstYearStr = (2000 + parseInt(firstYearStr, 10)).toString();
     }
@@ -109,7 +114,8 @@ export const findAcademicYearFromHtml = (html, year) => {
         for (const opt of options) {
           const text = opt.textContent.trim();
           const val = opt.getAttribute('value');
-          if (val && text.includes(firstYearStr)) {
+          // Match 2026 or 26-27
+          if (val && (text.includes(firstYearStr) || text.includes(`${shortYearStr}-`))) {
             return val;
           }
         }
