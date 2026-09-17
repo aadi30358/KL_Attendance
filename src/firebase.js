@@ -3,13 +3,13 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth, signInAnonymously } from "firebase/auth";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyCrIvwPCEETzRJFMzRNZaifzJfMroSvg08",
-    authDomain: "kl-attendance-e0e7a.firebaseapp.com",
-    projectId: "kl-attendance-e0e7a",
-    storageBucket: "kl-attendance-e0e7a.firebasestorage.app",
-    messagingSenderId: "706848587164",
-    appId: "1:706848587164:web:5c9b812af063f098085c59",
-    measurementId: "G-3RHZ6FT8RM"
+    apiKey: "AIzaSyD43vdxh1aaOQryt1eFLIWUrrzdEAJYapk",
+    authDomain: "klattendancecalculator.firebaseapp.com",
+    projectId: "klattendancecalculator",
+    storageBucket: "klattendancecalculator.firebasestorage.app",
+    messagingSenderId: "520615716740",
+    appId: "1:520615716740:web:3bf3428fd57027d3b45fd1",
+    measurementId: "G-P1KQRTN2GM"
 };
 
 // Initialize Firebase

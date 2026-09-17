@@ -1,12 +1,15 @@
 import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear, findSemesterFromHtml, isHtmlMatchingRequestedYear } from '../config/api';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { APP_CONFIG } from '../config';
+
+const getErpBase = () => APP_CONFIG.API_URL || '';
 
 export const erpService = {
     // Fetch the login page to scrape CSRF token
     async getInitialState() {
         const timestamp = new Date().getTime();
-        const response = await fetch(`/index.php?_t=${timestamp}`, { 
+        const response = await fetch(`${getErpBase()}/index.php?_t=${timestamp}`, { 
             credentials: 'include',
             cache: 'no-store',
             headers: {
@@ -31,7 +34,7 @@ export const erpService = {
         formData.append('LoginForm[captcha]', captcha);
         formData.append('login-button', '');
 
-        const response = await fetch('/index.php?r=site%2Flogin', {
+        const response = await fetch(`${getErpBase()}/index.php?r=site%2Flogin`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -95,7 +98,7 @@ export const erpService = {
                 const formData = new URLSearchParams();
                 formData.append('_csrf', csrfToken);
 
-                await fetch('/index.php?r=site%2Flogout', {
+                await fetch(`${getErpBase()}/index.php?r=site%2Flogout`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
@@ -152,7 +155,7 @@ export const erpService = {
             headers['X-CSRF-Token'] = csrfToken;
         }
 
-        let response = await fetch('/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist', {
+        let response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
             method: 'POST',
             headers: {
                 ...headers,
@@ -186,7 +189,7 @@ export const erpService = {
         // Fallback: If courselist yielded 0 subjects, attempt posting to index route
         if (!subjects || subjects.length === 0) {
             try {
-                const indexResp = await fetch('/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex', {
+                const indexResp = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex`, {
                     method: 'POST',
                     headers: {
                         ...headers,
@@ -216,7 +219,7 @@ export const erpService = {
     async getAttendancePageOptions(year, semester) {
         try {
             const timestamp = new Date().getTime();
-            const response = await fetch(`/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
+            const response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
                 method: 'GET',
                 credentials: 'include',
                 cache: 'no-store',

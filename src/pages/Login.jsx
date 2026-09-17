@@ -54,7 +54,8 @@ const Login = () => {
 
         try {
             // Fetch real captcha from ERP via proxy to preserve CSRF session cookies
-            const response = await fetch('/index.php?r=site%2Fcaptcha&v=' + Math.random(), {
+            const apiBase = APP_CONFIG.API_URL || '';
+            const response = await fetch(`${apiBase}/index.php?r=site%2Fcaptcha&v=` + Math.random(), {
                 method: "GET",
                 credentials: "include",
                 cache: 'no-store',

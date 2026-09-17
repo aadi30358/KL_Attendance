@@ -163,7 +163,7 @@ const ExamCountdownSection = () => {
         <div className="w-full mt-32 relative z-10">
             <div className="flex items-center gap-4 mb-10 px-4">
                 <div className="h-10 w-1 bg-indigo-600 rounded-full" />
-                <h2 className="text-3xl font-bold text-slate-900">2026-27 Odd Sem. Countdown for Exams</h2>
+                <h2 className="text-3xl font-bold text-slate-900">Y24 [206-2027] Odd Sem. Countdown for Exams</h2>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

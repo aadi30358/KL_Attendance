@@ -25,7 +25,8 @@ const limiter = rateLimit({
 app.use(limiter);
 
 const allowedOrigins = [
-    'https://kl-attendance-brown.vercel.app',
+    'https://klattendancecalculator.web.app',
+    'https://klattendancecalculator.firebaseapp.com',
     'https://kl-attendance-backend.onrender.com', // Own backend
     'http://localhost:5173', // Vite default dev port
     'http://127.0.0.1:5173',
@@ -62,6 +63,110 @@ app.use(session({
         secure: isProduction
     }
 }));
+
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+// ERP Proxy Endpoint
+app.all('/index.php', async (req, res) => {
+    const searchParams = req.url.includes('?') ? req.url.split('?')[1] : '';
+    const erpUrl = 'https://newerp.kluniversity.in/index.php' + (searchParams ? '?' + searchParams : '');
+
+    try {
+        let rawBody = undefined;
+        if (!['GET', 'HEAD'].includes(req.method)) {
+            if (typeof req.body === 'string') {
+                rawBody = req.body;
+            } else if (Buffer.isBuffer(req.body)) {
+                rawBody = req.body;
+            } else if (req.body && typeof req.body === 'object') {
+                const flattenObj = (obj, prefix = '') => {
+                    return Object.keys(obj).reduce((acc, k) => {
+                        const pre = prefix.length ? prefix + '[' + k + ']' : k;
+                        if (typeof obj[k] === 'object' && obj[k] !== null) {
+                            Object.assign(acc, flattenObj(obj[k], pre));
+                        } else {
+                            acc[pre] = obj[k];
+                        }
+                        return acc;
+                    }, {});
+                };
+                const flat = flattenObj(req.body);
+                rawBody = new URLSearchParams(flat).toString();
+            }
+        }
+
+        const allowedHeaders = [
+            'cookie', 'user-agent', 'accept', 'accept-language',
+            'content-type', 'x-csrf-token', 'x-requested-with'
+        ];
+
+        const cleanHeaders = {};
+        for (const [key, value] of Object.entries(req.headers)) {
+            if (allowedHeaders.includes(key.toLowerCase())) {
+                cleanHeaders[key.toLowerCase()] = value;
+            }
+        }
+
+        cleanHeaders['host'] = 'newerp.kluniversity.in';
+        cleanHeaders['origin'] = 'https://newerp.kluniversity.in';
+        cleanHeaders['referer'] = 'https://newerp.kluniversity.in/';
+
+        const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '192.168.1.1';
+        cleanHeaders['x-forwarded-for'] = clientIp.split(',')[0].trim();
+
+        const fetchOptions = {
+            method: req.method,
+            headers: cleanHeaders,
+            body: rawBody,
+            redirect: 'manual'
+        };
+
+        const response = await fetch(erpUrl, fetchOptions);
+
+        res.status(response.status);
+
+        for (const [key, value] of response.headers.entries()) {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey === 'content-encoding' || lowerKey === 'content-length') {
+                continue;
+            }
+            if (lowerKey === 'set-cookie') {
+                let setCookies = [];
+                if (typeof response.headers.getSetCookie === 'function') {
+                    setCookies = response.headers.getSetCookie();
+                } else if (typeof response.headers.raw === 'function') {
+                    setCookies = response.headers.raw()['set-cookie'] || [value];
+                } else {
+                    setCookies = value.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+                }
+
+                const rewrittenCookies = setCookies.map(cookie => {
+                    let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');
+                    newCookie = newCookie.replace(/SameSite=[^;]+;?/gi, '');
+                    newCookie = newCookie.replace(/Secure;?/gi, '');
+                    newCookie = newCookie.trim().replace(/;+$/, '');
+                    newCookie += '; SameSite=None; Secure';
+                    return newCookie.trim();
+                });
+                res.setHeader('Set-Cookie', rewrittenCookies);
+            } else if (lowerKey === 'location') {
+                const rewrittenLocation = value.replace(/^https?:\/\/newerp\.kluniversity\.in/i, '');
+                res.setHeader('Location', rewrittenLocation.replace(/^http:/i, 'https:'));
+            } else {
+                const safeValue = typeof value === 'string' ? value.replace(/^http:/i, 'https:') : value;
+                res.setHeader(key, safeValue);
+            }
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        res.send(buffer);
+
+    } catch (error) {
+        console.error('ERP Proxy Error:', error);
+        res.status(500).json({ error: 'Failed to communicate with ERP', details: error.message });
+    }
+});
 
 // Gemini Proxy Endpoint
 app.post('/api/ai/gemini', async (req, res) => {
