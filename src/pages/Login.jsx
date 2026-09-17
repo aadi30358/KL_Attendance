@@ -97,6 +97,18 @@ const Login = () => {
         setCaptcha('');
         setIsFetchingCaptcha(true);
         try {
+            // Try ultra-fast refresh in single round-trip
+            const fastCaptcha = await erpService.fastRefreshCaptcha();
+            if (fastCaptcha) {
+                if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
+                    URL.revokeObjectURL(captchaUrlRef.current);
+                }
+                captchaUrlRef.current = fastCaptcha;
+                setCaptchaUrl(fastCaptcha);
+                return;
+            }
+
+            // Fallback to two-hop blob refresh
             const blob = await fetchCaptchaBlob(true);
             if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
                 URL.revokeObjectURL(captchaUrlRef.current);
@@ -113,8 +125,7 @@ const Login = () => {
     }, [fetchCaptchaBlob]);
 
     // Initialize session sequentially on mount:
-    // 1. Clear old stale cookies and fetch fresh login page + CSRF token
-    // 2. Fetch captcha image associated with that fresh session
+    // Uses fast single-hop endpoint when available, with resilient legacy fallback
     useEffect(() => {
         if (hasInitRan.current) return;
         hasInitRan.current = true;
@@ -124,18 +135,27 @@ const Login = () => {
                 setIsFetchingCaptcha(true);
                 setError('');
 
-                // Step 1: Establish fresh ERP session and obtain CSRF token
-                const { csrfToken: token } = await erpService.getInitialState();
-                setCsrfToken(token);
-
-                // Step 2: Fetch captcha on this exact fresh session
-                const blob = await fetchCaptchaBlob();
-                if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
-                    URL.revokeObjectURL(captchaUrlRef.current);
+                // Step 1: Attempt fast single round-trip session & captcha init
+                const session = await erpService.getSessionInit();
+                if (session && session.csrfToken) {
+                    setCsrfToken(session.csrfToken);
+                    if (session.captchaUrl) {
+                        if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
+                            URL.revokeObjectURL(captchaUrlRef.current);
+                        }
+                        captchaUrlRef.current = session.captchaUrl;
+                        setCaptchaUrl(session.captchaUrl);
+                    } else {
+                        // Fetch captcha image if not bundled in response
+                        const blob = await fetchCaptchaBlob();
+                        if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
+                            URL.revokeObjectURL(captchaUrlRef.current);
+                        }
+                        const objectUrl = URL.createObjectURL(blob);
+                        captchaUrlRef.current = objectUrl;
+                        setCaptchaUrl(objectUrl);
+                    }
                 }
-                const objectUrl = URL.createObjectURL(blob);
-                captchaUrlRef.current = objectUrl;
-                setCaptchaUrl(objectUrl);
 
                 // If credentials were remembered, auto-focus captcha field
                 if (savedId && savedPass) {
@@ -264,7 +284,7 @@ const Login = () => {
                                 type="text"
                                 value={idNumber}
                                 onChange={(e) => setIdNumber(e.target.value)}
-                                placeholder="e.g. 2400030358"
+                                placeholder="Enter Student ID"
                                 className="w-full bg-white border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-semibold shadow-sm"
                             />
                         </div>

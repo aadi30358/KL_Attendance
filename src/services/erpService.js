@@ -53,6 +53,63 @@ export const erpService = {
     saveErpCookiesFromResponse,
     clearStoredErpCookies,
 
+    // Ultra-fast session & captcha initialization in a single round-trip
+    async getSessionInit() {
+        clearStoredErpCookies();
+        const apiBase = getErpBase();
+        if (apiBase) {
+            try {
+                const resp = await fetch(`${apiBase}/api/session-init`, {
+                    headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.success && data.csrfToken && data.captchaUrl) {
+                        saveErpCookiesFromResponse(resp);
+                        if (data.cookies) {
+                            sessionStorage.setItem('erp_session_cookie', data.cookies);
+                            localStorage.setItem('erp_session_cookie', data.cookies);
+                        }
+                        return {
+                            csrfToken: data.csrfToken,
+                            captchaUrl: data.captchaUrl
+                        };
+                    }
+                }
+            } catch (e) {
+                console.warn("[ERP] Fast session-init unavailable, falling back to direct:", e);
+            }
+        }
+
+        // Fallback to legacy getInitialState
+        return this.getInitialState();
+    },
+
+    // Ultra-fast captcha refresh in a single round-trip
+    async fastRefreshCaptcha() {
+        const apiBase = getErpBase();
+        if (apiBase) {
+            try {
+                const headers = buildErpHeaders({ 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' });
+                const resp = await fetch(`${apiBase}/api/refresh-captcha`, { headers });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.success && data.captchaUrl) {
+                        saveErpCookiesFromResponse(resp);
+                        if (data.cookies) {
+                            sessionStorage.setItem('erp_session_cookie', data.cookies);
+                            localStorage.setItem('erp_session_cookie', data.cookies);
+                        }
+                        return data.captchaUrl;
+                    }
+                }
+            } catch (e) {
+                console.warn("[ERP] Fast refresh-captcha unavailable, falling back to direct:", e);
+            }
+        }
+        return null;
+    },
+
     // Fetch the login page to scrape CSRF token and establish a clean ERP session
     async getInitialState() {
         // ALWAYS clear stale cookies so ERP issues a fresh, active PHPSESSID

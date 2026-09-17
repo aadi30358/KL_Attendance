@@ -274,6 +274,147 @@ app.all('/index.php', async (req, res) => {
     }
 });
 
+// Fast Session & Captcha Initialization Endpoint
+app.get('/api/session-init', async (req, res) => {
+    try {
+        const erpUrl = 'https://newerp.kluniversity.in/index.php';
+        const response = await fetch(erpUrl, {
+            headers: {
+                'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'host': 'newerp.kluniversity.in',
+                'origin': 'https://newerp.kluniversity.in',
+                'referer': 'https://newerp.kluniversity.in/'
+            }
+        });
+
+        let setCookies = [];
+        if (typeof response.headers.getSetCookie === 'function') {
+            setCookies = response.headers.getSetCookie();
+        } else if (typeof response.headers.raw === 'function') {
+            setCookies = response.headers.raw()['set-cookie'] || [response.headers.get('set-cookie')].filter(Boolean);
+        } else {
+            const val = response.headers.get('set-cookie');
+            if (val) setCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+        }
+
+        const cookiePairs = setCookies.map(c => c.split(';')[0].trim()).join('; ');
+        const html = await response.text();
+        const csrfMatch = html.match(/name="csrf-token"\s+content="([^"]+)"/i) || html.match(/content="([^"]+)"\s+name="csrf-token"/i);
+        const csrfToken = csrfMatch ? csrfMatch[1] : '';
+
+        const imgMatch = html.match(/id="loginFormCaptcha-image"\s+src="([^"]+)"/i);
+        let captchaImgUrl = imgMatch ? imgMatch[1].replace(/&amp;/g, '&') : '/index.php?r=site%2Fcaptcha';
+        if (!captchaImgUrl.startsWith('http')) {
+            captchaImgUrl = 'https://newerp.kluniversity.in' + (captchaImgUrl.startsWith('/') ? '' : '/') + captchaImgUrl;
+        }
+
+        const imgResp = await fetch(captchaImgUrl, {
+            headers: {
+                'cookie': cookiePairs,
+                'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'host': 'newerp.kluniversity.in',
+                'referer': 'https://newerp.kluniversity.in/'
+            }
+        });
+        const imgBuf = Buffer.from(await imgResp.arrayBuffer());
+        const captchaBase64 = `data:image/png;base64,${imgBuf.toString('base64')}`;
+
+        if (cookiePairs) {
+            res.setHeader('x-set-erp-cookie', cookiePairs);
+            const rewrittenCookies = setCookies.map(cookie => {
+                let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');
+                newCookie = newCookie.replace(/SameSite=[^;]+;?/gi, '');
+                newCookie = newCookie.replace(/Secure;?/gi, '');
+                newCookie = newCookie.replace(/Partitioned;?/gi, '');
+                newCookie = newCookie.trim().replace(/;+$/, '');
+                newCookie += '; SameSite=None; Secure; Partitioned';
+                return newCookie.trim();
+            });
+            res.setHeader('Set-Cookie', rewrittenCookies);
+        }
+
+        res.json({
+            success: true,
+            csrfToken,
+            captchaUrl: captchaBase64,
+            cookies: cookiePairs
+        });
+    } catch (e) {
+        console.error("session-init error:", e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Fast Captcha Refresh Endpoint
+app.get('/api/refresh-captcha', async (req, res) => {
+    try {
+        const clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
+        const refreshUrl = 'https://newerp.kluniversity.in/index.php?r=site%2Fcaptcha&refresh=1';
+        const refreshResp = await fetch(refreshUrl, {
+            headers: {
+                'cookie': clientCookie,
+                'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'host': 'newerp.kluniversity.in',
+                'referer': 'https://newerp.kluniversity.in/'
+            }
+        });
+
+        let setCookies = [];
+        if (typeof refreshResp.headers.getSetCookie === 'function') {
+            setCookies = refreshResp.headers.getSetCookie();
+        } else if (typeof refreshResp.headers.raw === 'function') {
+            setCookies = refreshResp.headers.raw()['set-cookie'] || [refreshResp.headers.get('set-cookie')].filter(Boolean);
+        } else {
+            const val = refreshResp.headers.get('set-cookie');
+            if (val) setCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+        }
+
+        const cookiePairs = setCookies.map(c => c.split(';')[0].trim()).join('; ');
+        const mergedCookies = [clientCookie, cookiePairs].filter(Boolean).join('; ');
+
+        const data = await refreshResp.json();
+        let targetImg = data && data.url ? data.url : '/index.php?r=site%2Fcaptcha';
+        if (!targetImg.startsWith('http')) {
+            targetImg = 'https://newerp.kluniversity.in' + (targetImg.startsWith('/') ? '' : '/') + targetImg;
+        }
+
+        const imgResp = await fetch(targetImg, {
+            headers: {
+                'cookie': mergedCookies,
+                'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'host': 'newerp.kluniversity.in',
+                'referer': 'https://newerp.kluniversity.in/'
+            }
+        });
+        const imgBuf = Buffer.from(await imgResp.arrayBuffer());
+        const captchaBase64 = `data:image/png;base64,${imgBuf.toString('base64')}`;
+
+        if (cookiePairs) {
+            res.setHeader('x-set-erp-cookie', cookiePairs);
+            const rewrittenCookies = setCookies.map(cookie => {
+                let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');
+                newCookie = newCookie.replace(/SameSite=[^;]+;?/gi, '');
+                newCookie = newCookie.replace(/Secure;?/gi, '');
+                newCookie = newCookie.replace(/Partitioned;?/gi, '');
+                newCookie = newCookie.trim().replace(/;+$/, '');
+                newCookie += '; SameSite=None; Secure; Partitioned';
+                return newCookie.trim();
+            });
+            res.setHeader('Set-Cookie', rewrittenCookies);
+        }
+
+        res.json({
+            success: true,
+            captchaUrl: captchaBase64,
+            cookies: mergedCookies
+        });
+    } catch (e) {
+        console.error("refresh-captcha error:", e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Gemini Proxy Endpoint
 app.post('/api/ai/gemini', async (req, res) => {
     try {
