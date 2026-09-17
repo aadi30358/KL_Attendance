@@ -160,6 +160,11 @@ app.all('/index.php', async (req, res) => {
         // If login returns 302 redirect, follow it internally with accumulated cookies to fetch the dashboard directly!
         if (response.status === 302 && (req.url.includes('site%2Flogin') || req.url.includes('site/login'))) {
             let nextLoc = response.headers.get('location') || '/index.php?r=site%2Findexindi';
+            // If redirect is /index.php, ERP always issues an extra 302 redirect to site/indexindi for logged-in students.
+            // Fast-track directly to site/indexindi to eliminate an entire HTTP round-trip (saving 400-600ms of lag).
+            if (!nextLoc.includes('indexindi') && (nextLoc.endsWith('/index.php') || nextLoc.endsWith('index.php') || nextLoc === '/')) {
+                nextLoc = '/index.php?r=site%2Findexindi';
+            }
             let currentTarget = nextLoc.startsWith('http') 
                 ? nextLoc.replace(/^http:/i, 'https:') 
                 : 'https://newerp.kluniversity.in' + (nextLoc.startsWith('/') ? '' : '/') + nextLoc;
@@ -186,12 +191,14 @@ app.all('/index.php', async (req, res) => {
                     .join('; ');
 
                 console.log(`[ERP Proxy] Follow redirect hop #${redirectCount + 1}: ${currentTarget}`);
+                const redirectHeaders = { ...cleanHeaders };
+                delete redirectHeaders['content-type'];
+                delete redirectHeaders['content-length'];
+                redirectHeaders['cookie'] = currentCookieStr;
+
                 finalResp = await fetch(currentTarget, {
                     method: 'GET',
-                    headers: {
-                        ...cleanHeaders,
-                        cookie: currentCookieStr
-                    },
+                    headers: redirectHeaders,
                     redirect: 'manual'
                 });
 
@@ -412,6 +419,152 @@ app.get('/api/refresh-captcha', async (req, res) => {
     } catch (e) {
         console.error("refresh-captcha error:", e);
         res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Ultra-fast Login Endpoint (Sub-second login without lag)
+app.post('/api/fast-login', async (req, res) => {
+    try {
+        const { username, password, captcha, csrfToken } = req.body;
+        const clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
+
+        if (!username || !password || !captcha) {
+            return res.status(400).json({ success: false, error: 'Student ID, Password, and Captcha code are required.' });
+        }
+
+        const formData = new URLSearchParams();
+        if (csrfToken) formData.append('_csrf', csrfToken);
+        formData.append('LoginForm[username]', username.trim());
+        formData.append('LoginForm[password]', password);
+        formData.append('LoginForm[rememberMe]', '0');
+        formData.append('LoginForm[captcha]', captcha.trim());
+        formData.append('LoginForm[qr_code]', '');
+        formData.append('login-button', '');
+
+        const loginResp = await fetch('https://newerp.kluniversity.in/index.php?r=site%2Flogin', {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/x-www-form-urlencoded',
+                'cookie': clientCookie,
+                'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'host': 'newerp.kluniversity.in',
+                'origin': 'https://newerp.kluniversity.in',
+                'referer': 'https://newerp.kluniversity.in/',
+                'x-csrf-token': csrfToken || ''
+            },
+            body: formData.toString(),
+            redirect: 'manual'
+        });
+
+        // Collect cookies from login response
+        let setCookies = [];
+        if (typeof loginResp.headers.getSetCookie === 'function') {
+            setCookies = loginResp.headers.getSetCookie();
+        } else if (typeof loginResp.headers.raw === 'function') {
+            setCookies = loginResp.headers.raw()['set-cookie'] || [loginResp.headers.get('set-cookie')].filter(Boolean);
+        } else {
+            const val = loginResp.headers.get('set-cookie');
+            if (val) setCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+        }
+
+        const cookieMap = new Map();
+        if (clientCookie) {
+            clientCookie.split(';').forEach(p => {
+                const [k, ...v] = p.split('=');
+                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+            });
+        }
+        setCookies.forEach(c => {
+            const pair = c.split(';')[0];
+            const [k, ...v] = pair.split('=');
+            if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+        });
+
+        // If status is 302, authentication succeeded!
+        if (loginResp.status === 302) {
+            let nextLoc = loginResp.headers.get('location') || '/index.php?r=site%2Findexindi';
+            if (!nextLoc.includes('indexindi') && (nextLoc.endsWith('/index.php') || nextLoc.endsWith('index.php') || nextLoc === '/')) {
+                nextLoc = '/index.php?r=site%2Findexindi';
+            }
+            let currentTarget = nextLoc.startsWith('http')
+                ? nextLoc.replace(/^http:/i, 'https:')
+                : 'https://newerp.kluniversity.in' + (nextLoc.startsWith('/') ? '' : '/') + nextLoc;
+
+            const cookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+
+            // Fetch dashboard in 1 direct hop
+            const dashResp = await fetch(currentTarget, {
+                method: 'GET',
+                headers: {
+                    'cookie': cookieStr,
+                    'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                    'host': 'newerp.kluniversity.in',
+                    'referer': 'https://newerp.kluniversity.in/'
+                },
+                redirect: 'manual'
+            });
+
+            let dashSetCookies = [];
+            if (typeof dashResp.headers.getSetCookie === 'function') {
+                dashSetCookies = dashResp.headers.getSetCookie();
+            } else if (typeof dashResp.headers.raw === 'function') {
+                dashSetCookies = dashResp.headers.raw()['set-cookie'] || [dashResp.headers.get('set-cookie')].filter(Boolean);
+            } else {
+                const val = dashResp.headers.get('set-cookie');
+                if (val) dashSetCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+            }
+            dashSetCookies.forEach(c => {
+                const pair = c.split(';')[0];
+                const [k, ...v] = pair.split('=');
+                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+            });
+
+            const allCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+            const dashHtml = await dashResp.text();
+
+            res.setHeader('x-set-erp-cookie', allCookies);
+            const rewrittenCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}; path=/; SameSite=None; Secure; Partitioned`);
+            res.setHeader('Set-Cookie', rewrittenCookies);
+
+            return res.json({
+                success: true,
+                cookies: allCookies,
+                html: dashHtml
+            });
+        }
+
+        // Authentication failed - parse ERP error message
+        const failHtml = await loginResp.text();
+        const allCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+        res.setHeader('x-set-erp-cookie', allCookies);
+
+        let errorMsg = 'Incorrect username or password. Please verify your credentials.';
+        const pwdMatch = failHtml.match(/class="[^"]*(?:field-loginFormPasswordID|field-loginform-password)[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
+        const capMatch = failHtml.match(/class="[^"]*(?:field-loginFormCaptcha|field-loginform-captcha)[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
+        const usrMatch = failHtml.match(/class="[^"]*(?:field-loginFormUserNameID|field-loginform-username)[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
+        const anyMatch = failHtml.match(/class="[^"]*has-error[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
+        const alertMatch = failHtml.match(/class="[^"]*(?:alert-danger|error-summary)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+
+        if (capMatch && capMatch[1].trim()) {
+            errorMsg = capMatch[1].trim();
+        } else if (pwdMatch && pwdMatch[1].trim()) {
+            errorMsg = pwdMatch[1].trim();
+        } else if (usrMatch && usrMatch[1].trim()) {
+            errorMsg = usrMatch[1].trim();
+        } else if (anyMatch && anyMatch[1].trim()) {
+            errorMsg = anyMatch[1].trim();
+        } else if (alertMatch && alertMatch[1].trim()) {
+            errorMsg = alertMatch[1].replace(/<[^>]+>/g, '').trim();
+        }
+
+        return res.status(401).json({
+            success: false,
+            error: errorMsg,
+            cookies: allCookies
+        });
+    } catch (err) {
+        console.error("fast-login error:", err);
+        return res.status(500).json({ success: false, error: err.message });
     }
 });
 

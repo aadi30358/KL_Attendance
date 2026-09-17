@@ -132,8 +132,51 @@ export const erpService = {
         return { csrfToken };
     },
 
-    // Login function
+    // Login function - sub-second fast path with resilient fallback
     async login(username, password, captcha, csrfToken) {
+        const apiBase = getErpBase();
+        const storedCookie = getStoredErpCookies();
+
+        // 1. Ultra-fast direct backend login (sub-second response, zero client DOM parsing lag)
+        if (apiBase) {
+            try {
+                const fastResp = await fetch(`${apiBase}/api/fast-login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Pragma': 'no-cache',
+                        'Cache-Control': 'no-cache',
+                        ...(storedCookie ? { 'x-erp-cookie': storedCookie } : {})
+                    },
+                    body: JSON.stringify({ username, password, captcha, csrfToken })
+                });
+
+                saveErpCookiesFromResponse(fastResp);
+                const fastData = await fastResp.json();
+
+                if (fastData.cookies) {
+                    sessionStorage.setItem('erp_session_cookie', fastData.cookies);
+                    localStorage.setItem('erp_session_cookie', fastData.cookies);
+                }
+
+                if (fastResp.ok && fastData.success) {
+                    console.log("[ERP] Fast login succeeded in single hop!");
+                    return { success: true, html: fastData.html };
+                }
+
+                if (fastData && fastData.error) {
+                    throw new Error(fastData.error);
+                }
+            } catch (err) {
+                // If it's a real authentication error (e.g. wrong password/captcha), throw immediately
+                if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError')) {
+                    throw err;
+                }
+                console.warn("[ERP] Fast login endpoint unavailable, falling back to proxy:", err);
+            }
+        }
+
+        // 2. Resilient fallback to legacy proxy submission
         const formData = new URLSearchParams();
         formData.append('_csrf', csrfToken);
         formData.append('LoginForm[username]', username);

@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
 
   <!-- SEO Meta Tags -->
   <title>KL Attendance Manager | Track LTPS & Academic Status</title>
@@ -29,21 +29,20 @@
 
   <!-- PWA Related -->
   <link rel="manifest" href="manifest.json">
-
   <meta name="theme-color" content="#317EFB">
-  
   <link rel="apple-touch-icon" href="icon-192.png" />
 
-  
-  <style>
-    /* Prevent pull-to-refresh on mobile PWA for a more native feel */
-    body {
-      overscroll-behavior-y: contain;
-    }
-  </style>
+  <!-- Pre-warm and preconnect to backend -->
+  <link rel="dns-prefetch" href="https://kl-attendance-backend.onrender.com">
+  <link rel="preconnect" href="https://kl-attendance-backend.onrender.com" crossorigin>
+  <script>
+    try {
+      fetch('https://kl-attendance-backend.onrender.com/api/health', { mode: 'no-cors', cache: 'no-store' });
+    } catch (e) {}
+  </script>
 </head>
 
-<body>
+<body class="bg-slate-50 text-slate-900">
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
 </body>

@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import AnnouncementBanner from './components/AnnouncementBanner';
+import { APP_CONFIG } from './config';
 
 import { AuthProvider } from './context/AuthContext';
 
@@ -15,13 +17,24 @@ import AcademicCalendar from './pages/AcademicCalendar';
 import Login from './pages/Login';
 import AttendanceRegister from './pages/AttendanceRegister';
 import Predictor from './pages/Predictor';
+import PublicHolidays from './pages/PublicHolidays';
 import UserProfile from './pages/UserProfile';
 
 import { HelmetProvider } from 'react-helmet-async';
 
-
-
 const AppWithAuth = () => {
+  // Keep backend warm to eliminate cold starts and lag
+  useEffect(() => {
+    const pingBackend = () => {
+      const url = `${APP_CONFIG.API_URL || ''}/api/health`;
+      if (url.startsWith('http')) {
+        fetch(url, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+      }
+    };
+    pingBackend();
+    const interval = setInterval(pingBackend, 4 * 60 * 1000); // every 4 minutes
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-900">
@@ -37,6 +50,7 @@ const AppWithAuth = () => {
           <Route path="/attendance-register" element={<AttendanceRegister />} />
           <Route path="/ltps" element={<LTPSCalculator />} />
           <Route path="/calendar" element={<AcademicCalendar />} />
+          <Route path="/holidays" element={<PublicHolidays />} />
           <Route path="/study" element={<StudyHub />} />
           <Route path="/subject-attendance" element={<SubjectAttendance />} />
           <Route path="/predictor" element={<Predictor />} />
