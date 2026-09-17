@@ -1,10 +1,11 @@
-const CACHE_NAME = 'kl-attendance-v7';
+const CACHE_NAME = 'kl-attendance-v8';
 
 const ASSETS_TO_CACHE = [
   './',
   'index.html',
   'manifest.json',
   'vite.svg',
+  'noise.svg',
   'icon-192.png',
   'icon-512.png'
 ];
@@ -29,14 +30,19 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  // Only cache GET requests
-  if (event.request.method !== 'GET') return;
+  // Only handle GET requests with http/https scheme (ignores chrome-extension://, etc.)
+  if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) return;
 
   const url = new URL(event.request.url);
   
-  // CRITICAL: NEVER cache API calls or the ERP proxy
-  // If we cache /index.php, it caches a STALE CSRF token, breaking login!
-  if (url.pathname.startsWith('/api') || url.pathname.includes('index.php')) {
+  // CRITICAL: NEVER cache API calls, ERP proxy, or external backend / Firebase endpoints
+  if (
+    url.pathname.startsWith('/api') || 
+    url.pathname.includes('index.php') ||
+    url.hostname.includes('onrender.com') ||
+    url.hostname.includes('googleapis.com') ||
+    url.hostname.includes('firebaseio.com')
+  ) {
     return; // Bypass service worker entirely, go straight to network
   }
 
@@ -62,6 +68,10 @@ self.addEventListener('fetch', event => {
         return response || fetch(event.request).then(fetchResponse => {
           // Don't cache if not a valid response or if it's external
           if (!fetchResponse || fetchResponse.status !== 200 || fetchResponse.type !== 'basic') {
+            return fetchResponse;
+          }
+
+          if (!event.request.url.startsWith('http')) {
             return fetchResponse;
           }
 

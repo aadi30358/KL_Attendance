@@ -84,7 +84,7 @@ const ThreeDBackground = () => {
             </div>
 
             {/* Grainy Texture */}
-            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.04] mix-blend-overlay" />
+            <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.04] mix-blend-overlay" />
         </div>
     );
 };

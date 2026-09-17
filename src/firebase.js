@@ -19,7 +19,14 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 
-// Sign in anonymously to bypass Firestore permission-denied for read-only config
-signInAnonymously(auth).catch(err => console.error("Firebase Anonymous Auth Error:", err));
+// Sign in anonymously if enabled in Firebase Console (Authentication > Sign-in method > Anonymous)
+signInAnonymously(auth).catch(err => {
+    if (err.code === 'auth/configuration-not-found' || err.code === 'auth/admin-restricted-operation') {
+        // Safe fallback if Anonymous sign-in provider is disabled in Firebase Console
+        console.warn("Firebase Anonymous Auth is not enabled in Firebase Console (Authentication > Sign-in method > Anonymous). Continuing in guest mode.");
+    } else {
+        console.warn("Firebase Anonymous Auth notice:", err.message || err);
+    }
+});
 
 export default app;

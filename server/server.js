@@ -15,15 +15,6 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Rate limiting: 100 requests per 15 minutes
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    message: { error: "Too many requests from this IP, please try again after 15 minutes." }
-});
-
-app.use(limiter);
-
 const allowedOrigins = [
     'https://klattendancecalculator.web.app',
     'https://klattendancecalculator.firebaseapp.com',
@@ -33,6 +24,7 @@ const allowedOrigins = [
     'http://localhost:3000'
 ];
 
+// Mount CORS before rate limiting to ensure 429 and error responses include CORS headers
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin) return callback(null, true);
@@ -41,12 +33,20 @@ app.use(cors({
         if (origin.startsWith('http://192.168.') || allowedOrigins.includes(origin)) {
             return callback(null, true);
         } else {
-            // Throwing actual `new Error` here will crash Express with a 500 HTML trace! Returning `false` safely blocks instead.
             return callback(null, false);
         }
     },
     credentials: true
 }));
+
+// Rate limiting: 600 requests per 15 minutes
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 600,
+    message: { error: "Too many requests from this IP, please try again after 15 minutes." }
+});
+
+app.use(limiter);
 
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ limit: "20mb", extended: true }));
@@ -127,7 +127,7 @@ app.all('/index.php', async (req, res) => {
 
         for (const [key, value] of response.headers.entries()) {
             const lowerKey = key.toLowerCase();
-            if (lowerKey === 'content-encoding' || lowerKey === 'content-length') {
+            if (lowerKey === 'content-encoding' || lowerKey === 'content-length' || lowerKey.startsWith('access-control-')) {
                 continue;
             }
             if (lowerKey === 'set-cookie') {

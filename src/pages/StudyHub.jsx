@@ -184,7 +184,7 @@ export default function StudyHub() {
                     transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
                     className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-indigo-100/40 blur-[120px]"
                 />
-                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-overlay" />
+                <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.03] mix-blend-overlay" />
             </div>
 
             <div className="relative z-10 max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-8">

@@ -152,7 +152,7 @@ const TotalAttendance = () => {
                     transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
                     className="absolute bottom-[20%] -left-[10%] w-[50vw] h-[50vw] rounded-full bg-blue-100/40 blur-[120px]"
                 />
-                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-overlay" />
+                <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.03] mix-blend-overlay" />
             </div>
 
             <div className="relative z-10 max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8 space-y-8">

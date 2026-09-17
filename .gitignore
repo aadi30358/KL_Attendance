@@ -7,6 +7,8 @@
 server/.env
 backend/firebase_credentials.json
 pdf_text*.txt
+__pycache__/
+*.pyc
 
 
 # =========================
