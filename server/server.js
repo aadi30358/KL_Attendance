@@ -157,27 +157,85 @@ app.all('/index.php', async (req, res) => {
             res.setHeader('x-set-erp-cookie', cookiePairs);
         }
 
-        // If login returns 302 redirect, follow it internally with the new cookies to fetch the dashboard directly!
-        if (response.status === 302 && req.url.includes('site%2Flogin')) {
-            const redirectLoc = response.headers.get('location') || '/index.php';
-            const targetUrl = redirectLoc.startsWith('http') 
-                ? redirectLoc 
-                : 'https://newerp.kluniversity.in' + (redirectLoc.startsWith('/') ? '' : '/') + redirectLoc;
+        // If login returns 302 redirect, follow it internally with accumulated cookies to fetch the dashboard directly!
+        if (response.status === 302 && (req.url.includes('site%2Flogin') || req.url.includes('site/login'))) {
+            let nextLoc = response.headers.get('location') || '/index.php?r=site%2Findexindi';
+            let currentTarget = nextLoc.startsWith('http') 
+                ? nextLoc.replace(/^http:/i, 'https:') 
+                : 'https://newerp.kluniversity.in' + (nextLoc.startsWith('/') ? '' : '/') + nextLoc;
 
-            const combinedCookies = [cleanHeaders['cookie'], ...setCookies.map(c => c.split(';')[0].trim())]
-                .filter(Boolean)
-                .join('; ');
-
-            console.log(`[ERP Proxy] Login 302 -> fetching dashboard from ${targetUrl}`);
-            const dashboardResp = await fetch(targetUrl, {
-                method: 'GET',
-                headers: {
-                    ...cleanHeaders,
-                    cookie: combinedCookies
-                }
+            // Maintain a merged map of cookies across all redirect hops
+            const cookieMap = new Map();
+            if (cleanHeaders['cookie']) {
+                cleanHeaders['cookie'].split(';').forEach(pair => {
+                    const [k, ...v] = pair.split('=');
+                    if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+                });
+            }
+            setCookies.forEach(c => {
+                const pair = c.split(';')[0];
+                const [k, ...v] = pair.split('=');
+                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
             });
 
-            for (const [key, value] of dashboardResp.headers.entries()) {
+            let finalResp = null;
+            // Follow up to 5 redirect hops manually, keeping cookies intact without WHATWG fetch dropping them
+            for (let redirectCount = 0; redirectCount < 5; redirectCount++) {
+                const currentCookieStr = Array.from(cookieMap.entries())
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join('; ');
+
+                console.log(`[ERP Proxy] Follow redirect hop #${redirectCount + 1}: ${currentTarget}`);
+                finalResp = await fetch(currentTarget, {
+                    method: 'GET',
+                    headers: {
+                        ...cleanHeaders,
+                        cookie: currentCookieStr
+                    },
+                    redirect: 'manual'
+                });
+
+                // Extract any new cookies set on this hop
+                let hopCookies = [];
+                if (typeof finalResp.headers.getSetCookie === 'function') {
+                    hopCookies = finalResp.headers.getSetCookie();
+                } else if (typeof finalResp.headers.raw === 'function') {
+                    hopCookies = finalResp.headers.raw()['set-cookie'] || [finalResp.headers.get('set-cookie')].filter(Boolean);
+                } else {
+                    const val = finalResp.headers.get('set-cookie');
+                    if (val) hopCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+                }
+
+                hopCookies.forEach(c => {
+                    const pair = c.split(';')[0];
+                    const [k, ...v] = pair.split('=');
+                    if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+                });
+
+                if (finalResp.status >= 300 && finalResp.status < 400) {
+                    const loc = finalResp.headers.get('location');
+                    if (!loc) break;
+                    currentTarget = loc.startsWith('http') 
+                        ? loc.replace(/^http:/i, 'https:') 
+                        : 'https://newerp.kluniversity.in' + (loc.startsWith('/') ? '' : '/') + loc;
+                } else {
+                    break;
+                }
+            }
+
+            // Expose accumulated cookies in Set-Cookie and custom header
+            const allCookies = Array.from(cookieMap.entries())
+                .map(([k, v]) => `${k}=${v}`)
+                .join('; ');
+
+            const rewrittenAllCookies = Array.from(cookieMap.entries()).map(([k, v]) => {
+                return `${k}=${v}; path=/; SameSite=None; Secure; Partitioned`;
+            });
+
+            res.setHeader('Set-Cookie', rewrittenAllCookies);
+            res.setHeader('x-set-erp-cookie', allCookies);
+
+            for (const [key, value] of finalResp.headers.entries()) {
                 const lowerKey = key.toLowerCase();
                 if (lowerKey === 'content-encoding' || lowerKey === 'content-length' || lowerKey.startsWith('access-control-') || lowerKey === 'set-cookie') {
                     continue;
@@ -185,8 +243,8 @@ app.all('/index.php', async (req, res) => {
                 res.setHeader(key, value);
             }
 
-            res.status(200);
-            const arrayBuffer = await dashboardResp.arrayBuffer();
+            res.status(finalResp.status);
+            const arrayBuffer = await finalResp.arrayBuffer();
             return res.send(Buffer.from(arrayBuffer));
         }
 
