@@ -55,15 +55,22 @@ const Login = () => {
         try {
             // Fetch real captcha from ERP via proxy to preserve CSRF session cookies
             const apiBase = APP_CONFIG.API_URL || '';
+            const headers = {
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache'
+            };
+            const storedCookie = erpService.getStoredErpCookies();
+            if (storedCookie) {
+                headers['x-erp-cookie'] = storedCookie;
+            }
+
             const response = await fetch(`${apiBase}/index.php?r=site%2Fcaptcha&v=` + Math.random(), {
                 method: "GET",
                 credentials: "include",
                 cache: 'no-store',
-                headers: {
-                    'Pragma': 'no-cache',
-                    'Cache-Control': 'no-cache'
-                }
+                headers
             });
+            erpService.saveErpCookiesFromResponse(response);
             const blob = await response.blob();
 
             // Clean up old object URL using ref

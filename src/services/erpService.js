@@ -5,18 +5,67 @@ import { APP_CONFIG } from '../config';
 
 const getErpBase = () => APP_CONFIG.API_URL || '';
 
+export const getStoredErpCookies = () => {
+    return sessionStorage.getItem('erp_session_cookie') || localStorage.getItem('erp_session_cookie') || '';
+};
+
+export const saveErpCookiesFromResponse = (response) => {
+    try {
+        const newCookies = response.headers.get('x-set-erp-cookie');
+        if (newCookies) {
+            const existing = getStoredErpCookies();
+            const cookieMap = new Map();
+            if (existing) {
+                existing.split(';').forEach(pair => {
+                    const [k, ...v] = pair.split('=');
+                    if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+                });
+            }
+            newCookies.split(';').forEach(pair => {
+                const [k, ...v] = pair.split('=');
+                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+            });
+            const merged = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+            sessionStorage.setItem('erp_session_cookie', merged);
+            localStorage.setItem('erp_session_cookie', merged);
+        }
+    } catch (e) {
+        console.warn("[ERP] Failed to persist x-set-erp-cookie:", e);
+    }
+};
+
+export const clearStoredErpCookies = () => {
+    sessionStorage.removeItem('erp_session_cookie');
+    localStorage.removeItem('erp_session_cookie');
+};
+
+const buildErpHeaders = (extraHeaders = {}) => {
+    const headers = { ...extraHeaders };
+    const cookie = getStoredErpCookies();
+    if (cookie) {
+        headers['x-erp-cookie'] = cookie;
+    }
+    return headers;
+};
+
 export const erpService = {
+    getStoredErpCookies,
+    saveErpCookiesFromResponse,
+    clearStoredErpCookies,
+
     // Fetch the login page to scrape CSRF token
     async getInitialState() {
         const timestamp = new Date().getTime();
+        const headers = buildErpHeaders({
+            'Pragma': 'no-cache',
+            'Cache-Control': 'no-cache'
+        });
         const response = await fetch(`${getErpBase()}/index.php?_t=${timestamp}`, { 
             credentials: 'include',
             cache: 'no-store',
-            headers: {
-                'Pragma': 'no-cache',
-                'Cache-Control': 'no-cache'
-            }
+            headers
         });
+        saveErpCookiesFromResponse(response);
         const html = await response.text();
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
@@ -34,18 +83,21 @@ export const erpService = {
         formData.append('LoginForm[captcha]', captcha);
         formData.append('login-button', '');
 
+        const headers = buildErpHeaders({
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Pragma': 'no-cache',
+            'Cache-Control': 'no-cache'
+        });
+
         const response = await fetch(`${getErpBase()}/index.php?r=site%2Flogin`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Pragma': 'no-cache',
-                'Cache-Control': 'no-cache'
-            },
+            headers,
             body: formData,
-            credentials: 'include', // Guarantee the browser saves the new Set-Cookie header
+            credentials: 'include',
             cache: 'no-store'
         });
 
+        saveErpCookiesFromResponse(response);
         const html = await response.text();
 
         // Check for common error messages
@@ -98,13 +150,15 @@ export const erpService = {
                 const formData = new URLSearchParams();
                 formData.append('_csrf', csrfToken);
 
+                const headers = buildErpHeaders({
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache'
+                });
+
                 await fetch(`${getErpBase()}/index.php?r=site%2Flogout`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Pragma': 'no-cache',
-                        'Cache-Control': 'no-cache'
-                    },
+                    headers,
                     body: formData,
                     credentials: 'include',
                     cache: 'no-store'
@@ -113,6 +167,8 @@ export const erpService = {
             }
         } catch (e) {
             console.error("Failed to notify ERP of logout", e);
+        } finally {
+            clearStoredErpCookies();
         }
     },
 
@@ -147,26 +203,26 @@ export const erpService = {
             formData.append('_csrf', csrfToken);
         }
 
-        const headers = {
+        const extraHeaders = {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Requested-With': 'XMLHttpRequest'
+            'X-Requested-With': 'XMLHttpRequest',
+            'Pragma': 'no-cache',
+            'Cache-Control': 'no-cache'
         };
         if (csrfToken) {
-            headers['X-CSRF-Token'] = csrfToken;
+            extraHeaders['X-CSRF-Token'] = csrfToken;
         }
+        const headers = buildErpHeaders(extraHeaders);
 
         let response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
             method: 'POST',
-            headers: {
-                ...headers,
-                'Pragma': 'no-cache',
-                'Cache-Control': 'no-cache'
-            },
+            headers,
             body: formData,
             credentials: 'include',
             cache: 'no-store'
         });
 
+        saveErpCookiesFromResponse(response);
         let html = await response.text();
 
         if (response.status === 400 && html.includes('Unable to verify your data submission')) {
@@ -191,15 +247,12 @@ export const erpService = {
             try {
                 const indexResp = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex`, {
                     method: 'POST',
-                    headers: {
-                        ...headers,
-                        'Pragma': 'no-cache',
-                        'Cache-Control': 'no-cache'
-                    },
+                    headers,
                     body: formData,
                     credentials: 'include',
                     cache: 'no-store'
                 });
+                saveErpCookiesFromResponse(indexResp);
                 if (indexResp.ok) {
                     const indexHtml = await indexResp.text();
                     const indexSubjects = this.parseSubjects(indexHtml);
@@ -219,15 +272,17 @@ export const erpService = {
     async getAttendancePageOptions(year, semester) {
         try {
             const timestamp = new Date().getTime();
+            const headers = buildErpHeaders({
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache'
+            });
             const response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
                 method: 'GET',
                 credentials: 'include',
                 cache: 'no-store',
-                headers: {
-                    'Pragma': 'no-cache',
-                    'Cache-Control': 'no-cache'
-                }
+                headers
             });
+            saveErpCookiesFromResponse(response);
             if (response.ok) {
                 const html = await response.text();
                 const parser = new DOMParser();

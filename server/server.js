@@ -36,7 +36,8 @@ app.use(cors({
             return callback(null, false);
         }
     },
-    credentials: true
+    credentials: true,
+    exposedHeaders: ['x-set-erp-cookie', 'set-cookie', 'Location']
 }));
 
 // Rate limiting: 600 requests per 15 minutes
@@ -107,6 +108,12 @@ app.all('/index.php', async (req, res) => {
             }
         }
 
+        // Support explicit x-erp-cookie header to bypass cross-domain 3rd party cookie blocking
+        const clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
+        if (clientCookie) {
+            cleanHeaders['cookie'] = clientCookie;
+        }
+
         cleanHeaders['host'] = 'newerp.kluniversity.in';
         cleanHeaders['origin'] = 'https://newerp.kluniversity.in';
         cleanHeaders['referer'] = 'https://newerp.kluniversity.in/';
@@ -123,33 +130,74 @@ app.all('/index.php', async (req, res) => {
 
         const response = await fetch(erpUrl, fetchOptions);
 
+        let setCookies = [];
+        if (typeof response.headers.getSetCookie === 'function') {
+            setCookies = response.headers.getSetCookie();
+        } else if (typeof response.headers.raw === 'function') {
+            setCookies = response.headers.raw()['set-cookie'] || [response.headers.get('set-cookie')].filter(Boolean);
+        } else {
+            const val = response.headers.get('set-cookie');
+            if (val) setCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+        }
+
+        if (setCookies.length > 0) {
+            const rewrittenCookies = setCookies.map(cookie => {
+                let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');
+                newCookie = newCookie.replace(/SameSite=[^;]+;?/gi, '');
+                newCookie = newCookie.replace(/Secure;?/gi, '');
+                newCookie = newCookie.replace(/Partitioned;?/gi, '');
+                newCookie = newCookie.trim().replace(/;+$/, '');
+                newCookie += '; SameSite=None; Secure; Partitioned';
+                return newCookie.trim();
+            });
+            res.setHeader('Set-Cookie', rewrittenCookies);
+
+            // Expose cookies in custom header so client JS can persist in sessionStorage
+            const cookiePairs = setCookies.map(c => c.split(';')[0].trim()).join('; ');
+            res.setHeader('x-set-erp-cookie', cookiePairs);
+        }
+
+        // If login returns 302 redirect, follow it internally with the new cookies to fetch the dashboard directly!
+        if (response.status === 302 && req.url.includes('site%2Flogin')) {
+            const redirectLoc = response.headers.get('location') || '/index.php';
+            const targetUrl = redirectLoc.startsWith('http') 
+                ? redirectLoc 
+                : 'https://newerp.kluniversity.in' + (redirectLoc.startsWith('/') ? '' : '/') + redirectLoc;
+
+            const combinedCookies = [cleanHeaders['cookie'], ...setCookies.map(c => c.split(';')[0].trim())]
+                .filter(Boolean)
+                .join('; ');
+
+            console.log(`[ERP Proxy] Login 302 -> fetching dashboard from ${targetUrl}`);
+            const dashboardResp = await fetch(targetUrl, {
+                method: 'GET',
+                headers: {
+                    ...cleanHeaders,
+                    cookie: combinedCookies
+                }
+            });
+
+            for (const [key, value] of dashboardResp.headers.entries()) {
+                const lowerKey = key.toLowerCase();
+                if (lowerKey === 'content-encoding' || lowerKey === 'content-length' || lowerKey.startsWith('access-control-') || lowerKey === 'set-cookie') {
+                    continue;
+                }
+                res.setHeader(key, value);
+            }
+
+            res.status(200);
+            const arrayBuffer = await dashboardResp.arrayBuffer();
+            return res.send(Buffer.from(arrayBuffer));
+        }
+
         res.status(response.status);
 
         for (const [key, value] of response.headers.entries()) {
             const lowerKey = key.toLowerCase();
-            if (lowerKey === 'content-encoding' || lowerKey === 'content-length' || lowerKey.startsWith('access-control-')) {
+            if (lowerKey === 'content-encoding' || lowerKey === 'content-length' || lowerKey.startsWith('access-control-') || lowerKey === 'set-cookie') {
                 continue;
             }
-            if (lowerKey === 'set-cookie') {
-                let setCookies = [];
-                if (typeof response.headers.getSetCookie === 'function') {
-                    setCookies = response.headers.getSetCookie();
-                } else if (typeof response.headers.raw === 'function') {
-                    setCookies = response.headers.raw()['set-cookie'] || [value];
-                } else {
-                    setCookies = value.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
-                }
-
-                const rewrittenCookies = setCookies.map(cookie => {
-                    let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');
-                    newCookie = newCookie.replace(/SameSite=[^;]+;?/gi, '');
-                    newCookie = newCookie.replace(/Secure;?/gi, '');
-                    newCookie = newCookie.trim().replace(/;+$/, '');
-                    newCookie += '; SameSite=None; Secure';
-                    return newCookie.trim();
-                });
-                res.setHeader('Set-Cookie', rewrittenCookies);
-            } else if (lowerKey === 'location') {
+            if (lowerKey === 'location') {
                 const rewrittenLocation = value.replace(/^https?:\/\/newerp\.kluniversity\.in/i, '');
                 res.setHeader('Location', rewrittenLocation.replace(/^http:/i, 'https:'));
             } else {
