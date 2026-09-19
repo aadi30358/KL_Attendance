@@ -1,29 +1,83 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, RotateCcw, History, ArrowLeft, ArrowRight, Star, CheckCircle, Calculator, ExternalLink, Copy } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Download, RotateCcw, History, ArrowLeft, ArrowRight, Star, CheckCircle, Calculator, Flame, Clock } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { cn } from '../lib/utils';
 import Confetti from 'react-confetti';
-import { doc, getDoc } from "firebase/firestore";
-import { db } from '../firebase';
+
 
 const LTPSCalculator = () => {
     const [subject, setSubject] = useState('');
-    const [lect, setLect] = useState('');
-    const [tut, setTut] = useState('');
-    const [pract, setPract] = useState('');
-    const [skill, setSkill] = useState('');
+    const [classData, setClassData] = useState({
+        lect: { att: '', cond: '' },
+        tut: { att: '', cond: '' },
+        pract: { att: '', cond: '' },
+        skill: { att: '', cond: '' }
+    });
     const [attendancePercentage, setAttendancePercentage] = useState('');
+    const [exactPercentage, setExactPercentage] = useState(null);
     const [errorMessage, setErrorMessage] = useState('');
     const [analysis, setAnalysis] = useState(null);
     const [history, setHistory] = useState([]);
     const [showHistory, setShowHistory] = useState(false);
     const [currentHistoryPage, setCurrentHistoryPage] = useState(0);
     const [showConfetti, setShowConfetti] = useState(false);
+    const [bunkSim, setBunkSim] = useState({ lect: 0, tut: 0, pract: 0, skill: 0 });
     const [windowSize, setWindowSize] = useState({
         width: window.innerWidth,
         height: window.innerHeight,
     });
+
+    const bunkProjection = useMemo(() => {
+        let currentAttW = 0;
+        let currentCondW = 0;
+        const comps = [
+            { k: 'lect', w: 100 },
+            { k: 'tut', w: 100 },
+            { k: 'pract', w: 50 },
+            { k: 'skill', w: 25 }
+        ];
+
+        let totalBunks = 0;
+        let extraCondW = 0;
+
+        comps.forEach(({ k, w }) => {
+            const c = parseInt(classData[k]?.cond, 10) || 0;
+            const a = parseInt(classData[k]?.att, 10) || 0;
+            const b = parseInt(bunkSim[k], 10) || 0;
+
+            if (c > 0) {
+                currentAttW += a * w;
+                currentCondW += c * w;
+            }
+            if (b > 0) {
+                totalBunks += b;
+                extraCondW += b * w;
+            }
+        });
+
+        if (currentCondW === 0) return null;
+
+        const currentPct = (currentAttW / currentCondW) * 100;
+        const newCondW = currentCondW + extraCondW;
+        const newPct = (currentAttW / newCondW) * 100;
+
+        const currentCeil = Math.ceil(currentPct);
+        const newCeil = Math.ceil(newPct);
+        const drop = parseFloat((currentPct - newPct).toFixed(2));
+
+        return {
+            currentCeil,
+            newCeil,
+            newExact: parseFloat(newPct.toFixed(2)),
+            drop,
+            totalBunks,
+            isSafe: newCeil >= 85,
+            isWarning: newCeil >= 75 && newCeil < 85,
+            isDanger: newCeil < 75
+        };
+    }, [classData, bunkSim]);
 
     useEffect(() => {
         const handleResize = () => {
@@ -37,26 +91,14 @@ const LTPSCalculator = () => {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    const [weights, setWeights] = useState({
+    // Official KL University ERP Component Weights
+    // L: 1.0 (100%), T: 1.0 (100%), P: 0.5 (50%), S: 0.25 (25%)
+    const weights = {
         lecture: 100,
         tutorial: 100,
         practical: 50,
         skill: 25
-    });
-
-    useEffect(() => {
-        const fetchWeights = async () => {
-            try {
-                const docSnap = await getDoc(doc(db, "config", "weights"));
-                if (docSnap.exists()) {
-                    setWeights(docSnap.data());
-                }
-            } catch (e) {
-                console.error("Failed to load custom weights from Firebase", e);
-            }
-        };
-        fetchWeights();
-    }, []);
+    };
 
     const ITEMS_PER_PAGE = windowSize.width > 768 ? 6 : 3;
     const totalPages = Math.ceil(history.length / ITEMS_PER_PAGE);
@@ -66,30 +108,6 @@ const LTPSCalculator = () => {
         if (percentage >= 75) return 'Good';
         if (percentage >= 65) return 'Average';
         return 'Needs Improvement';
-    };
-
-    const getComponentAnalysis = () => {
-        const analysis = [];
-        const enteredComponents = {
-            Lecture: lect !== '' ? parseFloat(lect) : null,
-            Tutorial: tut !== '' ? parseFloat(tut) : null,
-            Practical: pract !== '' ? parseFloat(pract) : null,
-            Skill: skill !== '' ? parseFloat(skill) : null
-        };
-
-        Object.entries(enteredComponents).forEach(([component, value]) => {
-            if (value !== null) {
-                if (value >= 85) {
-                    analysis.push(`${component}: Excellent (${value}%) ⭐⭐⭐`);
-                } else if (value >= 75) {
-                    analysis.push(`${component}: Good (${value}%) ⭐⭐`);
-                } else {
-                    analysis.push(`${component}: Needs improvement (${value}%) ⭐`);
-                }
-            }
-        });
-
-        return analysis;
     };
 
     const getRecommendation = (percentage) => {
@@ -104,16 +122,25 @@ const LTPSCalculator = () => {
         }
 
         const enteredComponents = [];
-        if (lect !== '') enteredComponents.push({ name: 'Lecture', value: parseFloat(lect) });
-        if (tut !== '') enteredComponents.push({ name: 'Tutorial', value: parseFloat(tut) });
-        if (pract !== '') enteredComponents.push({ name: 'Practical', value: parseFloat(pract) });
-        if (skill !== '') enteredComponents.push({ name: 'Skill', value: parseFloat(skill) });
+        const comps = [
+            { name: 'Lecture', att: classData.lect.att, cond: classData.lect.cond },
+            { name: 'Tutorial', att: classData.tut.att, cond: classData.tut.cond },
+            { name: 'Practical', att: classData.pract.att, cond: classData.pract.cond },
+            { name: 'Skill', att: classData.skill.att, cond: classData.skill.cond }
+        ];
+
+        comps.forEach(c => {
+            if (c.cond !== '' && parseInt(c.cond, 10) > 0) {
+                const pct = (parseInt(c.att || 0, 10) / parseInt(c.cond, 10)) * 100;
+                enteredComponents.push({ name: c.name, value: pct });
+            }
+        });
 
         enteredComponents.sort((a, b) => a.value - b.value);
 
         enteredComponents.forEach(comp => {
             if (comp.value < 75) {
-                recommendations.push(`${comp.name} attendance is critical at ${comp.value}% - needs immediate attention`);
+                recommendations.push(`${comp.name} attendance is critical at ${comp.value.toFixed(1)}% - needs immediate attention`);
                 recommendations.push(`Aim to attend next 5 ${comp.name} sessions consistently`);
             }
         });
@@ -121,26 +148,32 @@ const LTPSCalculator = () => {
         return recommendations;
     };
 
-    const handleInputChange = (setter) => (event) => {
-        const value = event.target.value;
-        if (value === '' || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
-            setter(value);
-            setErrorMessage('');
-        } else {
-            setErrorMessage('Please enter a value between 0 and 100');
-        }
+    const handleClassChange = (comp, field) => (event) => {
+        const val = event.target.value;
+        setClassData(prev => ({
+            ...prev,
+            [comp]: {
+                ...prev[comp],
+                [field]: val
+            }
+        }));
+        setErrorMessage('');
     };
 
     const resetForm = () => {
         setSubject('');
-        setLect('');
-        setTut('');
-        setPract('');
-        setSkill('');
+        setClassData({
+            lect: { att: '', cond: '' },
+            tut: { att: '', cond: '' },
+            pract: { att: '', cond: '' },
+            skill: { att: '', cond: '' }
+        });
         setAttendancePercentage('');
+        setExactPercentage(null);
         setErrorMessage('');
         setAnalysis(null);
         setShowConfetti(false);
+        setBunkSim({ lect: 0, tut: 0, pract: 0, skill: 0 });
     };
 
     const generatePDF = () => {
@@ -155,7 +188,8 @@ const LTPSCalculator = () => {
         if (subject) {
             doc.text(`Subject: ${subject}`, 20, 40);
         }
-        doc.text(`Overall Attendance: ${attendancePercentage}%`, 20, 50);
+        const pctText = exactPercentage ? `${attendancePercentage}% (Exact: ${exactPercentage}%)` : `${attendancePercentage}%`;
+        doc.text(`Overall Attendance: ${pctText}`, 20, 50);
         doc.text(`Status: ${analysis.status}`, 20, 60);
 
         doc.setFontSize(16);
@@ -185,65 +219,89 @@ const LTPSCalculator = () => {
     };
 
     const calculateTotal = () => {
-        let totalWeight = 0;
-        let totalScore = 0;
-
-        const components = [
-            { value: lect, weight: weights.lecture },
-            { value: tut, weight: weights.tutorial },
-            { value: pract, weight: weights.practical },
-            { value: skill, weight: weights.skill }
+        const comps = [
+            { id: 'lect', name: 'Lecture (L)', att: classData.lect.att, cond: classData.lect.cond, weight: weights.lecture / 100 },
+            { id: 'tut', name: 'Tutorial / Theory (T)', att: classData.tut.att, cond: classData.tut.cond, weight: weights.tutorial / 100 },
+            { id: 'pract', name: 'Practical (P)', att: classData.pract.att, cond: classData.pract.cond, weight: weights.practical / 100 },
+            { id: 'skill', name: 'Skill (S)', att: classData.skill.att, cond: classData.skill.cond, weight: weights.skill / 100 }
         ];
 
+        let totalWeightedAttended = 0;
+        let totalWeightedConducted = 0;
         let hasValidInput = false;
-        components.forEach(comp => {
-            if (comp.value !== '') {
+
+        for (const comp of comps) {
+            if (comp.cond !== '' || comp.att !== '') {
                 hasValidInput = true;
-                if (parseFloat(comp.value) < 0 || parseFloat(comp.value) > 100) {
-                    setErrorMessage('Please enter valid percentages between 0 and 100');
+                const cond = parseInt(comp.cond, 10) || 0;
+                const att = parseInt(comp.att, 10) || 0;
+
+                if (cond < 0 || att < 0) {
+                    setErrorMessage(`Classes cannot be negative for ${comp.name}`);
                     return;
                 }
-                totalWeight += comp.weight;
-                totalScore += parseFloat(comp.value) * (comp.weight / 100);
-            }
-        });
+                if (att > cond) {
+                    setErrorMessage(`Attended classes (${att}) cannot exceed conducted (${cond}) for ${comp.name}`);
+                    return;
+                }
 
-        if (!hasValidInput) {
-            setErrorMessage('Please enter at least one component');
+                totalWeightedConducted += cond * comp.weight;
+                totalWeightedAttended += att * comp.weight;
+            }
+        }
+
+        if (!hasValidInput || totalWeightedConducted === 0) {
+            setErrorMessage('Please enter conducted and attended classes for at least one component');
             return;
         }
 
-        const calculatedPercentage = Math.ceil((totalScore / totalWeight) * 100);
-        const roundedPercentage = calculatedPercentage;
+        const rawPct = (totalWeightedAttended / totalWeightedConducted) * 100;
+        const exact = parseFloat(rawPct.toFixed(2));
+        const ceilPct = Math.ceil(rawPct);
 
-        setAttendancePercentage(roundedPercentage);
+        setExactPercentage(exact);
+        setAttendancePercentage(ceilPct);
         setErrorMessage('');
 
-        const componentValues = {
-            lect: parseFloat(lect) || 0,
-            tut: parseFloat(tut) || 0,
-            pract: parseFloat(pract) || 0,
-            skill: parseFloat(skill) || 0
-        };
+        const componentAnalysis = [];
+        comps.forEach(comp => {
+            if (comp.cond !== '') {
+                const cond = parseInt(comp.cond, 10) || 0;
+                const att = parseInt(comp.att, 10) || 0;
+                const compPct = cond > 0 ? parseFloat(((att / cond) * 100).toFixed(2)) : 0;
+                if (compPct >= 85) {
+                    componentAnalysis.push(`${comp.name}: Excellent (${att}/${cond} · ${compPct}%) ⭐⭐⭐`);
+                } else if (compPct >= 75) {
+                    componentAnalysis.push(`${comp.name}: Good (${att}/${cond} · ${compPct}%) ⭐⭐`);
+                } else {
+                    componentAnalysis.push(`${comp.name}: Needs improvement (${att}/${cond} · ${compPct}%) ⭐`);
+                }
+            }
+        });
 
         const newAnalysis = {
-            status: getAttendanceStatus(calculatedPercentage),
-            componentAnalysis: getComponentAnalysis(),
-            recommendations: getRecommendation(calculatedPercentage)
+            status: getAttendanceStatus(ceilPct),
+            componentAnalysis,
+            recommendations: getRecommendation(ceilPct)
         };
-
         setAnalysis(newAnalysis);
 
-        if (parseFloat(roundedPercentage) >= 85) {
+        if (parseFloat(ceilPct) >= 85) {
             setShowConfetti(true);
             setTimeout(() => setShowConfetti(false), 5000);
         }
 
         setHistory(prev => [{
             subject,
-            percentage: roundedPercentage,
+            percentage: exact,
+            erpCeil: ceilPct,
             timestamp: new Date().toLocaleString(),
-            components: componentValues,
+            components: {
+                lect: classData.lect.cond ? `${classData.lect.att}/${classData.lect.cond}` : null,
+                tut: classData.tut.cond ? `${classData.tut.att}/${classData.tut.cond}` : null,
+                pract: classData.pract.cond ? `${classData.pract.att}/${classData.pract.cond}` : null,
+                skill: classData.skill.cond ? `${classData.skill.att}/${classData.skill.cond}` : null,
+            },
             status: newAnalysis.status
         }, ...prev]);
     };
@@ -257,7 +315,7 @@ const LTPSCalculator = () => {
 
     return (
         <motion.div
-            className="min-h-screen bg-slate-100 py-12 px-4 sm:px-6 lg:px-8 relative overflow-hidden"
+            className="min-h-screen bg-slate-100 py-12 px-4 sm:px-6 lg:px-8 relative"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
@@ -349,30 +407,55 @@ const LTPSCalculator = () => {
                                 type="text"
                                 value={subject}
                                 onChange={(e) => setSubject(e.target.value)}
-                                placeholder="e.g. Mathematics"
+                                placeholder="e.g. SOA PROGRAMMING AND MICROSERVICES"
                                 className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                             />
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                             {[
-                                { label: 'Lecture (L)', value: lect, setter: setLect, weight: 100 },
-                                { label: 'Tutorial (T)', value: tut, setter: setTut, weight: 100 },
-                                { label: 'Practical (P)', value: pract, setter: setPract, weight: 50 },
-                                { label: 'Skill (S)', value: skill, setter: setSkill, weight: 25 }
-                            ].map((input, idx) => (
-                                <motion.div key={idx} className="space-y-2" initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: idx * 0.1 }}>
-                                    <div className="flex justify-between">
-                                        <label className="text-sm font-medium text-slate-700">{input.label}</label>
-                                        <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded">Weight: {input.weight}%</span>
+                                { id: 'lect', label: 'Lecture (L)', weight: weights.lecture },
+                                { id: 'tut', label: 'Tutorial / Theory (T)', weight: weights.tutorial },
+                                { id: 'pract', label: 'Practical (P)', weight: weights.practical },
+                                { id: 'skill', label: 'Skill (S)', weight: weights.skill }
+                            ].map((comp, idx) => (
+                                <motion.div
+                                    key={comp.id}
+                                    className="p-4 rounded-2xl border border-slate-200/80 bg-slate-50/60 space-y-2.5"
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: idx * 0.05 }}
+                                >
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-sm font-bold text-slate-800">{comp.label}</label>
+                                        <span className="text-[11px] font-semibold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100">
+                                            Weight: {comp.weight}%
+                                        </span>
                                     </div>
-                                    <input
-                                        type="number"
-                                        value={input.value}
-                                        onChange={handleInputChange(input.setter)}
-                                        placeholder="0-100"
-                                        className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                                    />
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <span className="text-[11px] font-bold text-slate-400 block mb-1 uppercase tracking-wider">Attended</span>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={classData[comp.id].att}
+                                                onChange={handleClassChange(comp.id, 'att')}
+                                                placeholder="e.g. 16"
+                                                className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-semibold text-slate-800"
+                                            />
+                                        </div>
+                                        <div>
+                                            <span className="text-[11px] font-bold text-slate-400 block mb-1 uppercase tracking-wider">Conducted</span>
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                value={classData[comp.id].cond}
+                                                onChange={handleClassChange(comp.id, 'cond')}
+                                                placeholder="e.g. 16"
+                                                className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all font-semibold text-slate-800"
+                                            />
+                                        </div>
+                                    </div>
                                 </motion.div>
                             ))}
                         </div>
@@ -427,7 +510,14 @@ const LTPSCalculator = () => {
                                             {parseFloat(attendancePercentage) >= 75 && <CheckCircle className="w-6 h-6" />}
                                             <span className="text-lg font-semibold uppercase tracking-wider">{subject || 'Attendance Status'}</span>
                                         </div>
-                                        <div className="text-6xl font-extrabold mb-2">{attendancePercentage}%</div>
+                                        <div className="text-6xl font-extrabold mb-1">
+                                            {exactPercentage !== null ? `${exactPercentage}%` : `${attendancePercentage}%`}
+                                        </div>
+                                        {exactPercentage !== null && exactPercentage !== attendancePercentage && (
+                                            <div className="text-xs sm:text-sm font-semibold opacity-85 mb-3">
+                                                Exact: <span className="font-bold">{exactPercentage}%</span> · Official ERP Report: <span className="font-bold">{attendancePercentage}%</span>
+                                            </div>
+                                        )}
                                         <div className="inline-block px-4 py-1.5 bg-white/50 backdrop-blur rounded-full text-sm font-bold">
                                             {analysis.status}
                                         </div>
@@ -460,6 +550,119 @@ const LTPSCalculator = () => {
                                     </motion.div>
                                 </div>
 
+                                {/* Interactive Bunk Simulator Section */}
+                                <motion.div 
+                                    className="bg-white rounded-2xl p-6 border-2 border-slate-900 shadow-md mt-6 space-y-4"
+                                    initial={{ y: 20, opacity: 0 }} 
+                                    animate={{ y: 0, opacity: 1 }} 
+                                    transition={{ delay: 0.35 }}
+                                >
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                                        <div className="flex items-center gap-2">
+                                            <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+                                                <Flame className="w-5 h-5" />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-extrabold text-slate-900 text-base">Quick Bunk Simulation</h3>
+                                                <p className="text-xs text-slate-400 font-medium">Test what happens if you skip upcoming classes in this subject</p>
+                                            </div>
+                                        </div>
+                                        <Link 
+                                            to="/bunk-simulator" 
+                                            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 self-start sm:self-auto flex items-center gap-1"
+                                        >
+                                            <span>Full Simulator</span>
+                                            <ArrowRight className="w-3.5 h-3.5" />
+                                        </Link>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                        {[
+                                            { id: 'lect', name: 'Lecture', weight: '100%' },
+                                            { id: 'tut', name: 'Tutorial', weight: '100%' },
+                                            { id: 'pract', name: 'Practical', weight: '50%' },
+                                            { id: 'skill', name: 'Skill', weight: '25%' }
+                                        ].map(c => {
+                                            const condVal = parseInt(classData[c.id]?.cond, 10) || 0;
+                                            return (
+                                                <div key={c.id} className={`p-3 rounded-xl border ${condVal > 0 ? 'bg-slate-50 border-slate-200' : 'bg-slate-50/50 border-slate-100 opacity-60'}`}>
+                                                    <div className="flex justify-between items-center mb-1.5">
+                                                        <span className="text-[11px] font-bold text-slate-700">{c.name}</span>
+                                                        <span className="text-[9px] font-mono text-slate-400">{c.weight}</span>
+                                                    </div>
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-[10px] text-slate-500 font-semibold">Bunk:</span>
+                                                        <div className="flex items-center gap-1">
+                                                            <button
+                                                                type="button"
+                                                                disabled={condVal <= 0}
+                                                                onClick={() => setBunkSim(prev => ({ ...prev, [c.id]: Math.max(0, (prev[c.id] || 0) - 1) }))}
+                                                                className={`w-6 h-6 rounded border font-bold text-xs flex items-center justify-center ${
+                                                                    condVal <= 0
+                                                                        ? 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed'
+                                                                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                                                                }`}
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <span className={`w-6 text-center font-bold text-xs font-mono ${condVal <= 0 ? 'text-slate-300' : 'text-rose-600'}`}>
+                                                                {condVal <= 0 ? 0 : (bunkSim[c.id] || 0)}
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                disabled={condVal <= 0}
+                                                                onClick={() => setBunkSim(prev => ({ ...prev, [c.id]: (prev[c.id] || 0) + 1 }))}
+                                                                className={`w-6 h-6 rounded border font-bold text-xs flex items-center justify-center ${
+                                                                    condVal <= 0
+                                                                        ? 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed'
+                                                                        : 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                                                                }`}
+                                                            >
+                                                                +
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {/* Duration Note */}
+                                    <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200/80 flex items-start gap-2.5 text-xs text-amber-900">
+                                        <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                        <div className="space-y-0.5">
+                                            <p className="font-bold">
+                                                <span>Note: </span>
+                                                <span className="font-mono font-black text-amber-950">1 Lecture = 50 mins</span>, <span className="font-mono font-black text-amber-950">1 Practical = 1.50</span> (1 hr 50m)
+                                            </p>
+                                            <p className="text-[11px] text-amber-800">
+                                                In KLU timetable, 1 practical class represents a 1.50 (1 hr 50 mins) lab session.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {bunkProjection && bunkProjection.totalBunks > 0 && (
+                                        <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+                                            <div className="flex items-center gap-2.5">
+                                                <span className={`px-2.5 py-1 rounded-full text-xs font-black uppercase ${bunkProjection.isSafe ? 'bg-emerald-100 text-emerald-800' : bunkProjection.isWarning ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}`}>
+                                                    {bunkProjection.isSafe ? 'Safe Zone' : bunkProjection.isWarning ? 'Condonation' : 'Detained'}
+                                                </span>
+                                                <span className="text-xs font-medium text-slate-600">
+                                                    After {bunkProjection.totalBunks} bunk{bunkProjection.totalBunks > 1 ? 's' : ''}:
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-xl font-black text-slate-900">
+                                                    {bunkProjection.newCeil}%
+                                                </span>
+                                                <span className="text-xs font-bold text-rose-600 font-mono">
+                                                    (-{bunkProjection.drop}%)
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
+                                </motion.div>
+
                                 <motion.div className="mt-6 flex justify-center" initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.4 }}>
                                     <button
                                         onClick={generatePDF}
@@ -472,76 +675,6 @@ const LTPSCalculator = () => {
                         )}
                     </AnimatePresence>
                 </div>
-
-                {/* ERP Quick Access Section */}
-                <motion.div
-                    className="relative overflow-hidden bg-white/80 backdrop-blur-xl border border-white/60 rounded-3xl p-8 shadow-xl"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.5 }}
-                >
-                    <div className="relative z-10">
-                        <div className="mb-8 flex items-start justify-between">
-                            <div>
-                                <h3 className="text-2xl font-bold text-slate-900 flex items-center gap-3 mb-2">
-                                    <span className="p-2 bg-blue-50 rounded-lg">
-                                        <ExternalLink className="w-6 h-6 text-blue-600" />
-                                    </span>
-                                    Sync with KLU ERP
-                                </h3>
-                                <p className="text-slate-500 max-w-lg">
-                                    For accurate results, copy your exact attendance percentages from the official portal.
-                                </p>
-                            </div>
-                            <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 bg-green-50 border border-green-200 rounded-full text-green-700 text-xs font-bold uppercase tracking-wider">
-                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                                Official Link
-                            </div>
-                        </div>
-
-                        {/* Step-by-Step Guide */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-                            {[
-                                { step: "1", title: "Open Portal", desc: "Launch new ERP", icon: "🚀" },
-                                { step: "2", title: "Login", desc: "Use student ID", icon: "🔐" },
-                                { step: "3", title: "Copy Data", desc: "Paste % below", icon: "📋" }
-                            ].map((item, idx) => (
-                                <div key={idx} className="group bg-slate-50 border border-slate-100 p-4 rounded-2xl hover:bg-blue-50 hover:border-blue-100 transition-colors">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <span className="text-2xl">{item.icon}</span>
-                                        <span className="text-3xl font-bold text-slate-200 group-hover:text-blue-200 transition-colors">{item.step}</span>
-                                    </div>
-                                    <div className="font-bold text-slate-800">{item.title}</div>
-                                    <div className="text-xs text-slate-500">{item.desc}</div>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex flex-col sm:flex-row gap-4">
-                            <a
-                                href="https://newerp.kluniversity.in/index.php"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex-1 group relative px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-3"
-                            >
-                                <span>Open KLU ERP</span>
-                                <ExternalLink className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                            </a>
-
-                            <button
-                                className="flex-1 px-6 py-4 bg-white border-2 border-slate-100 hover:border-slate-300 text-slate-700 hover:text-slate-900 rounded-xl font-bold transition-all flex items-center justify-center gap-3"
-                                onClick={() => {
-                                    navigator.clipboard.writeText('https://newerp.kluniversity.in/index.php');
-                                    alert('URL copied to clipboard! 📋');
-                                }}
-                            >
-                                <Copy className="w-4 h-4" />
-                                <span>Copy Link</span>
-                            </button>
-                        </div>
-                    </div>
-                </motion.div>
             </div>
         </motion.div>
     );

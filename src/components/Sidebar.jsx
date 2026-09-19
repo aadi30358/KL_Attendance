@@ -8,6 +8,7 @@ import {
     Users,
     Building,
     LibraryBig,
+    Flame,
 } from 'lucide-react';
 
 const Sidebar = ({ isMobileOpen }) => {
@@ -16,6 +17,7 @@ const Sidebar = ({ isMobileOpen }) => {
 
     const navItems = [
         { name: 'Home', icon: Home, path: '/' },
+        { name: 'Bunk Simulator', icon: Flame, path: '/bunk-simulator' },
         { name: 'Total Attendance', icon: Users, path: '/attendance' },
         { name: 'LTPS Calculator', icon: BookOpen, path: '/ltps' },
         { name: 'Subject Attendance', icon: List, path: '/subject-attendance' },

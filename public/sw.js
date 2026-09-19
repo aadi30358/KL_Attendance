@@ -1,88 +1,16 @@
-const CACHE_NAME = 'kl-attendance-v8';
+// Ultra-clean high-speed Service Worker: zero stale cache, instant updates in seconds
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
 
-const ASSETS_TO_CACHE = [
-  './',
-  'index.html',
-  'manifest.json',
-  'vite.svg',
-  'noise.svg',
-  'icon-192.png',
-  'icon-512.png'
-];
-
-self.addEventListener('install', event => {
+self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(ASSETS_TO_CACHE))
-      .then(() => self.skipWaiting())
+    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
 });
 
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.filter(name => name !== CACHE_NAME)
-          .map(name => caches.delete(name))
-      );
-    }).then(() => clients.claim())
-  );
+// Pass all requests directly to high-speed network / CDN so mobile receives updates in seconds
+self.addEventListener('fetch', (event) => {
+  return;
 });
-
-self.addEventListener('fetch', event => {
-  // Only handle GET requests with http/https scheme (ignores chrome-extension://, etc.)
-  if (event.request.method !== 'GET' || !event.request.url.startsWith('http')) return;
-
-  const url = new URL(event.request.url);
-  
-  // CRITICAL: NEVER cache API calls, ERP proxy, or external backend / Firebase endpoints
-  if (
-    url.pathname.startsWith('/api') || 
-    url.pathname.includes('index.php') ||
-    url.hostname.includes('onrender.com') ||
-    url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('firebaseio.com')
-  ) {
-    return; // Bypass service worker entirely, go straight to network
-  }
-
-  // Network-First strategy for Navigation (HTML)
-  // Ensures users ALWAYS get the latest index.html and clears bricked cache automatically
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseToCache));
-          return response;
-        })
-        .catch(() => caches.match(event.request).then(res => res || caches.match('/')))
-    );
-    return;
-  }
-
-  // Cache-First strategy for Assets (JS, CSS, images)
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        return response || fetch(event.request).then(fetchResponse => {
-          // Don't cache if not a valid response or if it's external
-          if (!fetchResponse || fetchResponse.status !== 200 || fetchResponse.type !== 'basic') {
-            return fetchResponse;
-          }
-
-          if (!event.request.url.startsWith('http')) {
-            return fetchResponse;
-          }
-
-          const responseToCache = fetchResponse.clone();
-          caches.open(CACHE_NAME).then(cache => {
-            cache.put(event.request, responseToCache);
-          });
-
-          return fetchResponse;
-        });
-      })
-  );
-});
-

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { BookOpen, Calendar, LogOut, ArrowLeft } from 'lucide-react';
 import { erpService } from '../services/erpService';
@@ -7,6 +7,12 @@ import { useAuth } from '../context/useAuth';
 
 // Component weights matching the extension: L=100, T=100, P=50, S=25
 const WEIGHTS = { L: 100, T: 100, P: 50, S: 25 };
+const COMPONENT_NAMES = {
+    L: 'Lecture',
+    T: 'Tutorial',
+    P: 'Practical',
+    S: 'Skill'
+};
 
 function getColor(pct) {
     if (pct >= 85) return 'text-emerald-600';
@@ -30,23 +36,36 @@ function getStatusLabel(pct) {
 function BunkSimulator({ subject }) {
     const [bunkInput, setBunkInput] = useState('');
 
-    // Always allow these 4 standard options
-    const ALL_COMPS = [
-        { id: 'L', label: 'Lecture' },
-        { id: 'T', label: 'Tutorial' },
-        { id: 'P', label: 'Practical' },
-        { id: 'S', label: 'Skill' }
-    ];
-
-    // Determine available components to see if we can default to one they actually have
-    const components = subject.components ? Object.entries(subject.components) : [];
+    // Determine available components that this subject actually has
+    const components = useMemo(() => (subject.components ? Object.entries(subject.components) : []), [subject.components]);
     const hasComponents = components.length > 0;
 
-    // Default to the first component if available, else Lecture
-    const [selectedComp, setSelectedComp] = useState(hasComponents ? components[0][0].charAt(0).toUpperCase() : 'L');
+    const availableComps = useMemo(() => {
+        if (!hasComponents) {
+            return [
+                { id: 'L', label: 'Lecture' },
+                { id: 'T', label: 'Tutorial' },
+                { id: 'P', label: 'Practical' },
+                { id: 'S', label: 'Skill' }
+            ];
+        }
+        return components.map(([compName]) => {
+            const firstChar = compName ? compName.charAt(0).toUpperCase() : 'L';
+            return {
+                id: firstChar,
+                label: COMPONENT_NAMES[firstChar] || (compName.charAt(0).toUpperCase() + compName.slice(1))
+            };
+        });
+    }, [hasComponents, components]);
 
-    const bunkCount = parseInt(bunkInput) || 0;
+    const [selectedCompRaw, setSelectedComp] = useState('');
+    const selectedComp = availableComps.some(c => c.id === selectedCompRaw)
+        ? selectedCompRaw
+        : availableComps[0]?.id || 'L';
+
+    const bunkCount = Math.max(0, parseInt(bunkInput, 10) || 0);
     let projectedActual = null;
+    let projectedExact = null;
 
     if (bunkCount > 0) {
         if (hasComponents) {
@@ -58,10 +77,10 @@ function BunkSimulator({ subject }) {
                 const firstChar = compName ? compName.charAt(0).toUpperCase() : '';
                 const w = WEIGHTS[firstChar] || WEIGHTS[compName] || 1;
 
-                let cConducted = data.conducted;
-                let cAttended = data.attended;
+                let cConducted = Number(data.conducted) || 0;
+                let cAttended = Number(data.attended) || 0;
 
-                if (firstChar === selectedComp || compName === selectedComp) {
+                if (!selectedCompFound && (firstChar === selectedComp || compName.toUpperCase().startsWith(selectedComp))) {
                     cConducted += bunkCount;
                     selectedCompFound = true;
                 }
@@ -75,19 +94,26 @@ function BunkSimulator({ subject }) {
                 totalConductedW += bunkCount * w;
             }
 
-            projectedActual = totalConductedW > 0 ? Math.ceil((totalAttendedW / totalConductedW) * 100) : null;
+            if (totalConductedW > 0) {
+                const rawPct = (totalAttendedW / totalConductedW) * 100;
+                projectedActual = Math.ceil(rawPct);
+                projectedExact = parseFloat(rawPct.toFixed(2));
+            }
         } else {
             // Fallback for subjects with completely broken component names
             const parts = (subject.attended || '0/0').split('/');
-            const attended = parseInt(parts[0]) || 0;
-            const total = parseInt(parts[1]) || 0;
-            projectedActual = parseFloat(((attended / (total + bunkCount)) * 100).toFixed(2));
+            const attended = parseInt(parts[0], 10) || 0;
+            const total = parseInt(parts[1], 10) || 0;
+            const newTotal = total + bunkCount;
+            if (newTotal > 0) {
+                const rawPct = (attended / newTotal) * 100;
+                projectedActual = Math.ceil(rawPct);
+                projectedExact = parseFloat(rawPct.toFixed(2));
+            }
         }
     }
 
-    const projColor = projectedActual !== null
-        ? (projectedActual >= 85 ? 'text-emerald-600' : projectedActual >= 75 ? 'text-amber-600' : 'text-red-600')
-        : '';
+    const isSafe = projectedActual !== null && projectedActual >= 85;
 
     return (
         <div className="mt-4 pt-4 border-t border-slate-100">
@@ -99,7 +125,7 @@ function BunkSimulator({ subject }) {
                         onChange={(e) => setSelectedComp(e.target.value)}
                         className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 font-semibold focus:outline-none focus:border-indigo-400 cursor-pointer"
                     >
-                        {ALL_COMPS.map(c => (
+                        {availableComps.map(c => (
                             <option key={c.id} value={c.id}>{c.label}</option>
                         ))}
                     </select>
@@ -113,16 +139,31 @@ function BunkSimulator({ subject }) {
                     />
                 </div>
                 {projectedActual !== null && (
-                    <p className={`text-[11px] font-semibold mt-1.5 ${projColor}`}>
-                        {projectedActual >= 85
-                            ? <span className="text-emerald-700">Safe</span>
-                            : projectedActual >= 75
-                                ? <span className="text-amber-700">⚠️ Caution: Attendance below 85%, my friend — whatever the reason, too many skips ain’t cool. Reconsider before it’s a whole problem.</span>
-                                : <span className="text-red-700">⚠️ Attendance on thin ice, it’s giving detention vibes — don’t say I didn’t warn you.</span>}
-                    </p>
+                    <div className="flex items-center gap-2 mt-1.5">
+                        <span className={`text-sm font-black tabular-nums ${isSafe ? 'text-emerald-700' : 'text-red-600'}`}>
+                            {projectedActual}%
+                        </span>
+                        {projectedExact !== null && projectedExact !== projectedActual && (
+                            <span className="text-[10px] font-semibold text-slate-400 font-mono">
+                                ({projectedExact}%)
+                            </span>
+                        )}
+                        <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ring-1 ${
+                                isSafe
+                                    ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                                    : 'bg-red-50 text-red-600 ring-red-200'
+                            }`}
+                        >
+                            {isSafe ? 'Safe' : 'Danger'}
+                        </span>
+                    </div>
                 )}
                 <p className="text-[10px] text-slate-400 italic font-medium mt-2">
-                    * Note: The percentage is your Total Average Attendance. It drops differently depending on the component&apos;s weight (e.g. Lecture dropping impacts more than Skill).
+                    * Note: 1 = 50 mins, 2 = 1.50 (1 hr 50m). Enter 2 if skipping a double period / lab session.
+                </p>
+                <p className="text-[10px] text-slate-400 italic font-medium">
+                    * The percentage drops differently depending on component weight (e.g. Lecture drops more than Skill).
                 </p>
             </div>
         </div>
@@ -354,8 +395,8 @@ const AttendanceRegister = () => {
 
     // ── SELECTION FORM ───────────────────────────────────────────────
     return (
-        <div className="h-screen overflow-hidden bg-[#FAFAFA] flex items-center justify-center p-4 font-sans relative selection:bg-indigo-500 selection:text-white">
-            <div className="fixed inset-0 pointer-events-none">
+        <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center py-16 px-4 font-sans relative selection:bg-indigo-500 selection:text-white">
+            <div className="fixed inset-0 pointer-events-none overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
                 <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }} transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
                     className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 blur-[150px]" />

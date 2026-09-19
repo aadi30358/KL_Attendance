@@ -20,9 +20,9 @@ const AdminDashboard = () => {
     const [announcement, setAnnouncement] = useState('');
     const [ltpsWeights, setLtpsWeights] = useState({
         lecture: 100,
-        tutorial: 25,
+        tutorial: 100,
         practical: 50,
-        skilling: 25
+        skill: 25
     });
 
     useEffect(() => {
@@ -115,7 +115,11 @@ const AdminDashboard = () => {
 
     const handleSaveWeights = async () => {
         try {
-            await setDoc(doc(db, "config", "weights"), ltpsWeights);
+            const payload = {
+                ...ltpsWeights,
+                skill: ltpsWeights.skill ?? ltpsWeights.skilling ?? 25
+            };
+            await setDoc(doc(db, "config", "weights"), payload);
             alert('Calculation weights updated successfully!');
         } catch (e) {
             console.error(e);
@@ -132,7 +136,7 @@ const AdminDashboard = () => {
 
     if (!isAuthenticated) {
         return (
-            <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-6 relative overflow-hidden">
+            <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-6 relative">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-600" />
                 <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
@@ -349,7 +353,7 @@ const AdminDashboard = () => {
                             </h2>
                             <button
                                 onClick={() => {
-                                    setLtpsWeights({ lecture: 100, tutorial: 25, practical: 50, skilling: 25 });
+                                    setLtpsWeights({ lecture: 100, tutorial: 100, practical: 50, skill: 25 });
                                 }}
                                 className="text-xs text-slate-500 hover:text-red-500 underline"
                             >

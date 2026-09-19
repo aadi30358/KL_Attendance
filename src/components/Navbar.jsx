@@ -50,8 +50,8 @@ const Navbar = () => {
                 if (docSnap.exists()) {
                     setAnnouncement(docSnap.data().text);
                 }
-            } catch (e) {
-                console.error("Failed to fetch announcement", e);
+            } catch {
+                // Ignore if Firestore is blocked by adblockers/offline
             }
         };
         fetchAnnouncement();
@@ -68,6 +68,7 @@ const Navbar = () => {
     const navItems = [
         { name: 'HOME', path: '/' },
         { name: 'ATTENDANCE BY L-T-P-S', path: '/ltps' },
+        { name: 'BUNK SIMULATOR', path: '/bunk-simulator' },
         { name: 'ATTENDANCE WHEN ABSENT', path: '/attendance' },
         ...(hasErpSession && location.pathname !== '/' ? [] : [
             { name: 'ACADEMIC CALENDAR', path: '/calendar' },
@@ -84,7 +85,7 @@ const Navbar = () => {
     return (
         <header className="fixed top-0 left-0 w-full z-50">
             {/* Top Title Bar */}
-            <div className="bg-white w-full py-1.5 px-4 shadow-sm z-50 relative">
+            <div className="bg-white w-full py-1.5 px-4 shadow-sm z-50 relative border-b-2 border-black">
                 <div className="max-w-7xl mx-auto flex justify-center">
                     <h1 className="text-[#103580] font-serif font-bold text-xs sm:text-sm tracking-wide">
                         Attendance Calculator for KLU students
@@ -98,7 +99,7 @@ const Navbar = () => {
                     <motion.div
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
-                        className="bg-slate-900 text-white py-2 px-4 text-center text-xs font-bold tracking-widest uppercase overflow-hidden"
+                        className="bg-slate-900 text-white py-2 px-4 text-center text-xs font-bold tracking-widest uppercase overflow-hidden border-b-2 border-black"
                     >
                         <div className="flex items-center justify-center gap-3 animate-pulse">
                             <Bell className="w-3 h-3 text-amber-400" />
@@ -110,8 +111,10 @@ const Navbar = () => {
 
             {/* Main Navbar */}
             <nav className={cn(
-                "w-full transition-all duration-300 border-b",
-                scrolled ? "bg-white/80 backdrop-blur-lg border-slate-200 shadow-lg py-2" : "bg-[#2196F3] border-transparent py-3"
+                "w-full transition-all duration-300",
+                scrolled
+                    ? "bg-white/95 backdrop-blur-lg border-b-2 border-black shadow-md py-2"
+                    : "bg-[#2196F3] border-b border-transparent py-3"
             )}>
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center">
@@ -152,16 +155,16 @@ const Navbar = () => {
                                         className={cn(
                                             "px-3 py-2 text-[11px] lg:text-xs font-black tracking-wider uppercase rounded-lg transition-all duration-300 whitespace-nowrap lg:whitespace-normal text-center leading-tight max-w-[120px] flex flex-col items-center justify-center h-full",
                                             scrolled
-                                                    ? (isActive(item.path)
-                                                        ? "text-indigo-700 bg-indigo-100"
-                                                        : item.isErpHighlight
-                                                            ? "text-red-600 bg-red-50 border-2 border-red-200 shadow-lg shadow-red-100 animate-pulse ring-2 ring-red-500/20"
-                                                            : "text-slate-700 hover:bg-slate-100")
-                                                    : (isActive(item.path)
-                                                        ? "text-[#2196F3] bg-white shadow-xl transform scale-105"
-                                                        : item.isErpHighlight
-                                                            ? "text-white bg-red-600 shadow-xl shadow-red-500/40 hover:bg-red-700 border border-red-400 animate-pulse ring-2 ring-white/50"
-                                                            : "text-white hover:bg-white/20")
+                                                ? (isActive(item.path)
+                                                    ? "text-indigo-700 bg-indigo-100"
+                                                    : item.isErpHighlight
+                                                        ? "text-red-600 bg-red-50 border-2 border-red-200 shadow-lg shadow-red-100 animate-pulse ring-2 ring-red-500/20"
+                                                        : "text-slate-700 hover:bg-slate-100")
+                                                : (isActive(item.path)
+                                                    ? "text-[#2196F3] bg-white shadow-xl transform scale-105"
+                                                    : item.isErpHighlight
+                                                        ? "text-white bg-red-600 shadow-xl shadow-red-500/40 hover:bg-red-700 border border-red-400 animate-pulse ring-2 ring-white/50"
+                                                        : "text-white hover:bg-white/20")
                                         )}
                                     >
                                         <span>{item.name}</span>

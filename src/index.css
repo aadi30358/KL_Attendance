@@ -9,11 +9,14 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
   }
 
   body {
     @apply font-sans bg-slate-50 text-slate-900 antialiased selection:bg-fuchsia-500 selection:text-white;
     font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    -webkit-tap-highlight-color: transparent;
   }
 
   h1,
@@ -205,9 +208,11 @@
     transform-style: preserve-3d;
   }
 
-  .perspective-root-lg {
-    perspective: 1500px;
-    transform-style: preserve-3d;
+  @media (min-width: 1024px) {
+    .perspective-root-lg {
+      perspective: 1500px;
+      transform-style: preserve-3d;
+    }
   }
 
   .text-3d {

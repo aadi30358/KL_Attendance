@@ -62,3 +62,8 @@ pnpm-debug.log*
 
 *.local
 .firebase/
+*.traineddata
+lint*.txt
+lint*.json
+error.*
+out.txt

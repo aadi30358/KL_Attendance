@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence, useMotionValue, useSpring, useTransform } from 'framer-motion';
-import { RotateCcw, Calculator, LineChart, CheckCircle, AlertTriangle, XCircle, Sparkles, TrendingUp } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { RotateCcw, Calculator, LineChart, CheckCircle, AlertTriangle, XCircle, Sparkles, TrendingUp, Flame, ArrowRight } from 'lucide-react';
 import { useAttendance } from '../context/useAttendance';
 
 const ThreeDCard = ({ children, className }) => {
@@ -54,15 +55,12 @@ const TotalAttendance = () => {
 
         if (!total || !attended) return { percentage: null, error: null };
 
-        if (absences > attended) {
-            return { percentage: null, error: 'Projected absences cannot be more than attended classes' };
-        }
-
         if (absences < 0) {
             return { percentage: null, error: 'Projected absences cannot be negative' };
         }
 
-        const projected = ((attended - absences) / total) * 100;
+        // Simulating upcoming absences/bunks: new total is total + absences, attended remains same
+        const projected = (attended / (total + absences)) * 100;
         return { percentage: Math.round(projected), error: null };
 
     }, [totalClasses, attendedClasses, projectedAbsences, currentPercentage]);
@@ -138,9 +136,9 @@ const TotalAttendance = () => {
     };
 
     return (
-        <div className="relative min-h-screen bg-[#FAFAFA] overflow-hidden selection:bg-indigo-500 selection:text-white perspective-root-lg">
+        <div className="relative min-h-screen bg-[#FAFAFA] selection:bg-indigo-500 selection:text-white">
             {/* --- Advanced Ambient Background --- */}
-            <div className="fixed inset-0 pointer-events-none">
+            <div className="fixed inset-0 pointer-events-none overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
                 <motion.div
                     animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.5, 0.3], rotate: [0, -45, 0] }}
@@ -390,6 +388,26 @@ const TotalAttendance = () => {
                                 </div>
                             </ThreeDCard>
                         )}
+
+                        {/* Bunk Simulator Promo Card */}
+                        <div className="bg-gradient-to-r from-rose-50 to-pink-50 border border-rose-200 rounded-3xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
+                            <div className="flex items-center gap-3 text-left">
+                                <div className="p-3 bg-rose-600 text-white rounded-2xl shadow-md">
+                                    <Flame className="w-6 h-6 animate-pulse" />
+                                </div>
+                                <div>
+                                    <h4 className="font-extrabold text-slate-900 text-base">Want component-level Bunk Calculations?</h4>
+                                    <p className="text-xs text-slate-600 font-medium">Simulate bunking specific Lectures, Tutorials, Practicals, or Skills with official KLU weightages.</p>
+                                </div>
+                            </div>
+                            <Link
+                                to="/bunk-simulator"
+                                className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 shrink-0"
+                            >
+                                <span>Open Bunk Simulator</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                            </Link>
+                        </div>
                     </motion.div>
                 )}
             </div>

@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, useMotionValue, useSpring, useTransform, useScroll } from 'framer-motion';
-import { ArrowRight, Calculator, ShieldCheck, Calendar, TrendingUp, Clock, Sparkles, Activity } from 'lucide-react';
+import { motion, useMotionValue, useSpring, useTransform, useScroll, AnimatePresence } from 'framer-motion';
+import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDays, Bot, Flame } from 'lucide-react';
 import ERPLoginCard from '../components/ERPLoginCard';
 
 // --- Ultra-Advanced 3D Parallax Card ---
-const ThreeDParallaxCard = ({ children, className, icon: Icon, colorClass, to, accentColor }) => {
+const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, to, accentColor, activeBorderColor = "border-indigo-600", hoverBorderColor = "hover:border-indigo-600", onClick }) => {
+    const [isClicked, setIsClicked] = useState(false);
     const ref = useRef(null);
     const x = useMotionValue(0);
     const y = useMotionValue(0);
@@ -20,18 +21,11 @@ const ThreeDParallaxCard = ({ children, className, icon: Icon, colorClass, to, a
     const iconX = useTransform(mouseXSpring, [-0.5, 0.5], ["15px", "-15px"]);
     const iconY = useTransform(mouseYSpring, [-0.5, 0.5], ["15px", "-15px"]);
 
-    const bgX = useTransform(mouseXSpring, [-0.5, 0.5], ["-20px", "20px"]);
-    const bgY = useTransform(mouseYSpring, [-0.5, 0.5], ["-20px", "20px"]);
-
     const handleMouseMove = (e) => {
-        if (!ref.current) return;
+        if (window.innerWidth < 1024 || !ref.current) return;
         const rect = ref.current.getBoundingClientRect();
-        const width = rect.width;
-        const height = rect.height;
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        x.set(mouseX / width - 0.5);
-        y.set(mouseY / height - 0.5);
+        x.set((e.clientX - rect.left) / rect.width - 0.5);
+        y.set((e.clientY - rect.top) / rect.height - 0.5);
     };
 
     const handleMouseLeave = () => {
@@ -49,37 +43,45 @@ const ThreeDParallaxCard = ({ children, className, icon: Icon, colorClass, to, a
                 rotateX,
                 transformStyle: "preserve-3d",
             }}
-            className={`relative h-full transition-all duration-200 ease-out group ${className}`}
+            whileHover={{ y: -6, scale: 1.01 }}
+            className={`relative h-full transition-transform duration-200 ease-out group transform-gpu ${className}`}
         >
             {/* Dynamic Depth Background */}
-            <motion.div
-                style={{ x: bgX, y: bgY, transform: "translateZ(-50px)" }}
-                className={`absolute inset-0 rounded-[2.5rem] opacity-30 blur-2xl transition-colors duration-500 ${colorClass.replace('text', 'bg')}`}
+            <div
+                className={`absolute inset-0 rounded-[2rem] sm:rounded-[2.5rem] opacity-20 sm:opacity-30 blur-xl sm:blur-2xl transition-colors duration-500 pointer-events-none ${colorClass.replace('text', 'bg')}`}
             />
 
-            <div className="relative h-full bg-white/80 backdrop-blur-xl border border-white/60 rounded-[2.5rem] p-6 sm:p-8 shadow-2xl overflow-hidden flex flex-col justify-between z-10">
+            <div
+                onClick={(e) => {
+                    setIsClicked(!isClicked);
+                    if (onClick) onClick(e);
+                }}
+                className={`relative h-full bg-white sm:bg-white/80 sm:backdrop-blur-xl border-2 transition-colors duration-300 rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-7 shadow-xl hover:shadow-2xl overflow-hidden flex flex-col justify-between z-10 cursor-pointer touch-pan-y ${
+                    isClicked ? activeBorderColor : `border-black ${hoverBorderColor}`
+                }`}
+            >
                 {/* Shine Effect */}
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/80 via-transparent to-transparent opacity-50 pointer-events-none" />
 
-                <div className="relative z-10 transform-style-3d">
-                    <div className="flex justify-between items-start mb-6">
+                <div className="relative z-10 transform-style-3d flex flex-col justify-between h-full flex-1">
+                    <div className="flex justify-between items-start mb-4 sm:mb-6">
                         <motion.div
                             style={{ x: iconX, y: iconY, transform: "translateZ(40px)" }}
-                            className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg ${accentColor}`}
+                            className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center shadow-lg ${accentColor} shrink-0`}
                         >
-                            <Icon className={`w-8 h-8 text-white`} />
+                            <Icon className={`w-7 h-7 sm:w-8 sm:h-8 text-white`} />
                         </motion.div>
                         {to && (
                             <motion.div
                                 style={{ transform: "translateZ(30px)" }}
-                                className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-slate-900 group-hover:text-white transition-colors duration-300"
+                                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-slate-900 group-hover:text-white transition-colors duration-300 shrink-0"
                             >
-                                <ArrowRight className="w-5 h-5 -rotate-45 group-hover:rotate-0 transition-transform duration-300" />
+                                <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 -rotate-45 group-hover:rotate-0 transition-transform duration-300" />
                             </motion.div>
                         )}
                     </div>
 
-                    <motion.div style={{ transform: "translateZ(30px)" }}>
+                    <motion.div style={{ transform: "translateZ(30px)" }} className="flex-1 flex flex-col justify-between">
                         {children}
                     </motion.div>
                 </div>
@@ -88,132 +90,347 @@ const ThreeDParallaxCard = ({ children, className, icon: Icon, colorClass, to, a
     );
 
     if (to) {
-        return <Link to={to} className="h-full block perspective-1000">{CardContent}</Link>;
+        return <Link to={to} onClick={onClick} className="h-full block perspective-1000">{CardContent}</Link>;
     }
-    return <div className="h-full perspective-1000">{CardContent}</div>;
+    return <div onClick={onClick} className="h-full perspective-1000">{CardContent}</div>;
 };
 
-// --- Animated Counter ---
+// --- Responsive Animated Typewriter Text ---
 const TypewriterText = ({ text, delay = 0 }) => {
-    const letters = Array.from(text);
+    const words = text.split(" ");
     return (
-        <motion.span className="inline-block whitespace-nowrap">
-            {letters.map((letter, index) => (
-                <motion.span
-                    key={index}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{
-                        duration: 0.2,
-                        delay: delay + index * 0.05,
-                        type: "spring"
-                    }}
-                    className="inline-block"
-                >
-                    {letter === " " ? "\u00A0" : letter}
-                </motion.span>
+        <span className="inline-flex flex-wrap justify-center gap-x-1.5 px-2">
+            {words.map((word, wIdx) => (
+                <span key={wIdx} className="inline-flex whitespace-nowrap">
+                    {Array.from(word).map((letter, lIdx) => (
+                        <motion.span
+                            key={lIdx}
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{
+                                duration: 0.15,
+                                delay: delay + (wIdx * 4 + lIdx) * 0.025,
+                                type: "spring"
+                            }}
+                            className="inline-block"
+                        >
+                            {letter}
+                        </motion.span>
+                    ))}
+                </span>
             ))}
-        </motion.span>
+        </span>
     );
 };
 
+// --- Exam Countdowns Configuration for all Batches ---
+const BATCH_COUNTDOWNS = [
+    {
+        id: 'y24',
+        name: 'Y23 & Y24 Batch',
+        shortName: 'Y23 & Y24',
+        title: 'Y23 & Y24 [2026-2027] Odd Sem. Countdown for Exams',
+        barColor: 'bg-indigo-600',
+        years: 'III & IV Year UG Engineering',
+        exams: [
+            {
+                id: 'semIn1',
+                label: 'Sem-In 1',
+                date: '07 Sep',
+                target: new Date('2026-09-07T00:00:00'),
+                color: 'from-blue-400 to-indigo-600',
+                shadow: 'shadow-blue-200',
+                activeBorder: 'border-indigo-600',
+                hoverBorder: 'hover:border-indigo-600'
+            },
+            {
+                id: 'labSemIn',
+                label: 'Lab Sem-In',
+                date: '12 Oct',
+                target: new Date('2026-10-12T00:00:00'),
+                color: 'from-emerald-400 to-teal-600',
+                shadow: 'shadow-emerald-200',
+                activeBorder: 'border-emerald-600',
+                hoverBorder: 'hover:border-emerald-600'
+            },
+            {
+                id: 'semIn2',
+                label: 'Sem-In 2',
+                date: '09 Nov',
+                target: new Date('2026-11-09T00:00:00'),
+                color: 'from-violet-400 to-fuchsia-600',
+                shadow: 'shadow-violet-200',
+                activeBorder: 'border-violet-600',
+                hoverBorder: 'hover:border-violet-600'
+            },
+            {
+                id: 'semEnd',
+                label: 'Sem End',
+                date: '16 Nov',
+                target: new Date('2026-11-16T00:00:00'),
+                color: 'from-amber-400 to-orange-600',
+                shadow: 'shadow-amber-200',
+                activeBorder: 'border-amber-500',
+                hoverBorder: 'hover:border-amber-500'
+            }
+        ]
+    },
+    {
+        id: 'y25',
+        name: 'Y25 Regular Batch',
+        shortName: 'Y25 Regular',
+        title: 'Y25 Regular [2026-2027] Odd Sem. Countdown for Exams',
+        barColor: 'bg-emerald-600',
+        years: 'II Year UG Engineering (Semester Scheme)',
+        exams: [
+            {
+                id: 'semIn1',
+                label: 'Sem-In 1',
+                date: '20 Aug',
+                target: new Date('2026-08-20T00:00:00'),
+                color: 'from-blue-400 to-indigo-600',
+                shadow: 'shadow-blue-200',
+                activeBorder: 'border-indigo-600',
+                hoverBorder: 'hover:border-indigo-600'
+            },
+            {
+                id: 'semIn2',
+                label: 'Sem-In 2',
+                date: '28 Sep',
+                target: new Date('2026-09-28T00:00:00'),
+                color: 'from-violet-400 to-fuchsia-600',
+                shadow: 'shadow-violet-200',
+                activeBorder: 'border-violet-600',
+                hoverBorder: 'hover:border-violet-600'
+            },
+            {
+                id: 'labSemIn',
+                label: 'Lab Sem-In',
+                date: '12 Oct',
+                target: new Date('2026-10-12T00:00:00'),
+                color: 'from-emerald-400 to-teal-600',
+                shadow: 'shadow-emerald-200',
+                activeBorder: 'border-emerald-600',
+                hoverBorder: 'hover:border-emerald-600'
+            },
+            {
+                id: 'semEnd',
+                label: 'Sem End',
+                date: '16 Nov',
+                target: new Date('2026-11-16T00:00:00'),
+                color: 'from-amber-400 to-orange-600',
+                shadow: 'shadow-amber-200',
+                activeBorder: 'border-amber-500',
+                hoverBorder: 'hover:border-amber-500'
+            }
+        ]
+    },
+    {
+        id: 'y25_tri',
+        name: 'Y25 Tri-Sem Batch',
+        shortName: 'Y25 Tri-Sem',
+        title: 'Y25 Tri-Sem [2026-2027] Trimester Countdown for Exams',
+        barColor: 'bg-purple-600',
+        years: 'II Year UG Engineering (Trimester 4 & 5 Scheme)',
+        exams: [
+            {
+                id: 'tri4Lab',
+                label: 'Lab Exams (Tri-4)',
+                date: '12 Oct',
+                target: new Date('2026-10-12T00:00:00'),
+                color: 'from-blue-400 to-indigo-600',
+                shadow: 'shadow-blue-200',
+                activeBorder: 'border-indigo-600',
+                hoverBorder: 'hover:border-indigo-600'
+            },
+            {
+                id: 'tri4End',
+                label: 'Tri-4 End + Hack',
+                date: '26 Oct',
+                target: new Date('2026-10-26T00:00:00'),
+                color: 'from-emerald-400 to-teal-600',
+                shadow: 'shadow-emerald-200',
+                activeBorder: 'border-emerald-600',
+                hoverBorder: 'hover:border-emerald-600'
+            },
+            {
+                id: 'tri5Mid',
+                label: 'Mid Term (Tri-5)',
+                date: '14 Dec',
+                target: new Date('2026-12-14T00:00:00'),
+                color: 'from-violet-400 to-fuchsia-600',
+                shadow: 'shadow-violet-200',
+                activeBorder: 'border-violet-600',
+                hoverBorder: 'hover:border-violet-600'
+            },
+            {
+                id: 'tri5Lab',
+                label: 'Lab Exams (Tri-5)',
+                date: '18 Jan',
+                target: new Date('2027-01-18T00:00:00'),
+                color: 'from-amber-400 to-orange-600',
+                shadow: 'shadow-amber-200',
+                activeBorder: 'border-amber-500',
+                hoverBorder: 'hover:border-amber-500'
+            }
+        ]
+    }
+];
+
 // --- Countdown Component ---
 const ExamCountdownSection = () => {
-    const [timeLeft, setTimeLeft] = useState({});
+    const [activeBatchId, setActiveBatchId] = useState(() => {
+        try {
+            return localStorage.getItem('kl_countdown_batch') || 'y24';
+        } catch {
+            return 'y24';
+        }
+    });
+    const [currentTime, setCurrentTime] = useState(new Date());
+    const [selectedCard, setSelectedCard] = useState(null);
 
     useEffect(() => {
-        const calculateTimeLeft = () => {
-            const now = new Date();
-            const dates = {
-                semIn1: new Date('2026-09-07T00:00:00'),
-                labSemIn: new Date('2026-10-12T00:00:00'),
-                semIn2: new Date('2026-11-09T00:00:00'),
-                semEnd: new Date('2026-11-16T00:00:00'),
-            };
-            const calc = (target) => {
-                const diff = target - now;
-                if (diff <= 0) return { days: 0, hours: 0, mins: 0, secs: 0 };
-                return {
-                    days: Math.floor(diff / (1000 * 60 * 60 * 24)),
-                    hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
-                    mins: Math.floor((diff / 1000 / 60) % 60),
-                    secs: Math.floor((diff / 1000) % 60),
-                };
-            };
-            setTimeLeft({
-                semIn1: calc(dates.semIn1),
-                labSemIn: calc(dates.labSemIn),
-                semIn2: calc(dates.semIn2),
-                semEnd: calc(dates.semEnd),
-            });
-        };
-        const t = setInterval(calculateTimeLeft, 1000);
-        calculateTimeLeft();
+        const t = setInterval(() => setCurrentTime(new Date()), 1000);
         return () => clearInterval(t);
     }, []);
 
-    const items = [
-        { label: "Sem-In 1", date: "07 Sep", time: timeLeft.semIn1, color: "from-blue-400 to-indigo-600", shadow: "shadow-blue-200" },
-        { label: "Lab Sem-In", date: "12 Oct", time: timeLeft.labSemIn, color: "from-emerald-400 to-teal-600", shadow: "shadow-emerald-200" },
-        { label: "Sem-In 2", date: "09 Nov", time: timeLeft.semIn2, color: "from-violet-400 to-fuchsia-600", shadow: "shadow-violet-200" },
-        { label: "Sem End", date: "16 Nov", time: timeLeft.semEnd, color: "from-amber-400 to-orange-600", shadow: "shadow-amber-200" }
-    ];
+    const handleBatchChange = (batchId) => {
+        setActiveBatchId(batchId);
+        setSelectedCard(null);
+        try {
+            localStorage.setItem('kl_countdown_batch', batchId);
+        } catch {
+            // Ignore private storage error
+        }
+    };
+
+    const calcTime = (target) => {
+        const diff = target - currentTime;
+        if (diff <= 0) {
+            return { days: 0, hours: 0, mins: 0, secs: 0, isPassed: true };
+        }
+        return {
+            days: Math.floor(diff / (1000 * 60 * 60 * 24)),
+            hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
+            mins: Math.floor((diff / 1000 / 60) % 60),
+            secs: Math.floor((diff / 1000) % 60),
+            isPassed: false
+        };
+    };
+
+    const activeBatch = BATCH_COUNTDOWNS.find((b) => b.id === activeBatchId) || BATCH_COUNTDOWNS[0];
 
     return (
-        <div className="w-full mt-32 relative z-10">
-            <div className="flex items-center gap-4 mb-10 px-4">
-                <div className="h-10 w-1 bg-indigo-600 rounded-full" />
-                <h2 className="text-3xl font-bold text-slate-900">Y24 [206-2027] Odd Sem. Countdown for Exams</h2>
+        <div className="w-full mt-14 sm:mt-24 relative z-10">
+            {/* Top Bar: Upside Options + Full Academic Calendar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 sm:mb-8 px-1 sm:px-4">
+                {/* Upside Options */}
+                <div className="flex items-center gap-2 sm:gap-2.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+                    {BATCH_COUNTDOWNS.map((b) => {
+                        const isActive = activeBatchId === b.id;
+                        return (
+                            <button
+                                key={b.id}
+                                onClick={() => handleBatchChange(b.id)}
+                                className={`px-3.5 sm:px-4 py-2 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 border-2 shrink-0 ${
+                                    isActive
+                                        ? 'bg-slate-900 text-white border-black shadow-md scale-[1.02]'
+                                        : 'bg-white hover:bg-slate-100 text-slate-800 border-black/30 hover:border-black'
+                                }`}
+                            >
+                                <span>{b.shortName}</span>
+                                {isActive && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                <Link
+                    to="/calendar"
+                    className="text-xs sm:text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1.5 self-start sm:self-auto group"
+                >
+                    <span>Full Academic Calendar</span>
+                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                </Link>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {items.map((item, idx) => (
-                    <motion.div
-                        key={idx}
-                        initial={{ opacity: 0, y: 50 }}
-                        whileInView={{ opacity: 1, y: 0 }}
-                        viewport={{ once: true, margin: "-50px" }}
-                        transition={{ delay: idx * 0.1 }}
-                        whileHover={{ scale: 1.05, y: -10 }}
-                        whileTap={{ scale: 0.95 }}
-                        className={`group relative bg-white rounded-[2rem] p-1 shadow-lg hover:shadow-2xl transition-all duration-300 ${item.shadow}`}
-                    >
-                        {/* Gradient Border Effect */}
-                        <div className={`absolute inset-0 bg-gradient-to-br ${item.color} rounded-[2rem] opacity-0 group-hover:opacity-100 blur transition-opacity duration-300`} />
+            {/* Section Title */}
+            <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 px-1 sm:px-4">
+                <div className={`h-7 sm:h-9 w-1 sm:w-1.5 ${activeBatch.barColor} rounded-full transition-colors duration-300 shrink-0`} />
+                <div>
+                    <h2 className="text-xl sm:text-3xl font-bold text-slate-900 leading-snug">
+                        {activeBatch.title}
+                    </h2>
+                    <p className="text-xs sm:text-sm font-semibold text-slate-500 mt-0.5">
+                        {activeBatch.years}
+                    </p>
+                </div>
+            </div>
 
-                        {/* Card Content */}
-                        <div className="relative bg-white rounded-[1.8rem] p-6 h-full border border-slate-100 flex flex-col justify-between z-10">
-                            <div className="flex justify-between items-start mb-6">
-                                <div>
-                                    <h4 className="font-extrabold text-slate-800 text-lg tracking-tight">{item.label}</h4>
-                                    <div className={`mt-2 inline-flex px-3 py-1 rounded-full bg-gradient-to-r ${item.color} bg-opacity-10 opacity-80`}>
-                                        <span className="text-[10px] font-bold text-white uppercase tracking-wider">{item.date}</span>
-                                    </div>
-                                </div>
-                                <div className={`p-2 rounded-full bg-gradient-to-br ${item.color} text-white shadow-md`}>
-                                    <Clock className="w-4 h-4" />
-                                </div>
-                            </div>
+            {/* Exactly 4 Cards - Smooth animated transition when changing batch */}
+            <AnimatePresence mode="wait">
+                <motion.div
+                    key={activeBatch.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -12 }}
+                    transition={{ duration: 0.25 }}
+                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6"
+                >
+                    {activeBatch.exams.map((item, idx) => {
+                        const time = calcTime(item.target);
+                        const isSelected = selectedCard === idx;
 
-                            <div className="grid grid-cols-4 gap-2 text-center">
-                                {[
-                                    ['Day', item.time?.days || 0],
-                                    ['Hrs', item.time?.hours || 0],
-                                    ['Min', item.time?.mins || 0],
-                                    ['Sec', item.time?.secs || 0]
-                                ].map(([l, v], i) => (
-                                    <div key={i} className="flex flex-col items-center">
-                                        <div className="bg-slate-50 w-full rounded-xl py-3 border border-slate-100 group-hover:border-slate-200 transition-colors">
-                                            <span className="block text-xl font-black text-slate-800 leading-none mb-1">{v}</span>
+                        return (
+                            <motion.div
+                                key={item.id}
+                                whileHover={{ scale: 1.03, y: -6 }}
+                                whileTap={{ scale: 0.97 }}
+                                onClick={() => setSelectedCard(isSelected ? null : idx)}
+                                className={`group relative bg-white rounded-[1.75rem] sm:rounded-[2rem] border-2 cursor-pointer transition-all duration-300 shadow-md hover:shadow-xl ${item.shadow} ${
+                                    isSelected ? item.activeBorder : `border-black ${item.hoverBorder}`
+                                }`}
+                            >
+                                {/* Gradient Border Effect */}
+                                <div className={`absolute inset-0 bg-gradient-to-br ${item.color} rounded-[1.75rem] sm:rounded-[2rem] opacity-0 group-hover:opacity-100 blur transition-opacity duration-300 -z-10`} />
+
+                                {/* Card Content */}
+                                <div className="relative bg-white rounded-[1.6rem] sm:rounded-[1.85rem] p-4 sm:p-6 h-full flex flex-col justify-between z-10">
+                                    <div className="flex justify-between items-start mb-4 sm:mb-6">
+                                        <div>
+                                            <h4 className="font-extrabold text-slate-800 text-base sm:text-lg tracking-tight">{item.label}</h4>
+                                            <div className={`mt-1.5 inline-flex px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-gradient-to-r ${item.color} bg-opacity-10 opacity-90`}>
+                                                <span className="text-[10px] font-bold text-white uppercase tracking-wider">{item.date}</span>
+                                            </div>
                                         </div>
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase mt-1.5">{l}</span>
+                                        <div className={`p-2 rounded-full bg-gradient-to-br ${item.color} text-white shadow-md shrink-0`}>
+                                            <Clock className="w-4 h-4" />
+                                        </div>
                                     </div>
-                                ))}
-                            </div>
-                        </div>
-                    </motion.div>
-                ))}
-            </div>
+
+                                    <div className="grid grid-cols-4 gap-1.5 sm:gap-2 text-center">
+                                        {[
+                                            ['Day', time.days],
+                                            ['Hrs', time.hours],
+                                            ['Min', time.mins],
+                                            ['Sec', time.secs]
+                                        ].map(([l, v], i) => (
+                                            <div key={i} className="flex flex-col items-center">
+                                                <div className="bg-slate-50 w-full rounded-xl py-2 sm:py-3 border border-slate-100 group-hover:border-slate-200 transition-colors">
+                                                    <span className="block text-lg sm:text-xl font-black text-slate-800 leading-none mb-1">{v}</span>
+                                                </div>
+                                                <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase mt-1">{l}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </motion.div>
+                        );
+                    })}
+                </motion.div>
+            </AnimatePresence>
         </div>
     );
 };
@@ -261,6 +478,14 @@ export default function Home() {
     const heroY = useTransform(scrollY, [0, 500], [0, 150]);
     const heroOpacity = useTransform(scrollY, [0, 300], [1, 0]);
 
+    // Preload calendars in the background while user is on Home page
+    useEffect(() => {
+        ['/calendar_y24_hd.webp', '/calendar_y25_hd.webp', '/calendar_y25_tri_hd.webp'].forEach((src) => {
+            const img = new Image();
+            img.src = src;
+        });
+    }, []);
+
     // Use state initializer to ensure stable random values (idempotent)
     const [particles] = useState(() => {
         return [...Array(8)].map((_, i) => ({
@@ -274,38 +499,22 @@ export default function Home() {
     });
 
     return (
-        <div className="relative min-h-[calc(100vh-5rem)] overflow-hidden bg-[#FAFAFA] selection:bg-indigo-500 selection:text-white perspective-root-lg">
+        <div className="relative min-h-screen bg-[#FAFAFA] selection:bg-indigo-500 selection:text-white">
             <SEO
                 title="Home | Master Academic Journey"
                 description="Track attendance, calculate LTPS, and ace your exams with the KL Attendance Manager."
             />
 
-            {/* --- Advanced Ambient Background --- */}
-            <div className="fixed inset-0 pointer-events-none">
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
+            {/* --- High-Performance Ambient Background --- */}
+            <div className="fixed inset-0 pointer-events-none overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-90" />
 
-                {/* Aurora Borealis Effect */}
-                <motion.div
-                    animate={{
-                        scale: [1, 1.2, 1],
-                        opacity: [0.3, 0.5, 0.3],
-                        filter: ["hue-rotate(0deg)", "hue-rotate(90deg)", "hue-rotate(0deg)"]
-                    }}
-                    transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-                    className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 blur-[150px]"
-                />
+                {/* Ambient Soft Glows */}
+                <div className="absolute -top-[15%] -left-[10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-r from-indigo-100 via-purple-100 to-pink-100 blur-[50px] sm:blur-[100px] opacity-40 pointer-events-none" />
+                <div className="absolute top-[35%] -right-[15%] w-[50vw] h-[50vw] rounded-full bg-gradient-to-l from-blue-100 via-teal-100 to-emerald-100 blur-[50px] sm:blur-[100px] opacity-30 pointer-events-none" />
 
-                <motion.div
-                    animate={{
-                        x: [0, 100, 0],
-                        opacity: [0.2, 0.4, 0.2]
-                    }}
-                    transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
-                    className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 blur-[150px]"
-                />
-
-                {/* 3D Floating Particles */}
-                <div className="absolute inset-0 preserve-3d">
+                {/* 3D Floating Particles (Desktop Only for buttery-smooth mobile scrolling) */}
+                <div className="hidden lg:block absolute inset-0 preserve-3d">
                     {particles.map((p) => (
                         <motion.div
                             key={p.id}
@@ -331,15 +540,15 @@ export default function Home() {
                     ))}
                 </div>
 
-                <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.03] mix-blend-overlay" />
+                <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.02] mix-blend-overlay" />
             </div>
 
-            <main className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 flex flex-col items-center">
+            <main className="relative max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-28 sm:pt-36 pb-20 flex flex-col items-center w-full">
 
                 {/* --- Hero Section --- */}
                 <motion.div
                     style={{ y: heroY, opacity: heroOpacity }}
-                    className="relative z-10 w-full text-center flex flex-col items-center mb-32"
+                    className="relative z-10 w-full text-center flex flex-col items-center mb-16 sm:mb-28"
                 >
                     <motion.div
                         initial={{ scale: 0, rotate: -180 }}
@@ -351,8 +560,8 @@ export default function Home() {
                         <Sparkles className="w-10 h-10 text-indigo-600 animate-pulse-slow" />
                     </motion.div>
 
-                    <h1 className="text-4xl sm:text-6xl lg:text-8xl font-black text-slate-900 tracking-tighter leading-[0.9] mb-8 relative perspective-1000 flex flex-col items-center">
-                        <div className="mb-2">
+                    <h1 className="text-3xl sm:text-6xl lg:text-8xl font-black text-slate-900 tracking-tight leading-tight sm:leading-[0.9] mb-6 sm:mb-8 relative perspective-1000 flex flex-col items-center px-2">
+                        <div className="mb-1 sm:mb-2">
                             <StaggeredText text="Master Your" className="text-slate-900" delay={0.2} />
                         </div>
                         <div className="relative inline-block">
@@ -362,8 +571,8 @@ export default function Home() {
                                 delay={0.8}
                             />
                             <motion.div
-                                className="absolute -top-12 -right-4 text-6xl opacity-50 blur-[2px]"
-                                animate={{ y: [0, -20, 0], rotate: [10, -10, 10] }}
+                                className="absolute -top-8 -right-2 sm:-top-12 sm:-right-4 text-4xl sm:text-6xl opacity-50 blur-[1px] pointer-events-none"
+                                animate={{ y: [0, -12, 0], rotate: [8, -8, 8] }}
                                 transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
                             >
                                 🚀
@@ -371,132 +580,234 @@ export default function Home() {
                         </div>
                     </h1>
 
-                    <div className="text-xl text-slate-500 font-medium max-w-2xl leading-relaxed mb-12 h-8">
+                    <div className="text-sm sm:text-xl text-slate-500 font-medium max-w-xl leading-relaxed mb-8 sm:mb-12 px-3 text-center">
                         <TypewriterText text="The next-generation academic suite for KLU students." delay={0.5} />
                     </div>
 
-                    <div className="flex gap-4 perspective-1000">
-                        <Link to="/ltps">
+                    <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 w-full max-w-lg px-3">
+                        <Link to="/ltps" className="flex-1 min-w-[125px]">
                             <motion.button
-                                whileHover={{ scale: 1.05, translateZ: 20 }}
-                                whileTap={{ scale: 0.95 }}
-                                className="px-8 py-4 bg-slate-900 text-white rounded-2xl font-bold shadow-2xl shadow-slate-900/30 flex items-center gap-2 group"
+                                whileHover={{ scale: 1.04 }}
+                                whileTap={{ scale: 0.96 }}
+                                className="w-full py-3.5 px-3 sm:px-5 bg-slate-900 text-white rounded-2xl font-bold shadow-xl shadow-slate-900/25 flex items-center justify-center gap-1.5 sm:gap-2 group text-xs sm:text-sm whitespace-nowrap"
                             >
-                                <Calculator className="w-5 h-5 group-hover:rotate-12 transition-transform" />
-                                Launch Engine
+                                <Calculator className="w-4 h-4 group-hover:rotate-12 transition-transform shrink-0" />
+                                <span>LTPS Engine</span>
                             </motion.button>
                         </Link>
-                        <Link to="/attendance">
+                        <Link to="/bunk-simulator" className="flex-1 min-w-[125px]">
                             <motion.button
-                                whileHover={{ scale: 1.05, translateZ: 20 }}
-                                whileTap={{ scale: 0.95 }}
-                                className="px-8 py-4 bg-white text-slate-900 border border-slate-200 rounded-2xl font-bold shadow-xl flex items-center gap-2 group hover:border-indigo-200"
+                                whileHover={{ scale: 1.04 }}
+                                whileTap={{ scale: 0.96 }}
+                                className="w-full py-3.5 px-3 sm:px-5 bg-gradient-to-r from-rose-600 to-pink-600 text-white rounded-2xl font-bold shadow-xl shadow-rose-500/25 flex items-center justify-center gap-1.5 sm:gap-2 group text-xs sm:text-sm whitespace-nowrap"
                             >
-                                <Activity className="w-5 h-5 text-indigo-500 group-hover:scale-110 transition-transform" />
-                                Live Status
+                                <Flame className="w-4 h-4 group-hover:scale-110 transition-transform shrink-0 animate-pulse" />
+                                <span>Bunk Simulator</span>
+                            </motion.button>
+                        </Link>
+                        <Link to="/attendance" className="flex-1 min-w-[125px]">
+                            <motion.button
+                                whileHover={{ scale: 1.04 }}
+                                whileTap={{ scale: 0.96 }}
+                                className="w-full py-3.5 px-3 sm:px-5 bg-white text-slate-900 border border-slate-200 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-1.5 sm:gap-2 group hover:border-indigo-200 text-xs sm:text-sm whitespace-nowrap"
+                            >
+                                <Activity className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform shrink-0" />
+                                <span>Live Status</span>
                             </motion.button>
                         </Link>
                     </div>
                 </motion.div>
 
                 {/* --- 3D Grid Section --- */}
-                <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-8 perspective-2000">
+                <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-5 sm:gap-8 perspective-2000">
 
                     {/* 1. LTPS Engine - Large Card */}
-                    <div className="md:col-span-2 h-[320px] md:h-[400px]">
+                    <div className="md:col-span-2 min-h-[280px] sm:min-h-[320px] md:h-[380px]">
 
                         <ThreeDParallaxCard
                             to="/ltps"
                             icon={Calculator}
                             colorClass="text-indigo-500"
                             accentColor="bg-indigo-600"
+                            activeBorderColor="border-indigo-600"
+                            hoverBorderColor="hover:border-indigo-600"
                         >
-                            <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mb-2">L-T-P-S Logic Engine</h3>
-                            <p className="text-slate-500 text-sm sm:text-lg mb-8 max-w-sm">Precision calculation based on the latest KLU weightage algorithms. Visualize your grades in 3D.</p>
+                            <div>
+                                <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mb-2">L-T-P-S Logic Engine</h3>
+                                <p className="text-slate-500 text-sm sm:text-base mb-6 max-w-sm">Precision calculation based on the latest KLU weightage algorithms. Visualize your grades in 3D.</p>
+                            </div>
 
                             {/* Detailed 3D Mockup inside Card */}
-                            <div className="absolute -bottom-2 -right-2 sm:bottom-6 sm:right-6 w-32 h-24 sm:w-48 sm:h-32 bg-slate-100 rounded-xl border border-slate-200 shadow-inner p-3 transform rotate-y-12 rotate-x-12 translate-z-10 flex flex-col gap-2 opacity-80 group-hover:opacity-100 transition-opacity">
+                            <div className="absolute -bottom-2 -right-2 sm:bottom-6 sm:right-6 w-28 h-20 sm:w-44 sm:h-28 bg-slate-100 rounded-xl border border-slate-200 shadow-inner p-3 transform rotate-y-12 rotate-x-12 translate-z-10 flex flex-col gap-2 opacity-80 group-hover:opacity-100 transition-opacity pointer-events-none">
                                 <div className="w-full h-2 bg-indigo-200 rounded-full" />
                                 <div className="w-3/4 h-2 bg-indigo-200 rounded-full" />
                                 <div className="mt-auto flex gap-2">
-                                    <div className="w-8 h-8 rounded-lg bg-indigo-500/20" />
-                                    <div className="w-8 h-8 rounded-lg bg-indigo-500/20" />
+                                    <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-indigo-500/20" />
+                                    <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-indigo-500/20" />
                                 </div>
                             </div>
                         </ThreeDParallaxCard>
                     </div>
 
-                    {/* 2. Status Check */}
-                    <div className="h-[320px] md:h-[400px]">
+                    {/* 2. Pluto AI Coding Assistant */}
+                    <div className="min-h-[260px] sm:min-h-[280px] md:h-[380px]">
 
                         <ThreeDParallaxCard
-                            to="/attendance"
-                            icon={ShieldCheck}
-                            colorClass="text-emerald-500"
-                            accentColor="bg-emerald-600"
-                        >
-                            <h3 className="text-2xl font-black text-slate-900 mb-2">Safe Zone</h3>
-                            <p className="text-slate-500 mb-6">Real-time detention risk analysis.</p>
-
-                            <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden border border-slate-200 relative group-hover:shadow-lg transition-shadow">
-                                <motion.div
-                                    className="absolute inset-0 bg-emerald-500"
-                                    initial={{ width: 0 }}
-                                    whileInView={{ width: "85%" }}
-                                    transition={{ duration: 1.5, delay: 0.5 }}
-                                />
-                            </div>
-                            <div className="mt-2 flex justify-between text-[10px] font-bold uppercase text-slate-400">
-                                <span>Risk</span>
-                                <span className="text-emerald-600">Safe</span>
-                            </div>
-                        </ThreeDParallaxCard>
-                    </div>
-
-
-
-                    {/* 4. Predictions */}
-                    <div className="h-[300px] md:h-[350px]">
-
-                        <ThreeDParallaxCard
-                            icon={TrendingUp}
+                            to="/pluto"
+                            icon={Bot}
                             colorClass="text-sky-500"
-                            accentColor="bg-sky-500"
+                            accentColor="bg-gradient-to-tr from-[#229ED9] to-blue-600"
+                            activeBorderColor="border-[#229ED9]"
+                            hoverBorderColor="hover:border-[#229ED9]"
                         >
-                            <h3 className="text-2xl font-black text-slate-900 mb-2">AI Predict</h3>
-                            <p className="text-slate-500 mb-4">Future attendance modeling.</p>
-                            <span className="inline-block px-3 py-1 bg-slate-100 text-slate-500 rounded-lg text-xs font-bold border border-slate-200">Coming Soon</span>
+                            <div>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <span className="px-2.5 py-0.5 rounded-full bg-sky-100 text-[#1474a4] border border-sky-200 text-[10px] font-black uppercase tracking-wider">
+                                        Telegram AI Bot
+                                    </span>
+                                    <span className="text-[10px] font-mono font-bold text-slate-400">
+                                        @PlutoSpark_bot
+                                    </span>
+                                </div>
+                                <h3 className="text-2xl font-black text-slate-900 mb-1.5">Pluto AI</h3>
+                                <p className="text-slate-500 text-xs sm:text-sm mb-4">AI coding & DSA mentor for students.</p>
+                            </div>
+
+                            <div className="space-y-2 mt-auto">
+                                <div className="p-2.5 rounded-xl bg-sky-50/70 border border-sky-100 flex items-center gap-2.5 text-xs text-slate-700 font-medium">
+                                    <span className="w-2 h-2 rounded-full bg-[#229ED9] shrink-0" />
+                                    <span>Instant code solutions & debugging</span>
+                                </div>
+                                <div className="p-2.5 rounded-xl bg-sky-50/70 border border-sky-100 flex items-center gap-2.5 text-xs text-slate-700 font-medium">
+                                    <span className="w-2 h-2 rounded-full bg-[#229ED9] shrink-0" />
+                                    <span>18-milestone DSA roadmap & quizzes</span>
+                                </div>
+                            </div>
                         </ThreeDParallaxCard>
                     </div>
 
-                    {/* 5. Calendar */}
-                    <div className="h-[300px] md:h-[350px]">
-
+                    {/* 3. Bunk Simulator Card */}
+                    <div className="md:col-span-2 min-h-[280px] sm:min-h-[300px] md:h-[360px]">
                         <ThreeDParallaxCard
-                            colorClass="text-purple-500"
-                            accentColor="bg-purple-600"
-                            icon={Calendar}
+                            to="/bunk-simulator"
+                            icon={Flame}
+                            colorClass="text-rose-500"
+                            accentColor="bg-gradient-to-tr from-rose-600 to-pink-500"
+                            activeBorderColor="border-rose-600"
+                            hoverBorderColor="hover:border-rose-600"
                         >
                             <div className="flex flex-col h-full justify-between">
                                 <div>
-                                    <h3 className="text-2xl font-black text-slate-900 mb-2">Calendar</h3>
-                                    <p className="text-slate-500 text-sm">Official KLU Schedule 2025.</p>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 text-[10px] font-black uppercase tracking-wider">
+                                            KLU Weightage Simulator
+                                        </span>
+                                        <span className="text-[10px] font-mono font-bold text-slate-400">
+                                            Safe Zone vs Detained
+                                        </span>
+                                    </div>
+                                    <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mb-2">Bunk Simulator</h3>
+                                    <p className="text-slate-500 text-sm sm:text-base max-w-md">Simulate skipping classes before you bunk. Computes exact percentage drop across Lecture, Tutorial, Practical, & Skill components.</p>
                                 </div>
-                                <a
-                                    href="/1.Academic_Calendar_2026_27_III_and_IV_Year_UG_Engineering_Programs.pdf"
-                                    target="_blank"
-                                    className="w-full py-3 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-center border border-slate-200 transition-colors"
-                                >
-                                    Download PDF
-                                </a>
+                                <div className="w-full py-2.5 sm:py-3 bg-rose-50 group-hover:bg-rose-100 text-rose-900 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
+                                    <Flame className="w-4 h-4 text-rose-600" />
+                                    <span>Launch Bunk Simulator</span>
+                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                </div>
                             </div>
                         </ThreeDParallaxCard>
                     </div>
 
-                    {/* 6. ERP Access Card */}
-                    <div className="h-[300px] md:h-[350px]">
-
+                    {/* 4. ERP Access Card */}
+                    <div className="min-h-[320px] sm:min-h-[340px] md:h-[360px]">
                         <ERPLoginCard />
+                    </div>
+
+                    {/* 5. Public Holidays 2026 */}
+                    <div className="min-h-[280px] sm:min-h-[300px] md:h-[360px]">
+                        <ThreeDParallaxCard
+                            to="/holidays"
+                            icon={CalendarDays}
+                            colorClass="text-amber-500"
+                            accentColor="bg-amber-500"
+                            activeBorderColor="border-amber-500"
+                            hoverBorderColor="hover:border-amber-500"
+                        >
+                            <div className="flex flex-col h-full justify-between">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black uppercase tracking-wider">
+                                            11 Holidays
+                                        </span>
+                                        <span className="text-[10px] font-mono font-bold text-slate-400">
+                                            Year 2026
+                                        </span>
+                                    </div>
+                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 mb-1">
+                                        Public Holidays
+                                    </h3>
+                                    <p className="text-slate-500 text-xs sm:text-sm mb-3">
+                                        Official General Holidays Schedule.
+                                    </p>
+                                </div>
+
+                                <div className="w-full py-2.5 sm:py-3 bg-amber-50 group-hover:bg-amber-100 text-amber-900 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
+                                    <span>View Holiday List (11)</span>
+                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                </div>
+                            </div>
+                        </ThreeDParallaxCard>
+                    </div>
+
+                    {/* 6. Calendar */}
+                    <div className="min-h-[280px] sm:min-h-[300px] md:h-[360px]">
+                        <ThreeDParallaxCard
+                            to="/calendar"
+                            colorClass="text-purple-500"
+                            accentColor="bg-purple-600"
+                            icon={Calendar}
+                            activeBorderColor="border-purple-600"
+                            hoverBorderColor="hover:border-purple-600"
+                        >
+                            <div className="flex flex-col h-full justify-between">
+                                <div>
+                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 mb-2">Calendar</h3>
+                                    <p className="text-slate-500 text-xs sm:text-sm mb-3">Official KLU Schedule 2026–27.</p>
+                                </div>
+                                <div className="w-full py-2.5 sm:py-3 bg-slate-50 group-hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
+                                    <span>View Y24 / Y25 / Tri-Sem</span>
+                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                </div>
+                            </div>
+                        </ThreeDParallaxCard>
+                    </div>
+
+                    {/* 7. Total Attendance Live Status */}
+                    <div className="min-h-[280px] sm:min-h-[300px] md:h-[360px]">
+                        <ThreeDParallaxCard
+                            to="/attendance"
+                            colorClass="text-emerald-500"
+                            accentColor="bg-emerald-600"
+                            icon={Activity}
+                            activeBorderColor="border-emerald-600"
+                            hoverBorderColor="hover:border-emerald-600"
+                        >
+                            <div className="flex flex-col h-full justify-between">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-black uppercase tracking-wider">
+                                            Live Tracker
+                                        </span>
+                                    </div>
+                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 mb-2">Total Attendance</h3>
+                                    <p className="text-slate-500 text-xs sm:text-sm mb-3">Track cumulative attendance, safe zone margins, and recovery classes.</p>
+                                </div>
+                                <div className="w-full py-2.5 sm:py-3 bg-emerald-50 group-hover:bg-emerald-100 text-emerald-900 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
+                                    <span>Check Attendance Status</span>
+                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                </div>
+                            </div>
+                        </ThreeDParallaxCard>
                     </div>
 
 

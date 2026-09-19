@@ -170,9 +170,9 @@ export default function StudyHub() {
     };
 
     return (
-        <div className="relative min-h-screen bg-[#FAFAFA] overflow-hidden selection:bg-indigo-500 selection:text-white perspective-root-lg">
+        <div className="relative min-h-screen bg-[#FAFAFA] selection:bg-indigo-500 selection:text-white">
             {/* --- Advanced Ambient Background --- */}
-            <div className="fixed inset-0 pointer-events-none">
+            <div className="fixed inset-0 pointer-events-none overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
                 <motion.div
                     animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3], rotate: [0, 45, 0] }}
