@@ -1,398 +1,3526 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Upload, FileText, CheckCircle, AlertCircle, LogOut, Trash2 } from 'lucide-react';
-
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import {
+    LayoutDashboard,
+    Mail,
+    Sliders,
+    CalendarDays,
+    UserCheck,
+    LogOut,
+    ExternalLink,
+    TrendingUp,
+    Award,
+    Trash2,
+    Search,
+    Lock,
+    AlertCircle,
+    CheckCircle2,
+    Sparkles,
+    Zap,
+    Users,
+    Clock,
+    History,
+    Smartphone,
+    Calendar,
+    FileSpreadsheet,
+    Check,
+    X,
+    Copy,
+    Download,
+    User,
+    Laptop,
+    Activity,
+    ChevronLeft,
+    ChevronRight,
+    Sun,
+    Moon
+} from 'lucide-react';
+import { 
+    doc, 
+    getDoc, 
+    setDoc, 
+    collection, 
+    onSnapshot, 
+    query, 
+    limit, 
+    deleteDoc,
+    orderBy
+} from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/useAuth';
+import { 
+    formatLoginDate, 
+    getTimeOfDay
+} from '../services/loginTracker';
+import {
+    parseGoogleSheetData,
+    fetchGoogleSheetCSV,
+    fetchAllGoogleSheetsCSV,
+    DEFAULT_GOOGLE_SHEET_URL,
+    DEFAULT_GOOGLE_SHEET_URLS
+} from '../services/gsheetImportService';
+import gsheetLoginsData from '../data/gsheetLoginsData.json';
+import './AdminDashboard.css';
 
-const AdminDashboard = () => {
-    const { currentUser } = useAuth();
-    const isGoogleAdmin = currentUser?.email === 'yaswanthadithyareddy11@gmail.com';
+// High-performance India Standard Time (IST) YYYY-MM-DD formatter (0ms, no heavy Intl overhead)
+export const getISTDateStr = (dateObj = new Date()) => {
+    try {
+        const d = dateObj instanceof Date ? dateObj : new Date(dateObj);
+        const timeMs = d.getTime();
+        if (isNaN(timeMs)) return '';
+        // IST is UTC + 5:30 (19,800,000 milliseconds)
+        const istDate = new Date(timeMs + 19800000);
+        return istDate.toISOString().slice(0, 10);
+    } catch {
+        return '';
+    }
+};
+
+// Helper to determine whether login was via Mobile or Laptop
+const getDeviceCategory = (deviceStr = '', uaStr = '') => {
+    const combined = `${deviceStr || ''} ${uaStr || ''}`.toLowerCase();
+    if (/android|iphone|ipad|ipod|mobile|phone/i.test(combined)) {
+        return {
+            type: 'Mobile',
+            isMobile: true
+        };
+    }
+    return {
+        type: 'Laptop',
+        isMobile: false
+    };
+};
+
+// Pure Real Data Cleaner & Deduplicator
+// 1. Accepts only valid real student roll numbers (/^\d{8,12}$/)
+// 2. Extracts real student roll numbers if prefixed with 'gsheet_'
+// 3. Preserves all genuine login events across every minute (including multiple logins for an ID)
+// 4. Filters out only exact duplicate timestamps (same studentId + exact timestamp)
+export const cleanAndDeduplicateLogins = (rawList = []) => {
+    if (!Array.isArray(rawList)) return [];
+
+    const cleaned = [];
+    rawList.forEach((item, index) => {
+        if (!item) return;
+
+        let sId = String(item.studentId || '').trim().toUpperCase();
+        if (!sId && item.id) {
+            const strId = String(item.id).trim().toUpperCase();
+            const parts = strId.split('_');
+            const roll = parts.find(p => /^\d{8,12}$/.test(p));
+            if (roll) sId = roll;
+        } else if (sId.includes('_')) {
+            const parts = sId.split('_');
+            const roll = parts.find(p => /^\d{8,12}$/.test(p));
+            if (roll) sId = roll;
+        }
+
+        // Strictly real KLU student ID format
+        if (!sId || !/^\d{8,12}$/.test(sId)) return;
+
+        const tsDate = item.timestamp ? new Date(item.timestamp) : new Date();
+        const validTs = !isNaN(tsDate.getTime()) ? tsDate.toISOString() : new Date().toISOString();
+        const istDate = getISTDateStr(tsDate);
+        const dateKey = item.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date) ? item.date : istDate;
+        const monthKey = item.month && /^\d{4}-\d{2}$/.test(item.month) ? item.month : dateKey.slice(0, 7);
+        const yearKey = item.year && /^\d{4}$/.test(item.year) ? item.year : dateKey.slice(0, 4);
+
+        cleaned.push({
+            id: item.id || `log_${tsDate.getTime()}_${sId}_${index}`,
+            studentId: sId,
+            timestamp: validTs,
+            date: dateKey,
+            month: monthKey,
+            year: yearKey,
+            device: item.device || 'Google Sheets',
+            userAgent: item.userAgent || 'Web Browser',
+            source: item.source || 'Google Sheet'
+        });
+    });
+
+    // Deduplicate only exact identical timestamps for the same student (e.g. repeated sync fetch)
+    const deduped = [];
+    const seenExactKeys = new Set();
+
+    cleaned.forEach(item => {
+        const exactKey = `${item.studentId}_${item.timestamp}`;
+        if (seenExactKeys.has(exactKey)) return;
+        seenExactKeys.add(exactKey);
+        deduped.push(item);
+    });
+
+    // Reverse chronological order (latest logins first)
+    deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return deduped;
+};
+
+// Pre-clean bundled static Google Sheets data once to avoid repeated loops
+const INITIAL_STATIC_LOGINS = cleanAndDeduplicateLogins(gsheetLoginsData || []);
+
+export default function AdminDashboard() {
+    const navigate = useNavigate();
+    const { currentUser, logout } = useAuth();
+    const [adminLoggedOut, setAdminLoggedOut] = useState(() => sessionStorage.getItem('adminLoggedOut') === 'true');
     const [isLocalAdmin, setIsLocalAdmin] = useState(() => localStorage.getItem('isAdminAuthenticated') === 'true');
-    const isAuthenticated = isGoogleAdmin || isLocalAdmin;
+    const isGoogleAdmin = !adminLoggedOut && currentUser?.email === 'yaswanthadithyareddy11@gmail.com';
+    const isAuthenticated = !adminLoggedOut && (isGoogleAdmin || isLocalAdmin);
 
+    // Fast Pagination States (renders 50 rows at a time for 0ms lag-free tables)
+    const [usersPage, setUsersPage] = useState(1);
+    const [loginsPage, setLoginsPage] = useState(1);
+    const PAGE_SIZE = 50;
+
+    // Login Form State
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const [error, setError] = useState('');
-    const [selectedFile, setSelectedFile] = useState(null);
-    const [uploadStatus, setUploadStatus] = useState(''); // 'uploading', 'success', 'error'
+    const [loginError, setLoginError] = useState('');
+
+    // Active Sidebar Tab
+    const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard', 'inbox', 'logins', 'controls', 'calendar', 'profile'
+
+    // Traffic Analytics & Time Range
+    const [trafficRange, setTrafficRange] = useState('daily'); // 'daily' or 'monthly'
+    const [totalVisits, setTotalVisits] = useState(() => {
+        const val = parseInt(localStorage.getItem('kl_total_visits') || '0', 10);
+        return (val === 1284 || val === 120) ? 0 : val;
+    });
+    const [dailyTraffic, setDailyTraffic] = useState({});
+
+    // Feedbacks State (Only 100% real student feedbacks)
+    const [feedbacks, setFeedbacks] = useState(() => {
+        try {
+            const local = JSON.parse(localStorage.getItem('kl_user_feedbacks') || '[]');
+            if (Array.isArray(local)) {
+                return local.filter(f => !f.id?.startsWith('seed_') && !f.id?.startsWith('fb_sim_'));
+            }
+            return [];
+        } catch {
+            return [];
+        }
+    });
+    const [feedbackFilter, setFeedbackFilter] = useState('all');
+    const [feedbackSearch, setFeedbackSearch] = useState('');
+
+    // User Logins State (100% Real Logins - Fast synchronous initialization)
+    const [userLogins, setUserLogins] = useState(() => {
+        try {
+            const local = JSON.parse(localStorage.getItem('kl_user_login_history') || '[]');
+            if (Array.isArray(local) && local.length > 0) {
+                return cleanAndDeduplicateLogins([...INITIAL_STATIC_LOGINS, ...local]);
+            }
+            return INITIAL_STATIC_LOGINS;
+        } catch {
+            return INITIAL_STATIC_LOGINS;
+        }
+    });
+    const [loginStats, setLoginStats] = useState({
+        today: 0,
+        month: 0,
+        year: 0,
+        total: 0
+    });
+    const [loginSearch, setLoginSearch] = useState('');
+    const [loginDateFilter, setLoginDateFilter] = useState('all'); // 'all', 'today', 'month', 'year'
+
+    // Users Directory State (Deduplicated Unique Students - 1 Student = 1 User)
+    const [userDirectorySearch, setUserDirectorySearch] = useState('');
+    const [userDirectorySort, setUserDirectorySort] = useState('logins_desc'); // 'logins_desc', 'logins_asc', 'recent', 'id_asc', 'id_desc'
+    const [userDirectoryFilter, setUserDirectoryFilter] = useState('all'); // 'all', 'today', 'month', 'top'
+    const [copiedUserId, setCopiedUserId] = useState(null);
+    const [selectedUserModal, setSelectedUserModal] = useState(null);
+    const [firestoreStudents, setFirestoreStudents] = useState([]);
+
+    // Site Controls State
     const [announcement, setAnnouncement] = useState('');
+    const [savingAnnouncement, setSavingAnnouncement] = useState(false);
+    const [announcementSuccess, setAnnouncementSuccess] = useState(false);
+
     const [ltpsWeights, setLtpsWeights] = useState({
         lecture: 100,
         tutorial: 100,
         practical: 50,
         skill: 25
     });
+    const [savingWeights, setSavingWeights] = useState(false);
+    const [weightsSuccess, setWeightsSuccess] = useState(false);
 
-    useEffect(() => {
-        const fetchConfig = async () => {
-            try {
-                const announceSnap = await getDoc(doc(db, "config", "global"));
-                if (announceSnap.exists() && announceSnap.data().announcement) {
-                    setAnnouncement(announceSnap.data().announcement);
-                }
-
-                const weightsSnap = await getDoc(doc(db, "config", "weights"));
-                if (weightsSnap.exists()) {
-                    setLtpsWeights(weightsSnap.data());
-                }
-            } catch (err) {
-                console.error("Error fetching config:", err);
-            }
-        };
-        fetchConfig();
-    }, []);
-
+    // Handle Login with immediate state transition
     const handleLogin = (e) => {
         e.preventDefault();
         if (username === 'aadi' && password === 'adithya3130') {
+            sessionStorage.removeItem('adminLoggedOut');
+            setAdminLoggedOut(false);
             setIsLocalAdmin(true);
             localStorage.setItem('isAdminAuthenticated', 'true');
-            setError('');
+            setLoginError('');
         } else {
-            setError('Invalid username or password');
+            setLoginError('Invalid username or password');
         }
     };
 
+    // Handle Logout with instant UI response and instant return to website
     const handleLogout = () => {
+        sessionStorage.setItem('adminLoggedOut', 'true');
+        setAdminLoggedOut(true);
         setIsLocalAdmin(false);
         localStorage.removeItem('isAdminAuthenticated');
         setUsername('');
         setPassword('');
-    };
-
-    const handleFileChange = (e) => {
-        if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            if (file.type === 'application/pdf' && file.size <= 5 * 1024 * 1024) {
-                setSelectedFile(file);
-                setUploadStatus('');
-                setError('');
-            } else {
-                setSelectedFile(null);
-                setError('Please upload a PDF file smaller than 5MB.');
+        
+        try {
+            if (typeof logout === 'function') {
+                logout().catch(err => console.warn("Logout notice:", err));
             }
+        } catch (err) {
+            console.warn("Logout notice:", err);
+        }
+
+        // Instantly navigate to main website with zero lag
+        navigate('/');
+    };
+
+    // Google Sheets Dual Sync State
+    const [showGSheetModal, setShowGSheetModal] = useState(false);
+    const [syncingSheets, setSyncingSheets] = useState(false);
+    const [sheetSyncResults, setSheetSyncResults] = useState(null);
+    const [pastedSheetData, setPastedSheetData] = useState('');
+    const [pasteImportMsg, setPasteImportMsg] = useState('');
+
+    // Handle Manual Sync of all configured Google Sheets
+    const handleSyncAllSheets = async () => {
+        setSyncingSheets(true);
+        setSheetSyncResults(null);
+        try {
+            const { records, statuses } = await fetchAllGoogleSheetsCSV(DEFAULT_GOOGLE_SHEET_URLS);
+            if (records && records.length > 0) {
+                setUserLogins(prev => cleanAndDeduplicateLogins([...records, ...prev]));
+            }
+            setSheetSyncResults(statuses);
+        } catch (err) {
+            console.error('Manual sheet sync failed:', err);
+        } finally {
+            setSyncingSheets(false);
         }
     };
 
-    const handleUpload = async () => {
-        if (!selectedFile) {
-            setError('No file selected for upload.');
-            return;
-        }
-
-        setUploadStatus('uploading');
-        setError('');
-
+    // Handle Import of Pasted Sheet Data (Passwords stripped, only real student IDs & timestamps kept)
+    const handleImportPastedData = () => {
+        if (!pastedSheetData.trim()) return;
         try {
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            localStorage.setItem('academic_calendar_pdf', 'uploaded_file_data_or_url');
-            setUploadStatus('success');
-            setSelectedFile(null);
+            const parsed = parseGoogleSheetData(pastedSheetData);
+            if (!parsed || parsed.length === 0) {
+                setPasteImportMsg('No valid student roll numbers found. Passwords are strictly discarded.');
+                return;
+            }
+            setUserLogins(prev => cleanAndDeduplicateLogins([...parsed, ...prev]));
+            setPasteImportMsg(`Successfully imported ${parsed.length} login sessions! No passwords saved.`);
+            setPastedSheetData('');
+            setTimeout(() => setPasteImportMsg(''), 4000);
+        } catch (err) {
+            setPasteImportMsg(`Import error: ${err.message}`);
+        }
+    };
+
+    // Clean up any lingering simulated, seed, or corrupted duplicate items from localStorage on initial mount
+    useEffect(() => {
+        try {
+            const savedVisits = localStorage.getItem('kl_total_visits');
+            if (savedVisits === '1284' || savedVisits === '120') {
+                localStorage.setItem('kl_total_visits', '0');
+            }
+            const localFb = JSON.parse(localStorage.getItem('kl_user_feedbacks') || '[]');
+            if (Array.isArray(localFb)) {
+                const cleanFb = localFb.filter(f => !f.id?.startsWith('seed_') && !f.id?.startsWith('fb_sim_'));
+                localStorage.setItem('kl_user_feedbacks', JSON.stringify(cleanFb));
+            }
+            const localLogs = JSON.parse(localStorage.getItem('kl_user_login_history') || '[]');
+            if (Array.isArray(localLogs)) {
+                const cleanLogs = cleanAndDeduplicateLogins(localLogs);
+                localStorage.setItem('kl_user_login_history', JSON.stringify(cleanLogs));
+            }
+            localStorage.removeItem('kl_user_login_counts');
         } catch {
-            setError('Failed to upload calendar. Please try again.');
-            setUploadStatus('error');
+            // ignore
         }
-    };
+    }, []);
 
-    const handleResetCalendar = () => {
-        localStorage.removeItem('academic_calendar_pdf');
-        setSelectedFile(null);
-        setUploadStatus('');
-        setError('Calendar reset to default (if any).');
-    };
+    // Real-time listener for Feedbacks, Logins, and Analytics
+    useEffect(() => {
+        if (!isAuthenticated) return;
 
-    const handleSaveAnnouncement = async () => {
+        // 1. Listen to config (announcement & weights)
+        const fetchConfig = async () => {
+            try {
+                const announceSnap = await getDoc(doc(db, 'config', 'global'));
+                if (announceSnap.exists() && announceSnap.data().announcement) {
+                    setAnnouncement(announceSnap.data().announcement);
+                }
+                const weightsSnap = await getDoc(doc(db, 'config', 'weights'));
+                if (weightsSnap.exists()) {
+                    setLtpsWeights(weightsSnap.data());
+                }
+            } catch (err) {
+                console.warn('Config fetch notice:', err);
+            }
+        };
+        fetchConfig();
+
+        // 2. Real-time Feedback stream with zero lag (no index requirement, memory-sorted)
+        let unsubFeedback = null;
         try {
-            await setDoc(doc(db, "config", "global"), { announcement }, { merge: true });
-            alert('Announcement updated successfully!');
-        } catch (e) {
-            console.error(e);
-            alert('Failed to save announcement');
+            const fbQuery = query(collection(db, 'feedback'), limit(150));
+            unsubFeedback = onSnapshot(fbQuery, (snapshot) => {
+                const list = snapshot.docs
+                    .map(d => ({ id: d.id, ...d.data() }))
+                    .filter(f => !f.id?.startsWith('seed_') && !f.id?.startsWith('fb_sim_'));
+                list.sort((a, b) => {
+                    const tA = new Date(a.timestamp || 0).getTime();
+                    const tB = new Date(b.timestamp || 0).getTime();
+                    return tB - tA;
+                });
+                setFeedbacks(list);
+            }, (err) => {
+                console.warn('Feedback real-time listener notice:', err);
+                const local = JSON.parse(localStorage.getItem('kl_user_feedbacks') || '[]');
+                const real = Array.isArray(local)
+                    ? local.filter(f => !f.id?.startsWith('seed_') && !f.id?.startsWith('fb_sim_'))
+                    : [];
+                setFeedbacks(real);
+            });
+        } catch {
+            // ignore
         }
-    };
 
-    const handleSaveWeights = async () => {
+        // 3. Real-time User Logins Stream (Deduplicated 100% real logins)
+        let unsubLogins = null;
         try {
-            const payload = {
-                ...ltpsWeights,
-                skill: ltpsWeights.skill ?? ltpsWeights.skilling ?? 25
+            const loginsQuery = query(
+                collection(db, 'userLogins'), 
+                orderBy('timestamp', 'desc'), 
+                limit(1500)
+            );
+            unsubLogins = onSnapshot(loginsQuery, (snapshot) => {
+                const fsList = snapshot.docs
+                    .map(d => ({ id: d.id, ...d.data() }));
+
+                const local = JSON.parse(localStorage.getItem('kl_user_login_history') || '[]');
+                const combined = [...(gsheetLoginsData || []), ...fsList, ...(Array.isArray(local) ? local : [])];
+                const clean = cleanAndDeduplicateLogins(combined);
+
+                setUserLogins(clean);
+            }, (err) => {
+                console.warn('Logins listener notice:', err);
+                const local = JSON.parse(localStorage.getItem('kl_user_login_history') || '[]');
+                const combined = [...(gsheetLoginsData || []), ...(Array.isArray(local) ? local : [])];
+                setUserLogins(cleanAndDeduplicateLogins(combined));
+            });
+        } catch {
+            // ignore
+        }
+
+        // 3b. Real-time Registered Students Stream (immediate 0ms discovery of new users)
+        let unsubStudents = null;
+        try {
+            unsubStudents = onSnapshot(collection(db, 'students'), (snapshot) => {
+                const sList = snapshot.docs
+                    .map(d => ({ id: d.id, studentId: d.id, ...d.data() }))
+                    .filter(s => !s.id?.startsWith('seed_') && !s.id?.startsWith('sim_'));
+                setFirestoreStudents(sList);
+            }, (err) => {
+                console.warn('Students listener notice:', err);
+            });
+        } catch {
+            // ignore
+        }
+
+        // 4. Real-time Logins Aggregated Analytics
+        let unsubLoginStats = null;
+        try {
+            unsubLoginStats = onSnapshot(doc(db, 'analytics', 'logins'), (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    const todayK = new Date().toISOString().slice(0, 10);
+                    const monthK = new Date().toISOString().slice(0, 7);
+                    const yearK = new Date().toISOString().slice(0, 4);
+                    setLoginStats({
+                        today: data.daily?.[todayK] || 0,
+                        month: data.monthly?.[monthK] || 0,
+                        year: data.yearly?.[yearK] || 0,
+                        total: data.totalLogins || 0
+                    });
+                }
+            });
+        } catch {
+            // ignore
+        }
+
+        // 5. Real-time visitor traffic listener
+        let unsubTraffic = null;
+        try {
+            unsubTraffic = onSnapshot(doc(db, 'analytics', 'traffic'), (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    if (typeof data.totalVisits === 'number') {
+                        setTotalVisits(data.totalVisits);
+                        localStorage.setItem('kl_total_visits', data.totalVisits.toString());
+                    }
+                    if (data.daily) setDailyTraffic(data.daily);
+                }
+            }, () => {
+                const val = parseInt(localStorage.getItem('kl_total_visits') || '0', 10);
+                setTotalVisits((val === 1284 || val === 120) ? 0 : val);
+            });
+        } catch {
+            // ignore
+        }
+
+        // 6. Real-time local events & BroadcastChannel listeners (0ms cross-tab sync without refresh)
+        const handleNewFeedback = (e) => {
+            if (e?.detail) {
+                setFeedbacks(prev => {
+                    const exists = prev.some(f => f.id === e.detail.id);
+                    return exists ? prev : [e.detail, ...prev];
+                });
+            }
+        };
+
+        const handleNewLogin = (e) => {
+            if (e?.detail) {
+                setUserLogins(prev => cleanAndDeduplicateLogins([e.detail, ...prev]));
+            }
+        };
+
+        window.addEventListener('kl_new_feedback', handleNewFeedback);
+        window.addEventListener('kl_new_login', handleNewLogin);
+
+        let portalBc = null;
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+            portalBc = new BroadcastChannel('kl_portal_sync');
+            portalBc.onmessage = (event) => {
+                if (event.data?.type === 'FEEDBACK_EVENT') {
+                    handleNewFeedback({ detail: event.data.data });
+                } else if (event.data?.type === 'LOGIN_EVENT') {
+                    handleNewLogin({ detail: event.data.data });
+                }
             };
-            await setDoc(doc(db, "config", "weights"), payload);
-            alert('Calculation weights updated successfully!');
-        } catch (e) {
-            console.error(e);
-            alert('Failed to save weights');
+        }
+
+        return () => {
+            if (unsubFeedback) unsubFeedback();
+            if (unsubLogins) unsubLogins();
+            if (unsubStudents) unsubStudents();
+            if (unsubLoginStats) unsubLoginStats();
+            if (unsubTraffic) unsubTraffic();
+            window.removeEventListener('kl_new_feedback', handleNewFeedback);
+            window.removeEventListener('kl_new_login', handleNewLogin);
+            if (portalBc) portalBc.close();
+        };
+    }, [isAuthenticated]);
+
+    // Merged Logins with all registered students ensuring 100% parity between log rows and total logins
+    const effectiveAllLogins = useMemo(() => {
+        if (!isAuthenticated) return [];
+        const studentIdsInLogs = new Set(userLogins.map(l => l.studentId));
+        const synthetic = [];
+        firestoreStudents.forEach(st => {
+            let sId = String(st.studentId || st.id || '').trim().toUpperCase();
+            if (sId.includes('_')) {
+                const parts = sId.split('_');
+                const roll = parts.find(p => /^\d{8,12}$/.test(p));
+                if (roll) sId = roll;
+            }
+            if (!sId || !/^\d{8,12}$/.test(sId)) return;
+            if (!studentIdsInLogs.has(sId)) {
+                studentIdsInLogs.add(sId);
+                synthetic.push({
+                    id: `student_init_${sId}`,
+                    studentId: sId,
+                    timestamp: st.lastLoginAt || new Date().toISOString(),
+                    date: st.lastLoginAt ? getISTDateStr(st.lastLoginAt) : getISTDateStr(new Date()),
+                    month: (st.lastLoginAt ? getISTDateStr(st.lastLoginAt) : getISTDateStr(new Date())).slice(0, 7),
+                    year: (st.lastLoginAt ? getISTDateStr(st.lastLoginAt) : getISTDateStr(new Date())).slice(0, 4),
+                    device: 'Web Portal',
+                    source: 'Web Login',
+                    userAgent: 'Web Browser'
+                });
+            }
+        });
+        if (synthetic.length === 0) return userLogins;
+        return cleanAndDeduplicateLogins([...userLogins, ...synthetic]);
+    }, [isAuthenticated, userLogins, firestoreStudents]);
+
+    // Deduplicated Unique Users Computation (1 Student = Exactly 1 User, Zero Duplicates)
+    const uniqueUsersData = useMemo(() => {
+        if (!isAuthenticated) return {
+            list: [],
+            totalUnique: 0,
+            activeTodayCount: 0,
+            activeMonthCount: 0,
+            activeYearCount: 0,
+            multiLoginCount: 0,
+            totalAllTimeLoginsSum: 0,
+            totalTodayLoginsSum: 0,
+            totalMonthLoginsSum: 0,
+            totalYearLoginsSum: 0
+        };
+        const todayStr = getISTDateStr(new Date());
+        const monthStr = todayStr.slice(0, 7);
+        const yearStr = todayStr.slice(0, 4);
+
+        const userMap = new Map();
+
+        effectiveAllLogins.forEach(log => {
+            let sId = String(log.studentId || '').trim().toUpperCase();
+            if (sId.includes('_')) {
+                const parts = sId.split('_');
+                const roll = parts.find(p => /^\d{8,12}$/.test(p));
+                if (roll) sId = roll;
+            }
+            if (!sId || !/^\d{8,12}$/.test(sId)) return;
+
+            const ts = log.timestamp ? new Date(log.timestamp).getTime() : 0;
+            const d = log.date && /^\d{4}-\d{2}-\d{2}$/.test(log.date) ? log.date : (log.timestamp ? getISTDateStr(log.timestamp) : '');
+            const m = d ? d.slice(0, 7) : (log.month || '');
+            const y = d ? d.slice(0, 4) : (log.year || '');
+
+            if (!userMap.has(sId)) {
+                userMap.set(sId, {
+                    studentId: sId,
+                    totalLogins: 0,
+                    todayLogins: 0,
+                    monthLogins: 0,
+                    yearLogins: 0,
+                    firstLoginTs: ts || Date.now(),
+                    lastLoginTs: ts || 0,
+                    lastLoginFormatted: log.timestamp || '',
+                    firstLoginFormatted: log.timestamp || '',
+                    devices: {},
+                    lastDevice: log.device || 'Web Browser',
+                    activeToday: false,
+                    activeThisMonth: false,
+                    activeThisYear: false,
+                    loginDates: new Set(),
+                    sessions: []
+                });
+            }
+
+            const entry = userMap.get(sId);
+            entry.totalLogins += 1;
+            entry.sessions.push(log);
+            if (d) entry.loginDates.add(d);
+
+            if (ts && ts < entry.firstLoginTs) {
+                entry.firstLoginTs = ts;
+                entry.firstLoginFormatted = log.timestamp;
+            }
+            if (ts && ts >= entry.lastLoginTs) {
+                entry.lastLoginTs = ts;
+                entry.lastLoginFormatted = log.timestamp;
+                if (log.device) entry.lastDevice = log.device;
+            }
+
+            if (d === todayStr) {
+                entry.activeToday = true;
+                entry.todayLogins += 1;
+            }
+            if (m === monthStr) {
+                entry.activeThisMonth = true;
+                entry.monthLogins += 1;
+            }
+            if (y === yearStr) {
+                entry.activeThisYear = true;
+                entry.yearLogins += 1;
+            }
+
+            const dev = log.device || 'Web Browser';
+            entry.devices[dev] = (entry.devices[dev] || 0) + 1;
+        });
+
+        let totalAllTimeLoginsSum = 0;
+        let totalTodayLoginsSum = 0;
+        let totalMonthLoginsSum = 0;
+        let totalYearLoginsSum = 0;
+
+        userMap.forEach(u => {
+            totalAllTimeLoginsSum += u.totalLogins;
+            totalTodayLoginsSum += u.todayLogins;
+            totalMonthLoginsSum += u.monthLogins;
+            totalYearLoginsSum += u.yearLogins;
+        });
+
+        const list = Array.from(userMap.values()).map(u => {
+            let primaryDevice = u.lastDevice;
+            let maxCount = 0;
+            Object.entries(u.devices).forEach(([dev, cnt]) => {
+                if (cnt > maxCount) {
+                    maxCount = cnt;
+                    primaryDevice = dev;
+                }
+            });
+
+            // Infer academic batch from student ID prefix (e.g. 24 -> 2024 Batch, 25 -> 2025 Batch)
+            let batchLabel = 'KLU Student';
+            if (u.studentId.length >= 2 && /^\d+$/.test(u.studentId.slice(0, 2))) {
+                batchLabel = `20${u.studentId.slice(0, 2)} Batch`;
+            }
+
+            return {
+                ...u,
+                primaryDevice,
+                batchLabel,
+                uniqueDaysActive: u.loginDates.size
+            };
+        });
+
+        // Default sort: highest logins first
+        list.sort((a, b) => b.totalLogins - a.totalLogins);
+
+        const totalUnique = list.length;
+        const activeTodayCount = list.filter(u => u.activeToday).length;
+        const activeMonthCount = list.filter(u => u.activeThisMonth).length;
+        const activeYearCount = list.filter(u => u.activeThisYear).length;
+        const multiLoginCount = list.filter(u => u.totalLogins > 1).length;
+
+        return {
+            list,
+            totalUnique,
+            activeTodayCount,
+            activeMonthCount,
+            activeYearCount,
+            multiLoginCount,
+            totalAllTimeLoginsSum,
+            totalTodayLoginsSum,
+            totalMonthLoginsSum,
+            totalYearLoginsSum
+        };
+    }, [effectiveAllLogins]);
+
+    // Computed Logins Aggregation (Today, Month, Year, and user login frequencies synchronized with unique users)
+    const computedLogins = useMemo(() => {
+        if (!isAuthenticated) return {
+            todayCount: 0,
+            monthCount: 0,
+            yearCount: 0,
+            totalCount: 0,
+            uniqueUsersCount: 0,
+            userFreq: {},
+            todayUserCounts: {},
+            todayRanking: [],
+            monthRanking: [],
+            yearRanking: [],
+            allTimeRanking: [],
+            highestTodayLogins: 0,
+            topTodayStudentId: null,
+            monthTimeSlots: { morning: 0, afternoon: 0, evening: 0 }
+        };
+
+        const todayStr = getISTDateStr(new Date());
+        const monthStr = todayStr.slice(0, 7);
+        const yearStr = todayStr.slice(0, 4);
+
+        let todayCount = 0;
+        let monthCount = 0;
+        let yearCount = 0;
+        const userFreq = {};
+        const todayUserCounts = {};
+        const monthUserCounts = {};
+        const yearUserCounts = {};
+        const monthTimeSlots = { morning: 0, afternoon: 0, evening: 0 };
+
+        effectiveAllLogins.forEach(l => {
+            const d = l.date && /^\d{4}-\d{2}-\d{2}$/.test(l.date) ? l.date : (l.timestamp ? getISTDateStr(l.timestamp) : '');
+            const m = d ? d.slice(0, 7) : (l.month || '');
+            const y = d ? d.slice(0, 4) : (l.year || '');
+
+            if (d === todayStr) {
+                todayCount++;
+                if (l.studentId) {
+                    todayUserCounts[l.studentId] = (todayUserCounts[l.studentId] || 0) + 1;
+                }
+            }
+            if (m === monthStr) {
+                monthCount++;
+                if (l.studentId) {
+                    monthUserCounts[l.studentId] = (monthUserCounts[l.studentId] || 0) + 1;
+                }
+                if (l.timestamp) {
+                    const hour = new Date(l.timestamp).getHours();
+                    if (hour >= 5 && hour < 12) monthTimeSlots.morning++;
+                    else if (hour >= 12 && hour < 17) monthTimeSlots.afternoon++;
+                    else monthTimeSlots.evening++;
+                }
+            }
+            if (y === yearStr) {
+                yearCount++;
+                if (l.studentId) {
+                    yearUserCounts[l.studentId] = (yearUserCounts[l.studentId] || 0) + 1;
+                }
+            }
+
+            if (l.studentId) {
+                userFreq[l.studentId] = (userFreq[l.studentId] || 0) + 1;
+            }
+        });
+
+        // Rank students by login frequency today (Most active first)
+        const todayRanking = Object.entries(todayUserCounts)
+            .map(([studentId, count]) => ({
+                studentId,
+                countToday: count,
+                totalCount: userFreq[studentId] || count
+            }))
+            .sort((a, b) => b.countToday - a.countToday);
+
+        // Rank students by login frequency this month (Most active first)
+        const monthRanking = Object.entries(monthUserCounts)
+            .map(([studentId, count]) => ({
+                studentId,
+                countMonth: count,
+                totalCount: userFreq[studentId] || count
+            }))
+            .sort((a, b) => b.countMonth - a.countMonth);
+
+        // Rank students by login frequency this year
+        const yearRanking = Object.entries(yearUserCounts)
+            .map(([studentId, count]) => ({
+                studentId,
+                countYear: count,
+                totalCount: userFreq[studentId] || count
+            }))
+            .sort((a, b) => b.countYear - a.countYear);
+
+        // All time ranking (incorporates verified cumulative counts from unique student profiles)
+        const allTimeRanking = (uniqueUsersData?.list || [])
+            .map(u => ({
+                studentId: u.studentId,
+                totalCount: u.totalLogins
+            }))
+            .sort((a, b) => b.totalCount - a.totalCount);
+
+        const highestTodayLogins = todayRanking.length > 0 ? todayRanking[0].countToday : 0;
+        const topTodayStudentId = todayRanking.length > 0 ? todayRanking[0].studentId : null;
+        const uniqueUsersCount = uniqueUsersData?.totalUnique || Object.keys(userFreq).length;
+
+        // Total count matches exact effectiveAllLogins length
+        const effectiveTotalCount = effectiveAllLogins.length;
+        const effectiveTodayCount = Math.max(todayCount, uniqueUsersData?.totalTodayLoginsSum || 0);
+        const effectiveMonthCount = Math.max(monthCount, uniqueUsersData?.totalMonthLoginsSum || 0);
+        const effectiveYearCount = Math.max(yearCount, uniqueUsersData?.totalYearLoginsSum || 0);
+
+        return {
+            todayCount: effectiveTodayCount,
+            monthCount: effectiveMonthCount,
+            yearCount: effectiveYearCount,
+            totalCount: effectiveTotalCount,
+            uniqueUsersCount,
+            userFreq,
+            todayUserCounts,
+            todayRanking,
+            monthRanking,
+            yearRanking,
+            allTimeRanking: allTimeRanking.length > 0 ? allTimeRanking : Object.entries(userFreq).map(([studentId, count]) => ({ studentId, totalCount: count })).sort((a, b) => b.totalCount - a.totalCount),
+            highestTodayLogins,
+            topTodayStudentId,
+            monthTimeSlots
+        };
+    }, [isAuthenticated, effectiveAllLogins, uniqueUsersData]);
+
+    // Filtered Logins List (Filters effectiveAllLogins for 100% parity)
+    const filteredLogins = useMemo(() => {
+        const todayStr = getISTDateStr(new Date());
+        const monthStr = todayStr.slice(0, 7);
+        const yearStr = todayStr.slice(0, 4);
+        const searchLower = loginSearch.toLowerCase();
+
+        return effectiveAllLogins
+            .filter(item => {
+                const d = item.date || (item.timestamp ? getISTDateStr(new Date(item.timestamp)) : '');
+                const m = item.month || (d ? d.slice(0, 7) : '');
+                const y = item.year || (d ? d.slice(0, 4) : '');
+
+                let matchesDate = true;
+                if (loginDateFilter === 'today') matchesDate = d === todayStr;
+                else if (loginDateFilter === 'month') matchesDate = m === monthStr;
+                else if (loginDateFilter === 'year') matchesDate = y === yearStr;
+
+                const matchesSearch = !loginSearch || 
+                    (item.studentId && item.studentId.toLowerCase().includes(searchLower)) ||
+                    (item.device && item.device.toLowerCase().includes(searchLower));
+
+                return matchesDate && matchesSearch;
+            })
+            .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+    }, [effectiveAllLogins, loginDateFilter, loginSearch]);
+
+    // Filtered and Sorted Unique Users List for the Users Tab
+    const filteredUniqueUsers = useMemo(() => {
+        const search = userDirectorySearch.trim().toLowerCase();
+
+        return uniqueUsersData.list
+            .filter(user => {
+                if (search && !user.studentId.toLowerCase().includes(search)) {
+                    return false;
+                }
+                if (userDirectoryFilter === 'today') return user.activeToday && user.todayLogins > 0;
+                if (userDirectoryFilter === 'month') return user.activeThisMonth && user.monthLogins > 0;
+                if (userDirectoryFilter === 'top') return user.totalLogins >= 5;
+                return true;
+            })
+            .sort((a, b) => {
+                if (userDirectorySort === 'logins_desc') {
+                    if (userDirectoryFilter === 'today') {
+                        return (b.todayLogins - a.todayLogins) || (b.totalLogins - a.totalLogins);
+                    }
+                    if (userDirectoryFilter === 'month') {
+                        return (b.monthLogins - a.monthLogins) || (b.totalLogins - a.totalLogins);
+                    }
+                    return b.totalLogins - a.totalLogins;
+                }
+                if (userDirectorySort === 'logins_asc') {
+                    if (userDirectoryFilter === 'today') {
+                        return (a.todayLogins - b.todayLogins) || (a.totalLogins - b.totalLogins);
+                    }
+                    if (userDirectoryFilter === 'month') {
+                        return (a.monthLogins - b.monthLogins) || (a.totalLogins - b.totalLogins);
+                    }
+                    return a.totalLogins - b.totalLogins;
+                }
+                if (userDirectorySort === 'recent') return b.lastLoginTs - a.lastLoginTs;
+                if (userDirectorySort === 'id_asc') return a.studentId.localeCompare(b.studentId);
+                if (userDirectorySort === 'id_desc') return b.studentId.localeCompare(a.studentId);
+                return b.totalLogins - a.totalLogins;
+            });
+    }, [uniqueUsersData.list, userDirectorySearch, userDirectoryFilter, userDirectorySort]);
+
+    // Total Logins sum for current active filter
+    const filteredTotalLogins = useMemo(() => {
+        return filteredUniqueUsers.reduce((sum, u) => {
+            if (userDirectoryFilter === 'today') return sum + (u.todayLogins || 0);
+            if (userDirectoryFilter === 'month') return sum + (u.monthLogins || 0);
+            return sum + (u.totalLogins || 0);
+        }, 0);
+    }, [filteredUniqueUsers, userDirectoryFilter]);
+
+    // Sliced pagination for high performance (50 records per page, zero lag)
+    const paginatedUsers = useMemo(() => {
+        const start = (usersPage - 1) * PAGE_SIZE;
+        return filteredUniqueUsers.slice(start, start + PAGE_SIZE);
+    }, [filteredUniqueUsers, usersPage]);
+
+    const totalUsersPages = Math.ceil(filteredUniqueUsers.length / PAGE_SIZE) || 1;
+
+    const paginatedLogins = useMemo(() => {
+        const start = (loginsPage - 1) * PAGE_SIZE;
+        return filteredLogins.slice(start, start + PAGE_SIZE);
+    }, [filteredLogins, loginsPage]);
+
+    const totalLoginsPages = Math.ceil(filteredLogins.length / PAGE_SIZE) || 1;
+
+    useEffect(() => {
+        setUsersPage(1);
+    }, [userDirectoryFilter, userDirectorySearch, userDirectorySort]);
+
+    useEffect(() => {
+        setLoginsPage(1);
+    }, [loginDateFilter, loginSearch]);
+
+    // Copy Student ID helper
+    const handleCopyUserId = (id) => {
+        if (!id) return;
+        navigator.clipboard.writeText(id).then(() => {
+            setCopiedUserId(id);
+            setTimeout(() => setCopiedUserId(null), 2000);
+        }).catch(() => {});
+    };
+
+    // Instant Inspect History helper (opens student profile with complete login count & sessions)
+    const handleInspectFromLogin = (studentId, fallbackItem = null) => {
+        if (!studentId) return;
+        const cleanId = String(studentId).trim().toUpperCase();
+        const found = uniqueUsersData.list.find(u => u.studentId === cleanId);
+        if (found) {
+            setSelectedUserModal(found);
+        } else {
+            const studentLogins = effectiveAllLogins.filter(l => String(l.studentId || '').trim().toUpperCase() === cleanId);
+            const todayStr = getISTDateStr(new Date());
+            const monthStr = todayStr.slice(0, 7);
+            const total = studentLogins.length || (fallbackItem ? 1 : 0);
+            setSelectedUserModal({
+                studentId: cleanId,
+                totalLogins: total,
+                todayLogins: studentLogins.filter(l => (l.date || (l.timestamp ? getISTDateStr(l.timestamp) : '')) === todayStr).length,
+                monthLogins: studentLogins.filter(l => (l.month || (l.timestamp ? getISTDateStr(l.timestamp).slice(0, 7) : '')) === monthStr).length,
+                primaryDevice: fallbackItem?.device || 'Web Browser',
+                batchLabel: cleanId.length >= 2 ? `20${cleanId.slice(0, 2)} Batch` : 'KLU Student',
+                sessions: studentLogins.length > 0 ? studentLogins : (fallbackItem ? [fallbackItem] : [])
+            });
         }
     };
 
-    const handleWeightChange = (key, value) => {
-        setLtpsWeights(prev => ({
-            ...prev,
-            [key]: parseFloat(value) || 0
-        }));
+    // Export Unique Users CSV helper
+    const handleExportUsersCSV = () => {
+        const headers = ['S.No', 'Student ID', 'Academic Batch', 'Total Logins', 'Logins Today', 'Logins This Month', 'First Login Recorded', 'Most Recent Login', 'Primary Device', 'Status'];
+        const rows = filteredUniqueUsers.map((u, idx) => [
+            idx + 1,
+            `"${u.studentId}"`,
+            `"${u.batchLabel}"`,
+            u.totalLogins,
+            u.todayLogins || 0,
+            u.monthLogins || 0,
+            `"${u.firstLoginFormatted ? new Date(u.firstLoginFormatted).toLocaleString('en-IN') : 'N/A'}"`,
+            `"${u.lastLoginFormatted ? new Date(u.lastLoginFormatted).toLocaleString('en-IN') : 'N/A'}"`,
+            `"${u.primaryDevice}"`,
+            u.activeToday ? 'Active Today' : (u.activeThisMonth ? 'Active This Month' : 'Registered')
+        ]);
+        const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement('a');
+        link.setAttribute('href', encodedUri);
+        link.setAttribute('download', `kl_unique_users_${new Date().toISOString().slice(0, 10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
+    // Real Dynamic Trend Data (Daily: last 7 days; Monthly: last 6 months)
+    const chartTrend = useMemo(() => {
+        if (!isAuthenticated) return [];
+        const today = new Date();
+        const todayStr = today.toISOString().slice(0, 10);
+
+        if (trafficRange === 'daily') {
+            const days = [];
+            for (let i = 6; i >= 0; i--) {
+                const d = new Date(today);
+                d.setDate(today.getDate() - i);
+                const dateKey = d.toISOString().slice(0, 10);
+                const label = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
+
+                const dayVisits = (dailyTraffic && typeof dailyTraffic[dateKey] === 'number') ? dailyTraffic[dateKey] : 0;
+                const dayLogins = userLogins.filter(l => {
+                    const lDate = l.date || (l.timestamp ? l.timestamp.slice(0, 10) : '');
+                    return lDate === dateKey;
+                }).length;
+
+                const value = dayVisits;
+
+                days.push({
+                    key: dateKey,
+                    label,
+                    value,
+                    visits: dayVisits,
+                    logins: dayLogins,
+                    isToday: dateKey === todayStr
+                });
+            }
+            return days;
+        } else {
+            const months = [];
+            for (let i = 5; i >= 0; i--) {
+                const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+                const monthKey = d.toISOString().slice(0, 7);
+                const label = d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+
+                let monthVisits = 0;
+                if (dailyTraffic) {
+                    Object.entries(dailyTraffic).forEach(([dKey, cnt]) => {
+                        if (dKey.startsWith(monthKey) && typeof cnt === 'number') {
+                            monthVisits += cnt;
+                        }
+                    });
+                }
+                const monthLogins = userLogins.filter(l => {
+                    const m = l.month || (l.timestamp ? l.timestamp.slice(0, 7) : '');
+                    return m === monthKey;
+                }).length;
+
+                const value = monthVisits;
+
+                months.push({
+                    key: monthKey,
+                    label,
+                    value,
+                    visits: monthVisits,
+                    logins: monthLogins,
+                    isToday: monthKey === today.toISOString().slice(0, 7)
+                });
+            }
+            return months;
+        }
+    }, [isAuthenticated, trafficRange, dailyTraffic, userLogins]);
+
+    // Real dynamic SVG plotting
+    const chartSvg = useMemo(() => {
+        if (!isAuthenticated || !chartTrend.length) return { coords: [], pathStr: '', areaStr: '', maxVal: 1, baselineY: 0, padTop: 0 };
+        const points = chartTrend;
+        const maxVal = Math.max(...points.map(p => p.value), 4);
+        const width = 640;
+        const height = 190;
+        const padX = 50;
+        const padTop = 30;
+        const padBottom = 40;
+        const plotWidth = width - padX * 2;
+        const plotHeight = height - padTop - padBottom;
+
+        const coords = points.map((p, i) => {
+            const x = padX + (i / (points.length - 1)) * plotWidth;
+            const y = padTop + plotHeight - (p.value / maxVal) * plotHeight;
+            return { ...p, x, y };
+        });
+
+        let pathStr = `M ${coords[0].x} ${coords[0].y}`;
+        for (let i = 0; i < coords.length - 1; i++) {
+            const curr = coords[i];
+            const next = coords[i + 1];
+            const cpx1 = curr.x + (next.x - curr.x) / 2;
+            const cpy1 = curr.y;
+            const cpx2 = curr.x + (next.x - curr.x) / 2;
+            const cpy2 = next.y;
+            pathStr += ` C ${cpx1} ${cpy1}, ${cpx2} ${cpy2}, ${next.x} ${next.y}`;
+        }
+
+        const areaStr = `${pathStr} L ${coords[coords.length - 1].x} ${padTop + plotHeight} L ${coords[0].x} ${padTop + plotHeight} Z`;
+
+        return { coords, pathStr, areaStr, maxVal, baselineY: padTop + plotHeight, padTop };
+    }, [isAuthenticated, chartTrend]);
+
+    const todayDateKey = new Date().toISOString().slice(0, 10);
+    const realTodayVisits = (dailyTraffic && typeof dailyTraffic[todayDateKey] === 'number') 
+        ? dailyTraffic[todayDateKey]
+        : 0;
+    const realDaysRecorded = dailyTraffic ? Object.keys(dailyTraffic).length : 0;
+    const realTotalTrafficSum = dailyTraffic 
+        ? Object.values(dailyTraffic).reduce((a, b) => (typeof b === 'number' ? a + b : a), 0) 
+        : 0;
+    const realAvgDaily = realDaysRecorded > 0 ? Math.round(realTotalTrafficSum / realDaysRecorded) : realTodayVisits;
+
+    // Clear all feedback messages with confirmation
+    const handleClearAllFeedbacks = async () => {
+        if (!window.confirm('Are you sure you want to clear all feedback messages? This will delete them permanently.')) return;
+        const currentFeedbacks = [...feedbacks];
+        setFeedbacks([]);
+        try {
+            localStorage.setItem('kl_user_feedbacks', JSON.stringify([]));
+            for (const fb of currentFeedbacks) {
+                if (fb.id) {
+                    await deleteDoc(doc(db, 'feedback', fb.id)).catch(() => {});
+                }
+            }
+        } catch (e) {
+            console.warn('Clear feedbacks notice:', e);
+        }
+    };
+
+    // Delete a feedback
+    const handleDeleteFeedback = async (id) => {
+        setFeedbacks(prev => prev.filter(f => f.id !== id));
+        try {
+            await deleteDoc(doc(db, 'feedback', id));
+        } catch (e) {
+            console.warn('Delete feedback notice:', e);
+        }
+    };
+
+    // Delete single login record
+    const handleDeleteLogin = async (id, studentId) => {
+        setUserLogins(prev => prev.filter(item => item.id !== id));
+        try {
+            const history = JSON.parse(localStorage.getItem('kl_user_login_history') || '[]');
+            const updated = history.filter(item => item.id !== id);
+            localStorage.setItem('kl_user_login_history', JSON.stringify(updated));
+
+            if (studentId) {
+                const counts = JSON.parse(localStorage.getItem('kl_user_login_counts') || '{}');
+                if (counts[studentId] && counts[studentId] > 0) {
+                    counts[studentId] -= 1;
+                    if (counts[studentId] === 0) delete counts[studentId];
+                    localStorage.setItem('kl_user_login_counts', JSON.stringify(counts));
+                }
+            }
+            if (id) {
+                await deleteDoc(doc(db, 'userLogins', id));
+            }
+        } catch (err) {
+            console.warn('Delete login notice:', err);
+        }
+    };
+
+    // Clear all logins
+    const handleClearAllLogins = async () => {
+        if (!window.confirm('Are you sure you want to delete all login history records?')) return;
+        const toDelete = [...userLogins];
+        setUserLogins([]);
+        localStorage.removeItem('kl_user_login_history');
+        localStorage.removeItem('kl_user_login_counts');
+        try {
+            for (const item of toDelete) {
+                if (item.id) {
+                    deleteDoc(doc(db, 'userLogins', item.id)).catch(() => {});
+                }
+            }
+        } catch (err) {
+            console.warn('Clear logins notice:', err);
+        }
+    };
+
+    // Save Announcement
+    const handleSaveAnnouncement = async () => {
+        setSavingAnnouncement(true);
+        try {
+            await setDoc(doc(db, 'config', 'global'), { announcement }, { merge: true });
+            setAnnouncementSuccess(true);
+            setTimeout(() => setAnnouncementSuccess(false), 2500);
+        } catch (e) {
+            console.error('Save announcement failed:', e);
+            alert('Failed to save announcement.');
+        } finally {
+            setSavingAnnouncement(false);
+        }
+    };
+
+    // Save Weights
+    const handleSaveWeights = async () => {
+        setSavingWeights(true);
+        try {
+            await setDoc(doc(db, 'config', 'weights'), ltpsWeights, { merge: true });
+            setWeightsSuccess(true);
+            setTimeout(() => setWeightsSuccess(false), 2500);
+        } catch (e) {
+            console.error('Save weights failed:', e);
+            alert('Failed to save weights.');
+        } finally {
+            setSavingWeights(false);
+        }
+    };
+
+    // Filter feedbacks
+    const filteredFeedbacks = useMemo(() => {
+        return feedbacks.filter(fb => {
+            const matchesCat = feedbackFilter === 'all' || fb.category === feedbackFilter;
+            const searchLower = feedbackSearch.toLowerCase();
+            const matchesSearch = !feedbackSearch || 
+                (fb.message && fb.message.toLowerCase().includes(searchLower)) ||
+                (fb.studentId && fb.studentId.toLowerCase().includes(searchLower));
+            return matchesCat && matchesSearch;
+        });
+    }, [feedbacks, feedbackFilter, feedbackSearch]);
+
+    // Format Date string nicely
+    const formatLoginTime = (isoString) => {
+        if (!isoString) return 'Recent';
+        try {
+            const date = new Date(isoString);
+            return date.toLocaleString('en-IN', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true
+            });
+        } catch {
+            return isoString;
+        }
+    };
+
+    // ── AUTHENTICATION SCREEN ──
     if (!isAuthenticated) {
         return (
-            <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-6 relative">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-600" />
+            <div className="min-h-screen admin-website-shell flex items-center justify-center p-4 selection:bg-indigo-500 selection:text-white relative overflow-hidden">
+                {/* Ambient website glows */}
+                <div className="admin-ambient-bg">
+                    <div className="admin-ambient-blob-1" />
+                    <div className="admin-ambient-blob-2" />
+                    <div className="admin-ambient-blob-3" />
+                    <div className="admin-ambient-blob-4" />
+                    <div className="admin-ambient-grid" />
+                </div>
                 <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="bg-white p-10 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.05)] border border-slate-100 w-full max-w-md relative z-10"
+                    initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    className="relative w-full max-w-md admin-card-website rounded-3xl p-8 shadow-xl z-10"
                 >
-                    <div className="text-center mb-10">
-                        <div className="w-20 h-20 bg-blue-50 rounded-[2rem] flex items-center justify-center mx-auto mb-6">
-                            <Lock className="w-10 h-10 text-blue-600" />
+                    <div className="admin-card-shine" />
+                    <div className="kpi-strip kpi-strip-indigo" />
+
+                    <div className="text-center mb-8 relative z-10">
+                        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 bg-gradient-to-tr from-indigo-600 to-violet-600 text-white shadow-xl shadow-indigo-500/25 ring-4 ring-indigo-50">
+                            <Lock className="w-8 h-8" />
                         </div>
-                        <h1 className="text-3xl font-black text-slate-900 tracking-tight">Admin Access</h1>
-                        <p className="text-slate-400 font-medium mt-3">Enter your credentials to manage the website</p>
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-black uppercase tracking-widest mb-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                            Administrator Access
+                        </div>
+                        <h1 className="text-2xl font-black tracking-tight text-slate-900">Admin Control Center</h1>
+                        <p className="text-xs text-slate-500 mt-1">Authorize with your administrative credentials</p>
                     </div>
 
-                    <form onSubmit={handleLogin} className="space-y-8" autoComplete="off">
-                        <div className="space-y-3">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Login ID</label>
+                    <form onSubmit={handleLogin} className="space-y-4 relative z-10">
+                        <div>
+                            <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                                Login ID
+                            </label>
                             <input
                                 type="text"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
-                                className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:bg-white focus:ring-4 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all font-bold text-slate-700 placeholder:text-slate-300"
-                                placeholder="Enter Login ID"
-                                autoComplete="off"
+                                placeholder="Enter admin ID"
+                                className="w-full bg-slate-50/80 border border-slate-200 text-slate-900 rounded-xl px-4 py-3 text-sm placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 transition-all font-semibold"
                             />
                         </div>
-                        <div className="space-y-3">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Password</label>
+
+                        <div>
+                            <label className="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                                Password
+                            </label>
                             <input
                                 type="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:bg-white focus:ring-4 focus:ring-blue-100 focus:border-blue-400 outline-none transition-all font-bold text-slate-700 placeholder:text-slate-300"
                                 placeholder="Enter password"
-                                autoComplete="new-password"
+                                className="w-full bg-slate-50/80 border border-slate-200 text-slate-900 rounded-xl px-4 py-3 text-sm placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-500/20 transition-all font-semibold"
                             />
                         </div>
 
-                        {error && (
-                            <motion.div
-                                initial={{ opacity: 0, y: -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className="text-red-500 text-xs font-black flex items-center gap-2 bg-red-50 p-4 rounded-xl border border-red-100"
-                            >
-                                <AlertCircle className="w-4 h-4 shrink-0" />
-                                {error}
-                            </motion.div>
+                        {loginError && (
+                            <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold">
+                                <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                                <span>{loginError}</span>
+                            </div>
                         )}
 
                         <button
                             type="submit"
-                            className="w-full bg-[#2563EB] hover:bg-blue-700 text-white font-black py-5 rounded-[2rem] transition-all shadow-xl shadow-blue-200 hover:scale-[1.02] active:scale-[0.98]"
+                            className="w-full mt-2 py-3 bg-gradient-to-r from-indigo-600 via-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-indigo-600/25 hover:shadow-indigo-600/35 transition-all active:scale-98 cursor-pointer admin-btn-shimmer"
                         >
-                            Login
+                            Authorize & Enter
                         </button>
                     </form>
+
+                    <div className="mt-6 pt-6 border-t border-slate-100 text-center relative z-10">
+                        <Link
+                            to="/"
+                            className="text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-colors inline-flex items-center gap-1"
+                        >
+                            <ExternalLink className="w-3.5 h-3.5" /> Return to Main Website
+                        </Link>
+                    </div>
                 </motion.div>
             </div>
         );
     }
 
+    // MAIN DASHBOARD (WEBSITE SIGNATURE THEME)
     return (
-        <div className="min-h-screen bg-slate-100 p-6">
-            <div className="max-w-4xl mx-auto space-y-8">
-                <div className="flex justify-between items-center">
-                    <h1 className="text-3xl font-bold text-slate-900">Admin Dashboard</h1>
+        <div className="min-h-screen admin-website-shell flex font-sans selection:bg-indigo-500 selection:text-white relative overflow-hidden">
+            {/* Ambient Background Glows matching Website */}
+            <div className="admin-ambient-bg">
+                <div className="admin-ambient-blob-1" />
+                <div className="admin-ambient-blob-2" />
+                <div className="admin-ambient-blob-3" />
+                <div className="admin-ambient-blob-4" />
+                <div className="admin-ambient-grid" />
+            </div>
+
+            {/* 1. LEFT SIDEBAR */}
+            <aside className="hidden md:flex w-64 admin-website-sidebar flex-col justify-between shrink-0 select-none z-30 shadow-sm relative">
+                <div>
+                    {/* Brand Header */}
+                    <div className="p-5 border-b border-slate-200/80 flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25 ring-2 ring-indigo-50">
+                            <Zap className="w-5 h-5 text-white" />
+                        </div>
+                        <div className="overflow-hidden">
+                            <h2 className="text-sm font-black tracking-wider text-slate-900">GYA</h2>
+                            <p className="text-[8px] font-bold tracking-tight text-slate-500 truncate uppercase">
+                                Garlapati Yaswanth Adithya Reddy
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Navigation Menu */}
+                    <nav className="p-3 space-y-1.5 text-xs font-bold">
+                        <button
+                            onClick={() => setActiveTab('dashboard')}
+                            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all ${
+                                activeTab === 'dashboard'
+                                    ? 'admin-tab-active font-black'
+                                    : 'admin-tab-inactive'
+                            }`}
+                        >
+                            <LayoutDashboard className="w-4 h-4" />
+                            <span>Dashboard</span>
+                        </button>
+
+                        <button
+                            onClick={() => setActiveTab('inbox')}
+                            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+                                activeTab === 'inbox'
+                                    ? 'admin-tab-active font-black'
+                                    : 'admin-tab-inactive'
+                            }`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <Mail className="w-4 h-4" />
+                                <span>Inbox</span>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                {feedbacks.length}
+                            </span>
+                        </button>
+
+                        {/* DEDICATED OPTION: USERS (Deduplicated Unique Student Count) */}
+                        <button
+                            onClick={() => setActiveTab('users')}
+                            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+                                activeTab === 'users'
+                                    ? 'admin-tab-active font-black'
+                                    : 'admin-tab-inactive'
+                            }`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <UserCheck className="w-4 h-4" />
+                                <span>Users</span>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono">
+                                {uniqueUsersData.totalUnique}
+                            </span>
+                        </button>
+
+                        {/* USER LOGINS & HISTORY OPTION */}
+                        <button
+                            onClick={() => setActiveTab('logins')}
+                            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+                                activeTab === 'logins'
+                                    ? 'admin-tab-active font-black'
+                                    : 'admin-tab-inactive'
+                            }`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <Users className="w-4 h-4" />
+                                <span>User Logins & History</span>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                {computedLogins.todayCount} today
+                            </span>
+                        </button>
+
+                        <button
+                            onClick={() => setActiveTab('controls')}
+                            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all ${
+                                activeTab === 'controls'
+                                    ? 'admin-tab-active font-black'
+                                    : 'admin-tab-inactive'
+                            }`}
+                        >
+                            <Sliders className="w-4 h-4" />
+                            <span>Site Controls</span>
+                        </button>
+
+                        <button
+                            onClick={() => setActiveTab('calendar')}
+                            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all ${
+                                activeTab === 'calendar'
+                                    ? 'admin-tab-active font-black'
+                                    : 'admin-tab-inactive'
+                            }`}
+                        >
+                            <CalendarDays className="w-4 h-4" />
+                            <span>Academic Calendars</span>
+                        </button>
+
+                        <button
+                            onClick={() => setActiveTab('profile')}
+                            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all ${
+                                activeTab === 'profile'
+                                    ? 'admin-tab-active font-black'
+                                    : 'admin-tab-inactive'
+                            }`}
+                        >
+                            <UserCheck className="w-4 h-4" />
+                            <span>Hero & Profile</span>
+                        </button>
+                    </nav>
+                </div>
+
+                {/* Bottom Actions */}
+                <div className="p-4 border-t border-slate-200/80 space-y-2 text-xs font-bold">
+                    <Link
+                        to="/"
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-600 hover:text-indigo-600 hover:bg-indigo-50/60 transition-colors"
+                    >
+                        <ExternalLink className="w-4 h-4 text-indigo-600" />
+                        <span>View Live Site</span>
+                    </Link>
                     <button
                         onClick={handleLogout}
-                        className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-lg hover:bg-red-50 hover:text-red-600 transition-colors"
+                        className="admin-logout-btn w-full justify-center py-2.5 rounded-xl shadow-xs"
                     >
-                        <LogOut className="w-4 h-4" /> Logout
+                        <LogOut className="w-4 h-4" />
+                        <span>Log Out</span>
+                    </button>
+                </div>
+            </aside>
+
+            {/* 2. MAIN CONTENT AREA */}
+            <div className="flex-1 flex flex-col min-w-0 overflow-y-auto relative z-10">
+                {/* TOP HEADER BAR */}
+                <header className="h-20 admin-website-header px-8 flex items-center justify-between sticky top-0 z-20 shadow-xs">
+                    <div>
+                        <div className="text-[10px] font-black uppercase tracking-widest text-indigo-600 flex items-center gap-1.5">
+                            <span>— SYSTEM OVERVIEW</span>
+                        </div>
+                        <h1 className="text-xl font-black tracking-tight text-slate-900">Control Center</h1>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        <a
+                            href="/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-slate-200 bg-white/80 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs"
+                        >
+                            <ExternalLink className="w-3.5 h-3.5 text-indigo-600" />
+                            <span>VIEW LIVE SITE</span>
+                        </a>
+
+                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-bold shadow-2xs">
+                            <span className="text-slate-500 text-[10px] uppercase font-bold">STATUS</span>
+                            <span className="flex items-center gap-1.5 text-emerald-700 font-black">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_#10b981]" />
+                                ONLINE
+                            </span>
+                        </div>
+
+                        {/* Admin Profile Pill */}
+                        <div className="flex items-center gap-2.5 pl-1">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white font-black text-sm ring-2 ring-indigo-200 shadow-md shadow-indigo-500/20">
+                                Y
+                            </div>
+                            <div className="hidden lg:block text-left leading-tight">
+                                <p className="text-xs font-bold text-slate-900">Garlapati Yaswanth Adithya Reddy</p>
+                                <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Administrator</p>
+                            </div>
+                        </div>
+
+                        {/* Prominent Header Logout Button */}
+                        <button
+                            onClick={handleLogout}
+                            title="Log out of Admin Panel"
+                            className="admin-logout-btn shadow-2xs"
+                        >
+                            <LogOut className="w-3.5 h-3.5" />
+                            <span>Log Out</span>
+                        </button>
+                    </div>
+                </header>
+
+                {/* Mobile Responsive Tab Selector Bar */}
+                <div className="flex md:hidden px-4 py-2.5 overflow-x-auto gap-2 bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-20 z-10 no-scrollbar shadow-xs">
+                    <button
+                        onClick={() => setActiveTab('dashboard')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                            activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700'
+                        }`}
+                    >
+                        Dashboard
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('users')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all ${
+                            activeTab === 'users' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700'
+                        }`}
+                    >
+                        <span>Users</span>
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                            activeTab === 'users' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
+                        }`}>
+                            {uniqueUsersData.totalUnique}
+                        </span>
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('inbox')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all ${
+                            activeTab === 'inbox' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700'
+                        }`}
+                    >
+                        <span>Inbox</span>
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                            activeTab === 'inbox' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
+                        }`}>
+                            {feedbacks.length}
+                        </span>
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('logins')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all ${
+                            activeTab === 'logins' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700'
+                        }`}
+                    >
+                        <span>User Logins & History</span>
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                            activeTab === 'logins' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+                        }`}>
+                            {computedLogins.todayCount} today
+                        </span>
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('controls')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
+                            activeTab === 'controls' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700'
+                        }`}
+                    >
+                        Controls
+                    </button>
+
+                    {/* Direct Mobile Logout Button */}
+                    <button
+                        onClick={handleLogout}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1 bg-red-50 text-red-600 border border-red-200 cursor-pointer active:scale-95 shrink-0"
+                    >
+                        <LogOut className="w-3.5 h-3.5 text-red-500" />
+                        <span>Log Out</span>
                     </button>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-6">
-
-                    {/* 1. Academic Calendar Management */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6"
-                    >
-                        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2 mb-4">
-                            <FileText className="w-6 h-6 text-blue-600" />
-                            Academic Calendar
-                        </h2>
-
-                        <div className="space-y-4">
-                            <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center hover:border-blue-400 transition-colors bg-slate-50/50">
-                                <input
-                                    type="file"
-                                    id="calendar-upload"
-                                    accept="application/pdf"
-                                    onChange={handleFileChange}
-                                    className="hidden"
-                                />
-                                <label
-                                    htmlFor="calendar-upload"
-                                    className="cursor-pointer flex flex-col items-center gap-2"
-                                >
-                                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                                        <Upload className="w-6 h-6 text-blue-600" />
-                                    </div>
-                                    <span className="text-blue-600 font-medium">Upload PDF</span>
-                                    <span className="text-xs text-slate-400">{selectedFile ? selectedFile.name : 'Max 5MB'}</span>
-                                </label>
-                            </div>
-
-                            <AnimatePresence>
-                                {selectedFile && (
-                                    <motion.div
-                                        initial={{ opacity: 0, height: 0 }}
-                                        animate={{ opacity: 1, height: 'auto' }}
-                                        exit={{ opacity: 0, height: 0 }}
-                                        className="bg-blue-50 p-3 rounded-lg flex items-center justify-between text-sm"
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <FileText className="w-4 h-4 text-blue-600" />
-                                            <span className="font-medium text-slate-700">{selectedFile.name}</span>
+                {/* TAB CONTENT VIEWS */}
+                <main className="p-4 sm:p-8 space-y-8 flex-1">
+                    {/* DASHBOARD VIEW */}
+                    {activeTab === 'dashboard' && (
+                        <div className="space-y-8">
+                            {/* 4 TOP KPI METRICS */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                                {/* Card 1: Total Visits */}
+                                <div className="admin-card-website p-6 relative overflow-hidden transition-all group">
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-indigo" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="p-3 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100 group-hover:scale-105 transition-transform">
+                                                <TrendingUp className="w-5 h-5" />
+                                            </div>
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                Live Tracker
+                                            </span>
                                         </div>
-                                        <button
-                                            onClick={() => setSelectedFile(null)}
-                                            className="text-slate-400 hover:text-red-500"
-                                        >
-                                            x
-                                        </button>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={handleUpload}
-                                    disabled={!selectedFile || uploadStatus === 'uploading'}
-                                    className={`flex-1 py-2 rounded-lg font-medium text-sm transition-colors ${!selectedFile
-                                        ? 'bg-slate-100 text-slate-400'
-                                        : 'bg-blue-600 hover:bg-blue-700 text-white'
-                                        }`}
-                                >
-                                    {uploadStatus === 'uploading' ? '...' : 'Update'}
-                                </button>
-                                <button
-                                    onClick={handleResetCalendar}
-                                    className="px-3 py-2 border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
-                                >
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
-                            </div>
-
-                            <AnimatePresence>
-                                {uploadStatus === 'success' && (
-                                    <motion.p
-                                        initial={{ opacity: 0, y: 5 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0 }}
-                                        className="text-xs text-green-600 flex items-center gap-1"
-                                    >
-                                        <CheckCircle className="w-3 h-3" /> Updated!
-                                    </motion.p>
-                                )}
-                                {error && uploadStatus === 'error' && (
-                                    <motion.p
-                                        initial={{ opacity: 0, y: 5 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0 }}
-                                        className="text-xs text-red-600 flex items-center gap-1"
-                                    >
-                                        <AlertCircle className="w-3 h-3" /> {error}
-                                    </motion.p>
-                                )}
-                            </AnimatePresence>
-                        </div>
-                    </motion.div>
-
-                    {/* 2. Site Announcement */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6"
-                    >
-                        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2 mb-4">
-                            <AlertCircle className="w-6 h-6 text-yellow-500" />
-                            Global Announcement
-                        </h2>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="text-xs font-semibold text-slate-500 uppercase">Banner Text</label>
-                                <textarea
-                                    value={announcement}
-                                    onChange={(e) => setAnnouncement(e.target.value)}
-                                    placeholder="Enter urgent updates here..."
-                                    className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none h-32 resize-none"
-                                />
-                            </div>
-                            <button
-                                onClick={handleSaveAnnouncement}
-                                className="w-full py-2 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors text-sm"
-                            >
-                                Save Announcement
-                            </button>
-                        </div>
-                    </motion.div>
-
-                    {/* 3. LTPS Weights Configuration */}
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 md:col-span-2"
-                    >
-                        <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                                <CheckCircle className="w-6 h-6 text-purple-600" />
-                                L-T-P-S Calculation Weights
-                            </h2>
-                            <button
-                                onClick={() => {
-                                    setLtpsWeights({ lecture: 100, tutorial: 100, practical: 50, skill: 25 });
-                                }}
-                                className="text-xs text-slate-500 hover:text-red-500 underline"
-                            >
-                                Reset to Default
-                            </button>
-                        </div>
-
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            {Object.entries(ltpsWeights).map(([key, val]) => (
-                                <div key={key}>
-                                    <label className="text-xs font-bold text-slate-500 uppercase block mb-1">{key}</label>
-                                    <div className="relative">
-                                        <input
-                                            type="number"
-                                            value={val}
-                                            onChange={(e) => handleWeightChange(key, e.target.value)}
-                                            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-lg font-bold text-slate-800 focus:ring-2 focus:ring-purple-500 outline-none"
-                                        />
-                                        <span className="absolute right-3 top-2.5 text-slate-400 text-sm">%</span>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-indigo">
+                                            {totalVisits.toLocaleString()}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            TOTAL VISITS
+                                        </p>
                                     </div>
                                 </div>
-                            ))}
+
+                                {/* Card 2: Today's Student Logins */}
+                                <div 
+                                    onClick={() => setActiveTab('logins')}
+                                    className="admin-card-website p-6 relative overflow-hidden transition-all group cursor-pointer"
+                                >
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-emerald" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-100 group-hover:scale-105 transition-transform">
+                                                <Users className="w-5 h-5" />
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_6px_#10b981]" />
+                                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                    Live Logins
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-emerald">
+                                            {computedLogins.todayCount}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            TODAY&apos;S LOGINS ({computedLogins.monthCount} this month)
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Card 3: Academic Batches / Schedules */}
+                                <div className="admin-card-website p-6 relative overflow-hidden transition-all group">
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-blue" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="p-3 rounded-2xl bg-sky-50 text-sky-600 border border-sky-100 group-hover:scale-105 transition-transform">
+                                                <Award className="w-5 h-5" />
+                                            </div>
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-sky-50 text-sky-700 border border-sky-200">
+                                                Official
+                                            </span>
+                                        </div>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-blue">
+                                            3
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            ACADEMIC CALENDARS
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Card 4: Total Feedbacks */}
+                                <div 
+                                    onClick={() => setActiveTab('inbox')}
+                                    className="admin-card-website p-6 relative overflow-hidden transition-all group cursor-pointer"
+                                >
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-purple" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="p-3 rounded-2xl bg-purple-50 text-purple-600 border border-purple-100 group-hover:scale-105 transition-transform">
+                                                <Mail className="w-5 h-5" />
+                                            </div>
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-50 text-purple-700 border border-purple-200">
+                                                {feedbacks.length} messages
+                                            </span>
+                                        </div>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-purple">
+                                            {feedbacks.length}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            STUDENT FEEDBACKS
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* VISITOR TRAFFIC ANALYTICS */}
+                            <div className="admin-card-website p-6 shadow-sm flex flex-col justify-between relative overflow-hidden">
+                                <div className="admin-card-shine" />
+                                <div className="kpi-strip kpi-strip-indigo" />
+                                <div>
+                                    <div className="flex items-center justify-between mb-6">
+                                        <div className="flex items-center gap-2">
+                                            <TrendingUp className="w-5 h-5 text-indigo-600" />
+                                            <h3 className="text-sm font-black uppercase tracking-wider text-slate-900">
+                                                VISITOR TRAFFIC ANALYTICS
+                                            </h3>
+                                        </div>
+                                        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
+                                            <button
+                                                onClick={() => setTrafficRange('daily')}
+                                                className={`px-3 py-1 rounded-lg transition-all ${
+                                                    trafficRange === 'daily'
+                                                        ? 'bg-indigo-600 text-white font-bold shadow-sm'
+                                                        : 'text-slate-600 hover:text-slate-900'
+                                                }`}
+                                            >
+                                                DAILY
+                                            </button>
+                                            <button
+                                                onClick={() => setTrafficRange('monthly')}
+                                                className={`px-3 py-1 rounded-lg transition-all ${
+                                                    trafficRange === 'monthly'
+                                                        ? 'bg-indigo-600 text-white font-bold shadow-sm'
+                                                        : 'text-slate-600 hover:text-slate-900'
+                                                }`}
+                                            >
+                                                MONTHLY
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Real Dynamic Responsive Spline Wave */}
+                                    <div className="h-64 w-full relative flex items-center justify-center pt-2">
+                                        <svg className="w-full h-full overflow-visible" viewBox="0 0 640 200" preserveAspectRatio="none">
+                                            <defs>
+                                                <linearGradient id="trafficIndigoGradient" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="0%" stopColor="#4F46E5" stopOpacity="0.25" />
+                                                    <stop offset="100%" stopColor="#4F46E5" stopOpacity="0.0" />
+                                                </linearGradient>
+                                            </defs>
+
+                                            {/* Baseline grid line */}
+                                            <line 
+                                                x1="40" 
+                                                y1={chartSvg.baselineY} 
+                                                x2="600" 
+                                                y2={chartSvg.baselineY} 
+                                                stroke="#E2E8F0" 
+                                                strokeWidth="1" 
+                                                strokeDasharray="4 4" 
+                                            />
+
+                                            {/* Dynamic Gradient Fill */}
+                                            <path
+                                                d={chartSvg.areaStr}
+                                                fill="url(#trafficIndigoGradient)"
+                                            />
+
+                                            {/* Dynamic Real Curve Line */}
+                                            <path
+                                                d={chartSvg.pathStr}
+                                                fill="none"
+                                                stroke="#4F46E5"
+                                                strokeWidth="3.5"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                            />
+
+                                            {/* Real Data Points, Badges, and Date Labels */}
+                                            {chartSvg.coords.map((pt, idx) => (
+                                                <g key={pt.key || idx} className="group">
+                                                    {/* Outer glow ring for today or hovered */}
+                                                    {pt.isToday && (
+                                                        <circle
+                                                            cx={pt.x}
+                                                            cy={pt.y}
+                                                            r="11"
+                                                            fill="#4F46E5"
+                                                            fillOpacity="0.15"
+                                                        />
+                                                    )}
+
+                                                    {/* Data Point Node */}
+                                                    <circle
+                                                        cx={pt.x}
+                                                        cy={pt.y}
+                                                        r={pt.isToday ? "6" : "5"}
+                                                        fill="#FFFFFF"
+                                                        stroke="#4F46E5"
+                                                        strokeWidth="3"
+                                                        className="transition-all duration-200 group-hover:scale-125"
+                                                    />
+
+                                                    {/* Real Value Pill above Point */}
+                                                    <g transform={`translate(${pt.x}, ${Math.max(16, pt.y - 14)})`}>
+                                                        <rect
+                                                            x="-18"
+                                                            y="-12"
+                                                            width="36"
+                                                            height="16"
+                                                            rx="8"
+                                                            fill={pt.isToday ? "#4F46E5" : "#1E293B"}
+                                                            className="shadow-sm"
+                                                        />
+                                                        <text
+                                                            x="0"
+                                                            y="-1"
+                                                            textAnchor="middle"
+                                                            fontSize="9"
+                                                            fontWeight="800"
+                                                            fill="#FFFFFF"
+                                                            className="font-mono select-none"
+                                                        >
+                                                            {pt.value}
+                                                        </text>
+                                                    </g>
+
+                                                    {/* Date Label */}
+                                                    <text
+                                                        x={pt.x}
+                                                        y={chartSvg.baselineY + 18}
+                                                        textAnchor="middle"
+                                                        fontSize="10"
+                                                        fontWeight={pt.isToday ? "800" : "600"}
+                                                        fill={pt.isToday ? "#4F46E5" : "#64748B"}
+                                                        className="select-none"
+                                                    >
+                                                        {pt.label}
+                                                    </text>
+                                                </g>
+                                            ))}
+                                        </svg>
+                                    </div>
+                                </div>
+
+                                {/* Footer traffic sub-metrics - 100% Real Live Data */}
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-100 text-center">
+                                    <div className="bg-slate-50/70 p-3 rounded-xl border border-slate-100">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Today&apos;s Website Clicks</p>
+                                        <p className="text-base font-black text-slate-900 mt-0.5">
+                                            {realTodayVisits} <span className="text-xs font-semibold text-slate-500">site visits</span>
+                                        </p>
+                                    </div>
+                                    <div className="bg-indigo-50/50 p-3 rounded-xl border border-indigo-100">
+                                        <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Average Daily Visits</p>
+                                        <p className="text-base font-black text-indigo-600 mt-0.5">
+                                            {realAvgDaily} <span className="text-xs font-semibold text-indigo-400">visits / day</span>
+                                        </p>
+                                    </div>
+                                    <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100">
+                                        <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-wider">Total Website Visits</p>
+                                        <p className="text-base font-black text-emerald-600 mt-0.5">
+                                            {totalVisits} <span className="text-xs font-semibold text-emerald-500">total clicks</span>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div className="mt-6">
-                            <button
-                                onClick={handleSaveWeights}
-                                className="w-full sm:w-auto px-6 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors text-sm"
-                            >
-                                Update Logic
-                            </button>
+                    )}
+
+                    {/* DEDICATED TAB: USERS (Deduplicated Unique Student Directory) */}
+                    {activeTab === 'users' && (
+                        <div className="space-y-6">
+                            {/* Header Overview */}
+                            <div className="admin-card-website p-6 rounded-3xl shadow-sm flex flex-wrap items-center justify-between gap-4 relative overflow-hidden">
+                                <div className="admin-card-shine" />
+                                <div className="kpi-strip kpi-strip-indigo" />
+                                <div className="flex items-center gap-4 relative z-10">
+                                    <div className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl border border-indigo-100 shadow-2xs">
+                                        <UserCheck className="w-7 h-7" />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2.5">
+                                            <h2 className="text-xl font-black tracking-tight text-slate-900">Registered Users Directory</h2>
+                                            <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                Zero Duplicates
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 mt-0.5 max-w-2xl">
+                                            Every student is counted as exactly 1 user. New logins increment total users; returning user logins update session history without duplicating the user.
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3 relative z-10">
+                                    <button
+                                        onClick={handleExportUsersCSV}
+                                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/25 active:scale-95 cursor-pointer admin-btn-shimmer"
+                                    >
+                                        <Download className="w-3.5 h-3.5" />
+                                        <span>Export Users CSV</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* 4 KPI Metric Cards */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                                {/* Card 1: Total Unique Students */}
+                                <div className="admin-card-website p-6 relative overflow-hidden transition-all group">
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-indigo" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="p-3 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100 group-hover:scale-105 transition-transform">
+                                                <UserCheck className="w-5 h-5" />
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_6px_#10b981]" title="Live real-time updates" />
+                                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                    Zero Duplicates
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-indigo">
+                                            {uniqueUsersData.totalUnique}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            TOTAL UNIQUE USERS
+                                        </p>
+                                        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-slate-500">All-Time Logins:</span>
+                                            <span className="text-[11px] font-black text-indigo-700 font-mono bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md">
+                                                {uniqueUsersData.totalAllTimeLoginsSum} recorded
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Card 2: Active Users Today */}
+                                <div className="admin-card-website p-6 relative overflow-hidden transition-all group">
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-emerald" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-100 group-hover:scale-105 transition-transform">
+                                                <Clock className="w-5 h-5" />
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_6px_#10b981]" />
+                                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                    Today Live
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-emerald">
+                                            {uniqueUsersData.activeTodayCount}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            ACTIVE USERS TODAY
+                                        </p>
+                                        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-slate-500">Today&apos;s Logins:</span>
+                                            <span className="text-[11px] font-black text-emerald-700 font-mono bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                                                {uniqueUsersData.totalTodayLoginsSum} logins today
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Card 3: Active Users This Month */}
+                                <div className="admin-card-website p-6 relative overflow-hidden transition-all group">
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-blue" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="p-3 rounded-2xl bg-sky-50 text-sky-600 border border-sky-100 group-hover:scale-105 transition-transform">
+                                                <Calendar className="w-5 h-5" />
+                                            </div>
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-sky-50 text-sky-700 border border-sky-200">
+                                                This Month
+                                            </span>
+                                        </div>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-blue">
+                                            {uniqueUsersData.activeMonthCount}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            ACTIVE USERS THIS MONTH
+                                        </p>
+                                        <p className="text-[10px] font-bold text-sky-700 mt-1">
+                                            {uniqueUsersData.totalMonthLoginsSum} logins recorded this month
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Card 4: Frequent Users (2+ logins) */}
+                                <div className="admin-card-website p-6 relative overflow-hidden transition-all group">
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-purple" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="p-3 rounded-2xl bg-purple-50 text-purple-600 border border-purple-100 group-hover:scale-105 transition-transform">
+                                                <TrendingUp className="w-5 h-5" />
+                                            </div>
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-50 text-purple-700 border border-purple-200">
+                                                Returning
+                                            </span>
+                                        </div>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-purple">
+                                            {uniqueUsersData.multiLoginCount}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            RETURNING USERS (2+ LOGINS)
+                                        </p>
+                                        <p className="text-[10px] font-bold text-purple-700 mt-1">
+                                            {Math.round((uniqueUsersData.multiLoginCount / (uniqueUsersData.totalUnique || 1)) * 100)}% retention rate
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Search, Filter & Sort Toolbar */}
+                            <div className="admin-card-website p-4 rounded-2xl shadow-sm flex flex-wrap items-center justify-between gap-3">
+                                <div className="relative flex-1 min-w-[260px] max-w-md">
+                                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                                    <input
+                                        type="text"
+                                        value={userDirectorySearch}
+                                        onChange={(e) => setUserDirectorySearch(e.target.value)}
+                                        placeholder="Search by Student ID (e.g. 2400030358)..."
+                                        className="w-full admin-input-luxury rounded-xl pl-9 pr-3 py-2 text-xs placeholder:text-slate-400 font-semibold"
+                                    />
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    {/* Activity Filter */}
+                                    <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
+                                        {[
+                                            { id: 'all', label: `All Users (${uniqueUsersData.totalUnique})` },
+                                            { id: 'today', label: `Today (${uniqueUsersData.activeTodayCount} • ${uniqueUsersData.totalTodayLoginsSum} logins)` },
+                                            { id: 'month', label: `This Month (${uniqueUsersData.activeMonthCount} • ${uniqueUsersData.totalMonthLoginsSum} logins)` },
+                                            { id: 'top', label: 'Top Active (5+)' }
+                                        ].map(tab => (
+                                            <button
+                                                key={tab.id}
+                                                onClick={() => setUserDirectoryFilter(tab.id)}
+                                                className={`px-3 py-1.5 rounded-lg transition-all text-xs cursor-pointer ${
+                                                    userDirectoryFilter === tab.id
+                                                        ? 'bg-indigo-600 text-white shadow-sm font-black'
+                                                        : 'text-slate-600 hover:text-slate-900'
+                                                }`}
+                                            >
+                                                {tab.label}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {/* Sort Dropdown */}
+                                    <select
+                                        value={userDirectorySort}
+                                        onChange={(e) => setUserDirectorySort(e.target.value)}
+                                        className="bg-white border border-slate-200 text-slate-800 rounded-xl px-3 py-2 text-xs font-bold focus:outline-none focus:border-indigo-500 cursor-pointer"
+                                    >
+                                        <option value="logins_desc">Sort: Highest Logins First</option>
+                                        <option value="logins_asc">Sort: Lowest Logins First</option>
+                                        <option value="recent">Sort: Most Recently Active</option>
+                                        <option value="id_asc">Sort: Student ID (A → Z)</option>
+                                        <option value="id_desc">Sort: Student ID (Z → A)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Deduplicated Users Table */}
+                            <div className="admin-website-table-container rounded-3xl shadow-sm overflow-hidden">
+                                <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/50">
+                                    <div>
+                                        <h3 className="text-sm font-black uppercase tracking-wider text-slate-900">
+                                            {userDirectoryFilter === 'today'
+                                                ? `Today's Active Students (${filteredUniqueUsers.length} Students • ${filteredTotalLogins} Logins Today)`
+                                                : userDirectoryFilter === 'month'
+                                                ? `This Month's Active Students (${filteredUniqueUsers.length} Students • ${filteredTotalLogins} Logins This Month)`
+                                                : userDirectoryFilter === 'top'
+                                                ? `Top Active Students (${filteredUniqueUsers.length} Students • 5+ Logins)`
+                                                : `Unique Student Directory (${filteredUniqueUsers.length} Students • ${filteredTotalLogins} Total Logins)`}
+                                        </h3>
+                                        <span className="text-xs text-slate-400 font-mono">
+                                            {userDirectoryFilter === 'today'
+                                                ? 'Showing exact logins recorded today per student • Deduplicated 1:1 directory'
+                                                : userDirectoryFilter === 'month'
+                                                ? 'Showing exact logins recorded this month per student • Deduplicated 1:1 directory'
+                                                : 'Strict 1:1 user deduplication • Total sessions accumulated per student'}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="px-3 py-1 rounded-full text-xs font-black bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono">
+                                            {filteredTotalLogins} {userDirectoryFilter === 'today' ? 'Logins Today' : userDirectoryFilter === 'month' ? 'Logins This Month' : 'Total Sessions'}
+                                        </span>
+                                        <span className="px-3 py-1 rounded-full text-xs font-black bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono">
+                                            {filteredUniqueUsers.length} / {uniqueUsersData.totalUnique} Students
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {filteredUniqueUsers.length === 0 ? (
+                                    <div className="text-center py-16 p-4">
+                                        <UserCheck className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                                        <h4 className="text-base font-bold text-slate-800 mb-1">No Users Found</h4>
+                                        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                                            No unique students match your search or filter query.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                                                    <th className="py-3 px-4 text-center w-14">Rank</th>
+                                                    <th className="py-3 px-5">Student User ID</th>
+                                                    <th className="py-3 px-5">
+                                                        {userDirectoryFilter === 'today'
+                                                            ? 'Logins Today'
+                                                            : userDirectoryFilter === 'month'
+                                                            ? 'Logins This Month'
+                                                            : 'Total Sessions Logged'}
+                                                    </th>
+                                                    <th className="py-3 px-5">Last Active Session</th>
+                                                    <th className="py-3 px-5">First Login Recorded</th>
+                                                    <th className="py-3 px-5">Device (Mobile / Laptop)</th>
+                                                    <th className="py-3 px-5 text-right">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 font-medium">
+                                                {paginatedUsers.map((user, index) => {
+                                                    const isCopied = copiedUserId === user.studentId;
+                                                    const devCat = getDeviceCategory(user.primaryDevice);
+                                                    const rank = (usersPage - 1) * PAGE_SIZE + index + 1;
+
+                                                    return (
+                                                        <tr
+                                                            key={user.studentId}
+                                                            className="hover:bg-indigo-50/30 transition-colors group"
+                                                        >
+                                                            <td className="py-3.5 px-4 text-center">
+                                                                <span className={`inline-flex items-center justify-center min-w-[28px] h-6 px-1.5 rounded-lg font-mono font-black text-xs border shadow-2xs ${
+                                                                    rank === 1
+                                                                        ? 'rank-badge-gold'
+                                                                        : rank === 2
+                                                                        ? 'rank-badge-silver'
+                                                                        : rank === 3
+                                                                        ? 'rank-badge-bronze'
+                                                                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                                                                }`}>
+                                                                    {rank === 1 ? '🥇 1' : rank === 2 ? '🥈 2' : rank === 3 ? '🥉 3' : `#${rank}`}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3.5 px-5">
+                                                                <div className="flex items-center gap-3">
+                                                                    <div className="student-avatar-chip" title={`Batch 20${user.studentId.slice(0, 2)}`}>
+                                                                        {user.studentId ? user.studentId.slice(0, 2) : 'KL'}
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="font-mono font-black text-slate-900 text-sm block">
+                                                                                {user.studentId}
+                                                                            </span>
+                                                                            <button
+                                                                                onClick={() => handleCopyUserId(user.studentId)}
+                                                                                title="Copy Student ID"
+                                                                                className="text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer"
+                                                                            >
+                                                                                {isCopied ? (
+                                                                                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                                                                ) : (
+                                                                                    <Copy className="w-3.5 h-3.5" />
+                                                                                )}
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                                                            <span className="text-[10px] text-slate-400">KL University</span>
+                                                                            <span className="text-[10px] text-slate-300">•</span>
+                                                                            <span className="text-[10px] font-bold text-indigo-600">{user.batchLabel}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-3.5 px-5">
+                                                                {userDirectoryFilter === 'today' ? (
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="px-3 py-1 rounded-xl text-xs font-black bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono shadow-2xs">
+                                                                            {user.todayLogins} {user.todayLogins === 1 ? 'Login' : 'Logins'}
+                                                                        </span>
+                                                                        <span className="text-[10px] text-slate-400 font-medium">
+                                                                            ({user.totalLogins} total)
+                                                                        </span>
+                                                                    </div>
+                                                                ) : userDirectoryFilter === 'month' ? (
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="px-3 py-1 rounded-xl text-xs font-black bg-blue-50 text-blue-700 border border-blue-200 font-mono shadow-2xs">
+                                                                            {user.monthLogins} {user.monthLogins === 1 ? 'Login' : 'Logins'}
+                                                                        </span>
+                                                                        <span className="text-[10px] text-slate-400 font-medium">
+                                                                            ({user.totalLogins} total)
+                                                                        </span>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="px-3 py-1 rounded-xl text-xs font-black bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono shadow-2xs">
+                                                                            {user.totalLogins} {user.totalLogins === 1 ? 'Login' : 'Logins'}
+                                                                        </span>
+                                                                        {user.todayLogins > 0 ? (
+                                                                            <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded-md border border-emerald-100">
+                                                                                +{user.todayLogins} today
+                                                                            </span>
+                                                                        ) : user.uniqueDaysActive > 1 ? (
+                                                                            <span className="text-[10px] text-slate-400 font-medium">
+                                                                                ({user.uniqueDaysActive} days active)
+                                                                            </span>
+                                                                        ) : null}
+                                                                    </div>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3.5 px-5">
+                                                                <span className="font-mono text-slate-900 font-bold block">
+                                                                    {user.lastLoginFormatted ? formatLoginTime(user.lastLoginFormatted) : 'N/A'}
+                                                                </span>
+                                                                {user.activeToday ? (
+                                                                    <span className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-600 mt-0.5">
+                                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                                                        Logged In Today
+                                                                    </span>
+                                                                ) : user.activeThisMonth ? (
+                                                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 mt-0.5">
+                                                                        Active This Month
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
+                                                                        {formatLoginDate(user.lastLoginFormatted) || ''}
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3.5 px-5 text-slate-500 font-mono">
+                                                                {user.firstLoginFormatted ? (
+                                                                    <span>{formatLoginDate(user.firstLoginFormatted) || new Date(user.firstLoginFormatted).toLocaleDateString('en-IN')}</span>
+                                                                ) : (
+                                                                    <span className="text-slate-400">N/A</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3.5 px-5">
+                                                                {devCat.isMobile ? (
+                                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                                                                        <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+                                                                        <span>Mobile</span>
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs">
+                                                                        <Laptop className="w-3.5 h-3.5 text-indigo-600" />
+                                                                        <span>Laptop</span>
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3.5 px-5 text-right">
+                                                                <button
+                                                                    onClick={() => setSelectedUserModal(user)}
+                                                                    className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                                                                >
+                                                                    Inspect History
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {totalUsersPages > 1 && (
+                                        <div className="p-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/60">
+                                            <span className="text-xs text-slate-500 font-medium">
+                                                Showing <strong className="text-slate-800 font-mono">{(usersPage - 1) * PAGE_SIZE + 1}</strong> to <strong className="text-slate-800 font-mono">{Math.min(usersPage * PAGE_SIZE, filteredUniqueUsers.length)}</strong> of <strong className="text-slate-800 font-mono">{filteredUniqueUsers.length}</strong> students
+                                            </span>
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    disabled={usersPage <= 1}
+                                                    onClick={() => setUsersPage(p => Math.max(1, p - 1))}
+                                                    className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs cursor-pointer"
+                                                    title="Previous Page"
+                                                >
+                                                    <ChevronLeft className="w-4 h-4" />
+                                                </button>
+                                                <span className="px-3 py-1 text-xs font-mono font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-2xs">
+                                                    Page {usersPage} of {totalUsersPages}
+                                                </span>
+                                                <button
+                                                    disabled={usersPage >= totalUsersPages}
+                                                    onClick={() => setUsersPage(p => Math.min(totalUsersPages, p + 1))}
+                                                    className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs cursor-pointer"
+                                                    title="Next Page"
+                                                >
+                                                    <ChevronRight className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    </>
+                                )}
+                            </div>
                         </div>
-                    </motion.div>
+                    )}
 
-                </div>
+                    {/* NEW TAB: USER LOGINS & HISTORY (Today, Month, Year, and frequency history) */}
+                    {activeTab === 'logins' && (
+                        <div className="space-y-6">
+                            {/* Header Overview */}
+                            <div className="admin-card-website p-6 rounded-3xl shadow-sm flex flex-wrap items-center justify-between gap-4 relative overflow-hidden">
+                                <div className="admin-card-shine" />
+                                <div className="kpi-strip kpi-strip-emerald" />
+                                <div className="flex items-center gap-3 relative z-10">
+                                    <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl border border-emerald-100 shadow-2xs">
+                                        <Users className="w-6 h-6" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-lg font-black text-slate-900">Student Logins & Authentication History</h2>
+                                        <p className="text-xs text-slate-500">
+                                            Track real-time login activity across KL University students with exact timestamps and individual login counts.
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2.5 relative z-10">
+                                    <button
+                                        onClick={() => setShowGSheetModal(true)}
+                                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95 admin-btn-shimmer"
+                                    >
+                                        <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
+                                        <span>Google Sheets Sync</span>
+                                    </button>
+                                    <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold shadow-2xs">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                        <span>Real-Time Auto Sync Active</span>
+                                    </div>
+                                </div>
+                            </div>
 
+                            {/* 4 KPI Metrics for Logins: Today, Month, Year, Total Unique */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                                {/* Card 1: Today's Logins */}
+                                <div className="admin-card-website p-6 relative overflow-hidden transition-all group">
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-emerald" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="p-3 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-100 group-hover:scale-105 transition-transform">
+                                                <Clock className="w-5 h-5" />
+                                            </div>
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                Today
+                                            </span>
+                                        </div>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-emerald">
+                                            {computedLogins.todayCount}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            LOGINS TODAY
+                                        </p>
+                                    </div>
+                                </div>
 
+                                {/* Card 2: This Month's Logins */}
+                                <div className="admin-card-website p-6 relative overflow-hidden transition-all group">
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-blue" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="p-3 rounded-2xl bg-sky-50 text-sky-600 border border-sky-100 group-hover:scale-105 transition-transform">
+                                                <Calendar className="w-5 h-5" />
+                                            </div>
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-sky-50 text-sky-700 border border-sky-200">
+                                                This Month
+                                            </span>
+                                        </div>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-blue">
+                                            {computedLogins.monthCount}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            LOGINS THIS MONTH
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Card 3: This Year's Logins */}
+                                <div className="admin-card-website p-6 relative overflow-hidden transition-all group">
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-indigo" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="p-3 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100 group-hover:scale-105 transition-transform">
+                                                <History className="w-5 h-5" />
+                                            </div>
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                2026-2027
+                                            </span>
+                                        </div>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-indigo">
+                                            {computedLogins.yearCount}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            LOGINS THIS YEAR
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Card 4: Total All-Time Logins */}
+                                <div className="admin-card-website p-6 relative overflow-hidden transition-all group">
+                                    <div className="admin-card-shine" />
+                                    <div className="kpi-strip kpi-strip-purple" />
+                                    <div className="relative z-10">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <div className="p-3 rounded-2xl bg-purple-50 text-purple-600 border border-purple-100 group-hover:scale-105 transition-transform">
+                                                <TrendingUp className="w-5 h-5" />
+                                            </div>
+                                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-50 text-purple-700 border border-purple-200">
+                                                All-Time
+                                            </span>
+                                        </div>
+                                        <div className="text-3xl sm:text-4xl font-black tracking-tight mb-1 font-mono kpi-number-gradient-purple">
+                                            {computedLogins.totalCount}
+                                        </div>
+                                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                                            ALL-TIME LOGINS
+                                        </p>
+                                        <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between">
+                                            <span className="text-[11px] font-bold text-slate-500">Unique Students:</span>
+                                            <span className="text-[11px] font-black text-purple-700 font-mono bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-md">
+                                                {uniqueUsersData.totalUnique} students
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Search & Filter Bar */}
+                            <div className="admin-card-website p-4 rounded-2xl shadow-sm flex flex-wrap items-center justify-between gap-3">
+                                <div className="relative flex-1 max-w-sm">
+                                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                                    <input
+                                        type="text"
+                                        value={loginSearch}
+                                        onChange={(e) => setLoginSearch(e.target.value)}
+                                        placeholder="Search by Student ID (e.g. 2400030358)..."
+                                        className="w-full admin-input-luxury rounded-xl pl-9 pr-3 py-2 text-xs placeholder:text-slate-400 font-semibold"
+                                    />
+                                </div>
+
+                                <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
+                                    {[
+                                        { id: 'all', label: 'All History' },
+                                        { id: 'today', label: 'Today Only' },
+                                        { id: 'month', label: 'This Month' },
+                                        { id: 'year', label: 'This Year' }
+                                    ].map(filter => (
+                                        <button
+                                            key={filter.id}
+                                            onClick={() => setLoginDateFilter(filter.id)}
+                                            className={`px-3 py-1.5 rounded-lg transition-all ${
+                                                loginDateFilter === filter.id
+                                                    ? 'bg-indigo-600 text-white shadow-sm font-black'
+                                                    : 'text-slate-600 hover:text-slate-900'
+                                            }`}
+                                        >
+                                            {filter.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* DYNAMIC UPSIDE NOTE: FILTER-SPECIFIC MOST LOGIN USERS */}
+                            {loginDateFilter === 'today' && (
+                                <div className="bg-gradient-to-r from-emerald-50/70 via-teal-50/50 to-indigo-50/40 border border-emerald-200/90 rounded-2xl p-4 shadow-sm space-y-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="p-2 rounded-xl bg-emerald-500 text-white shadow-xs">
+                                                <Clock className="w-4 h-4" />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="text-xs font-black uppercase tracking-wider text-emerald-950">
+                                                        Most Logged-In Students Today
+                                                    </h4>
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 font-mono">
+                                                        {formatLoginDate(new Date().toISOString())}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 font-medium">
+                                                    Showing students with highest login sessions recorded today
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="px-3 py-1 rounded-xl text-xs font-black bg-emerald-600 text-white shadow-xs font-mono">
+                                                {computedLogins.todayCount} {computedLogins.todayCount === 1 ? 'Total Login Today' : 'Total Logins Today'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {computedLogins.todayRanking.length > 0 ? (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-1">
+                                            {computedLogins.todayRanking.slice(0, 6).map((item, idx) => (
+                                                <div 
+                                                    key={item.studentId}
+                                                    onClick={() => handleInspectFromLogin(item.studentId)}
+                                                    className={`p-3 rounded-xl border flex items-center justify-between transition-all cursor-pointer hover:scale-[1.02] hover:shadow-md group ${
+                                                        idx === 0 
+                                                            ? 'bg-white border-emerald-300 ring-2 ring-emerald-400/20 shadow-xs'
+                                                            : 'bg-white/90 border-slate-200 shadow-2xs hover:border-emerald-300'
+                                                    }`}
+                                                    title={`Click to inspect ${item.studentId} login history`}
+                                                >
+                                                    <div className="flex items-center gap-2.5">
+                                                        <span className={`w-6 h-6 rounded-lg font-black text-xs flex items-center justify-center ${
+                                                            idx === 0 
+                                                                ? 'bg-amber-100 text-amber-900 border border-amber-300' 
+                                                                : idx === 1 
+                                                                ? 'bg-slate-200 text-slate-800' 
+                                                                : idx === 2 
+                                                                ? 'bg-orange-100 text-orange-800'
+                                                                : 'bg-slate-100 text-slate-600'
+                                                        }`}>
+                                                            {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                                                        </span>
+                                                        <div>
+                                                            <span className="font-mono font-black text-slate-900 text-xs block group-hover:text-emerald-600 transition-colors">
+                                                                {item.studentId}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-medium">KL University ERP</span>
+                                                        </div>
+                                                    </div>
+                                                    <span className="px-2.5 py-1 rounded-lg text-xs font-black bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono">
+                                                        {item.countToday} {item.countToday === 1 ? 'Login' : 'Logins'}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="bg-white/70 rounded-xl p-4 text-center text-xs font-semibold text-slate-500">
+                                            No student logins recorded yet today.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {loginDateFilter === 'month' && (
+                                <div className="bg-gradient-to-r from-blue-50/80 via-indigo-50/50 to-purple-50/40 border border-blue-200/90 rounded-2xl p-4 shadow-sm space-y-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="p-2 rounded-xl bg-blue-600 text-white shadow-xs">
+                                                <Calendar className="w-4 h-4" />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="text-xs font-black uppercase tracking-wider text-blue-950">
+                                                        Most Logged-In Students This Month
+                                                    </h4>
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-300 font-mono">
+                                                        {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 font-medium">
+                                                    Showing students with highest login sessions recorded this month
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-2 text-xs font-bold font-mono">
+                                            <div className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
+                                                <span>🌅 Morning:</span>
+                                                <span className="font-black">{computedLogins.monthTimeSlots.morning}</span>
+                                            </div>
+                                            <div className="px-2.5 py-1 rounded-lg bg-orange-50 text-orange-800 border border-orange-200 flex items-center gap-1">
+                                                <span>☀️ Afternoon:</span>
+                                                <span className="font-black">{computedLogins.monthTimeSlots.afternoon}</span>
+                                            </div>
+                                            <div className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-800 border border-indigo-200 flex items-center gap-1">
+                                                <span>🌙 Evening:</span>
+                                                <span className="font-black">{computedLogins.monthTimeSlots.evening}</span>
+                                            </div>
+                                            <span className="px-3 py-1 rounded-xl text-xs font-black bg-blue-600 text-white shadow-xs font-mono ml-1">
+                                                {computedLogins.monthCount} Month Logins
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {computedLogins.monthRanking.length > 0 ? (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-1">
+                                            {computedLogins.monthRanking.slice(0, 6).map((item, idx) => (
+                                                <div 
+                                                    key={item.studentId}
+                                                    onClick={() => handleInspectFromLogin(item.studentId)}
+                                                    className={`p-3 rounded-xl border flex items-center justify-between transition-all cursor-pointer hover:scale-[1.02] hover:shadow-md group ${
+                                                        idx === 0 
+                                                            ? 'bg-white border-blue-300 ring-2 ring-blue-400/20 shadow-xs'
+                                                            : 'bg-white/90 border-slate-200 shadow-2xs hover:border-blue-300'
+                                                    }`}
+                                                    title={`Click to inspect ${item.studentId} login history`}
+                                                >
+                                                    <div className="flex items-center gap-2.5">
+                                                        <span className={`w-6 h-6 rounded-lg font-black text-xs flex items-center justify-center ${
+                                                            idx === 0 
+                                                                ? 'bg-amber-100 text-amber-900 border border-amber-300' 
+                                                                : idx === 1 
+                                                                ? 'bg-slate-200 text-slate-800' 
+                                                                : idx === 2 
+                                                                ? 'bg-orange-100 text-orange-800'
+                                                                : 'bg-slate-100 text-slate-600'
+                                                        }`}>
+                                                            {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                                                        </span>
+                                                        <div>
+                                                            <span className="font-mono font-black text-slate-900 text-xs block group-hover:text-blue-600 transition-colors">
+                                                                {item.studentId}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-medium">KL University ERP</span>
+                                                        </div>
+                                                    </div>
+                                                    <span className="px-2.5 py-1 rounded-lg text-xs font-black bg-blue-50 text-blue-700 border border-blue-200 font-mono">
+                                                        {item.countMonth} {item.countMonth === 1 ? 'Login' : 'Logins'}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="bg-white/70 rounded-xl p-4 text-center text-xs font-semibold text-slate-500">
+                                            No student logins recorded this month.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {loginDateFilter === 'year' && (
+                                <div className="bg-gradient-to-r from-purple-50/80 via-indigo-50/50 to-blue-50/40 border border-purple-200/90 rounded-2xl p-4 shadow-sm space-y-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="p-2 rounded-xl bg-purple-600 text-white shadow-xs">
+                                                <History className="w-4 h-4" />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="text-xs font-black uppercase tracking-wider text-purple-950">
+                                                        Most Logged-In Students This Year
+                                                    </h4>
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-800 border border-purple-300 font-mono">
+                                                        Year {new Date().getFullYear()}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 font-medium">
+                                                    Showing students with highest login sessions recorded this academic year
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="px-3 py-1 rounded-xl text-xs font-black bg-purple-600 text-white shadow-xs font-mono">
+                                                {computedLogins.yearCount} Year Logins
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {computedLogins.yearRanking.length > 0 ? (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-1">
+                                            {computedLogins.yearRanking.slice(0, 6).map((item, idx) => (
+                                                <div 
+                                                    key={item.studentId}
+                                                    onClick={() => handleInspectFromLogin(item.studentId)}
+                                                    className={`p-3 rounded-xl border flex items-center justify-between transition-all cursor-pointer hover:scale-[1.02] hover:shadow-md group ${
+                                                        idx === 0 
+                                                            ? 'bg-white border-purple-300 ring-2 ring-purple-400/20 shadow-xs'
+                                                            : 'bg-white/90 border-slate-200 shadow-2xs hover:border-purple-300'
+                                                    }`}
+                                                    title={`Click to inspect ${item.studentId} login history`}
+                                                >
+                                                    <div className="flex items-center gap-2.5">
+                                                        <span className={`w-6 h-6 rounded-lg font-black text-xs flex items-center justify-center ${
+                                                            idx === 0 
+                                                                ? 'bg-amber-100 text-amber-900 border border-amber-300' 
+                                                                : idx === 1 
+                                                                ? 'bg-slate-200 text-slate-800' 
+                                                                : idx === 2 
+                                                                ? 'bg-orange-100 text-orange-800'
+                                                                : 'bg-slate-100 text-slate-600'
+                                                        }`}>
+                                                            {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                                                        </span>
+                                                        <div>
+                                                            <span className="font-mono font-black text-slate-900 text-xs block group-hover:text-purple-600 transition-colors">
+                                                                {item.studentId}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-medium">KL University ERP</span>
+                                                        </div>
+                                                    </div>
+                                                    <span className="px-2.5 py-1 rounded-lg text-xs font-black bg-purple-50 text-purple-700 border border-purple-200 font-mono">
+                                                        {item.countYear} {item.countYear === 1 ? 'Login' : 'Logins'}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="bg-white/70 rounded-xl p-4 text-center text-xs font-semibold text-slate-500">
+                                            No student logins recorded this year.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {loginDateFilter === 'all' && (
+                                <div className="bg-gradient-to-r from-slate-50 via-indigo-50/40 to-blue-50/40 border border-slate-200/90 rounded-2xl p-4 shadow-sm space-y-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="p-2 rounded-xl bg-indigo-600 text-white shadow-xs">
+                                                <Users className="w-4 h-4" />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                                                        All-Time Most Frequent Login Users
+                                                    </h4>
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-800 border border-indigo-200 font-mono">
+                                                        Full History
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 font-medium">
+                                                    Showing students with highest overall logins across all recorded sessions
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <span className="px-3 py-1 rounded-xl text-xs font-black bg-indigo-600 text-white shadow-xs font-mono">
+                                                {computedLogins.totalCount} All-Time Logins
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {computedLogins.allTimeRanking.length > 0 ? (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-1">
+                                            {computedLogins.allTimeRanking.slice(0, 6).map((item, idx) => (
+                                                <div 
+                                                    key={item.studentId}
+                                                    onClick={() => handleInspectFromLogin(item.studentId)}
+                                                    className={`p-3 rounded-xl border flex items-center justify-between transition-all cursor-pointer hover:scale-[1.02] hover:shadow-md group ${
+                                                        idx === 0 
+                                                            ? 'bg-white border-indigo-300 ring-2 ring-indigo-400/20 shadow-xs'
+                                                            : 'bg-white/90 border-slate-200 shadow-2xs hover:border-indigo-300'
+                                                    }`}
+                                                    title={`Click to inspect ${item.studentId} login history`}
+                                                >
+                                                    <div className="flex items-center gap-2.5">
+                                                        <span className={`w-6 h-6 rounded-lg font-black text-xs flex items-center justify-center ${
+                                                            idx === 0 
+                                                                ? 'bg-amber-100 text-amber-900 border border-amber-300' 
+                                                                : idx === 1 
+                                                                ? 'bg-slate-200 text-slate-800' 
+                                                                : idx === 2 
+                                                                ? 'bg-orange-100 text-orange-800'
+                                                                : 'bg-slate-100 text-slate-600'
+                                                        }`}>
+                                                            {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                                                        </span>
+                                                        <div>
+                                                            <span className="font-mono font-black text-slate-900 text-xs block group-hover:text-indigo-600 transition-colors">
+                                                                {item.studentId}
+                                                            </span>
+                                                            <span className="text-[10px] text-slate-400 font-medium">KL University ERP</span>
+                                                        </div>
+                                                    </div>
+                                                    <span className="px-2.5 py-1 rounded-lg text-xs font-black bg-indigo-50 text-indigo-700 border border-indigo-200 font-mono">
+                                                        {item.totalCount} {item.totalCount === 1 ? 'Login' : 'Logins'}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="bg-white/70 rounded-xl p-4 text-center text-xs font-semibold text-slate-500">
+                                            No student login history recorded.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Detailed Login History Table */}
+                            <div className="admin-website-table-container rounded-3xl shadow-sm overflow-hidden">
+                                <div className="p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <h3 className="text-sm font-black uppercase tracking-wider text-slate-900">
+                                            Login Activity Stream ({filteredLogins.length} records)
+                                        </h3>
+                                        <span className="text-xs text-slate-400 font-mono">
+                                            Separately logged by exact session time • Auto-updates in real-time
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {filteredLogins.length > 0 && (
+                                            <button
+                                                onClick={handleClearAllLogins}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                                                <span>Clear All History</span>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {filteredLogins.length === 0 ? (
+                                    <div className="text-center py-16 p-4">
+                                        <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                                        <h4 className="text-base font-bold text-slate-800 mb-1">No Login Records Found</h4>
+                                        <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                                            When students log in using their KLU ERP credentials, each login event automatically streams and reflects here in real-time.
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 text-[10px] font-black uppercase tracking-wider">
+                                                    <th className="py-3 px-4 text-center w-14">S.No</th>
+                                                    <th className="py-3 px-5">Student Member</th>
+                                                    <th className="py-3 px-5">Login Time & Session</th>
+                                                    <th className="py-3 px-5">Device (Mobile / Laptop)</th>
+                                                    <th className="py-3 px-5 text-right">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 font-medium">
+                                                {paginatedLogins.map((item, index) => {
+                                                    const timeOfDay = getTimeOfDay(item.timestamp);
+                                                    const devCat = getDeviceCategory(item.device, item.userAgent);
+                                                    const sNo = (loginsPage - 1) * PAGE_SIZE + index + 1;
+
+                                                    return (
+                                                        <tr 
+                                                            key={item.id || index} 
+                                                            className="hover:bg-slate-50/80 transition-colors group"
+                                                        >
+                                                            <td className="py-3.5 px-4 text-center">
+                                                                <span className="inline-flex items-center justify-center min-w-[26px] h-6 px-1.5 rounded-lg bg-slate-100 text-slate-700 font-mono font-black text-xs border border-slate-200/80 shadow-2xs">
+                                                                    {sNo}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3.5 px-5">
+                                                                <div 
+                                                                    onClick={() => handleInspectFromLogin(item.studentId, item)}
+                                                                    className="flex items-center gap-3 cursor-pointer group/member hover:opacity-90 transition-opacity"
+                                                                    title="Click to view full student login history and session logs"
+                                                                >
+                                                                    <div className="student-avatar-chip group-hover/member:scale-105 group-hover/member:ring-2 group-hover/member:ring-indigo-300 transition-all" title={`Batch 20${(item.studentId || '').slice(0, 2)}`}>
+                                                                        {item.studentId ? item.studentId.slice(0, 2) : 'KL'}
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="font-mono font-black text-slate-900 text-sm block group-hover/member:text-indigo-600 transition-colors">
+                                                                            {item.studentId || 'KLU Student'}
+                                                                        </span>
+                                                                        <span className="block text-[10px] text-slate-400">KL University ERP</span>
+                                                                    </div>
+                                                                </div>
+                                                            </td>
+                                                            <td className="py-3.5 px-5">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="font-mono text-slate-900 font-black text-sm">
+                                                                        {formatLoginTime(item.timestamp)}
+                                                                    </span>
+                                                                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border ${timeOfDay.color}`}>
+                                                                        {timeOfDay.icon} {timeOfDay.label}
+                                                                    </span>
+                                                                </div>
+                                                                <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
+                                                                    {formatLoginDate(item.timestamp) || item.date || ''}
+                                                                </span>
+                                                            </td>
+                                                            <td className="py-3.5 px-5">
+                                                                {devCat.isMobile ? (
+                                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                                                                        <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+                                                                        <span>Mobile</span>
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs">
+                                                                        <Laptop className="w-3.5 h-3.5 text-indigo-600" />
+                                                                        <span>Laptop</span>
+                                                                    </span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-3.5 px-5 text-right">
+                                                                <div className="flex items-center justify-end gap-2">
+                                                                    <button
+                                                                        onClick={() => handleInspectFromLogin(item.studentId, item)}
+                                                                        className="px-3 py-1 rounded-lg bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-2xs inline-flex items-center gap-1.5"
+                                                                        title="Inspect Student Login History"
+                                                                    >
+                                                                        <User className="w-3.5 h-3.5" />
+                                                                        <span>Inspect History</span>
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleDeleteLogin(item.id, item.studentId)}
+                                                                        title="Delete this login record"
+                                                                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-all cursor-pointer inline-flex items-center justify-center"
+                                                                    >
+                                                                        <Trash2 className="w-4 h-4 text-slate-400 hover:text-red-500 transition-colors" />
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {totalLoginsPages > 1 && (
+                                        <div className="p-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/60">
+                                            <span className="text-xs text-slate-500 font-medium">
+                                                Showing <strong className="text-slate-800 font-mono">{(loginsPage - 1) * PAGE_SIZE + 1}</strong> to <strong className="text-slate-800 font-mono">{Math.min(loginsPage * PAGE_SIZE, filteredLogins.length)}</strong> of <strong className="text-slate-800 font-mono">{filteredLogins.length}</strong> records
+                                            </span>
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    disabled={loginsPage <= 1}
+                                                    onClick={() => setLoginsPage(p => Math.max(1, p - 1))}
+                                                    className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs cursor-pointer"
+                                                    title="Previous Page"
+                                                >
+                                                    <ChevronLeft className="w-4 h-4" />
+                                                </button>
+                                                <span className="px-3 py-1 text-xs font-mono font-bold text-slate-700 bg-white border border-slate-200 rounded-lg shadow-2xs">
+                                                    Page {loginsPage} of {totalLoginsPages}
+                                                </span>
+                                                <button
+                                                    disabled={loginsPage >= totalLoginsPages}
+                                                    onClick={() => setLoginsPage(p => Math.min(totalLoginsPages, p + 1))}
+                                                    className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs cursor-pointer"
+                                                    title="Next Page"
+                                                >
+                                                    <ChevronRight className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* INBOX TAB: Instant Zero-Lag User Feedbacks Stream */}
+                    {activeTab === 'inbox' && (
+                        <div className="space-y-6">
+                            <div className="flex flex-wrap items-center justify-between gap-4 admin-card-website p-5 rounded-2xl shadow-sm relative overflow-hidden">
+                                <div className="admin-card-shine" />
+                                <div className="kpi-strip kpi-strip-indigo" />
+                                <div className="relative z-10">
+                                    <div className="flex items-center gap-2.5">
+                                        <Mail className="w-5 h-5 text-indigo-600" />
+                                        <h2 className="text-lg font-black text-slate-900">Student Feedback & Messages Inbox</h2>
+                                        <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-indigo-50 text-indigo-700">
+                                            {feedbacks.length}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1">Instant zero-lag live feed from students across KL University</p>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-3 relative z-10">
+                                    {/* Search */}
+                                    <div className="relative">
+                                        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                                        <input
+                                            type="text"
+                                            value={feedbackSearch}
+                                            onChange={(e) => setFeedbackSearch(e.target.value)}
+                                            placeholder="Search by ID or text..."
+                                            className="admin-input-luxury rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 w-48 font-medium"
+                                        />
+                                    </div>
+
+                                    {/* Category Pills */}
+                                    <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
+                                        {['all', 'suggestion', 'bug', 'feature', 'compliment'].map(cat => (
+                                            <button
+                                                key={cat}
+                                                onClick={() => setFeedbackFilter(cat)}
+                                                className={`px-3 py-1 rounded-lg capitalize transition-all ${
+                                                    feedbackFilter === cat
+                                                        ? 'bg-indigo-600 text-white font-bold shadow-sm'
+                                                        : 'text-slate-600 hover:text-slate-900'
+                                                }`}
+                                            >
+                                                {cat}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {feedbacks.length > 0 && (
+                                        <button
+                                            onClick={handleClearAllFeedbacks}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 hover:bg-rose-100 text-xs font-bold transition-all shadow-xs"
+                                            title="Clear all feedback messages"
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                            <span>Clear All</span>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Feedbacks Grid */}
+                            {filteredFeedbacks.length === 0 ? (
+                                <div className="py-20 text-center admin-card-website rounded-3xl p-6 shadow-sm">
+                                    <Mail className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                                    <h3 className="text-base font-bold text-slate-800">No Feedback Messages</h3>
+                                    <p className="text-xs text-slate-500 mt-1">Submissions through the floating feedback button appear here instantly.</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {filteredFeedbacks.map((fb) => (
+                                        <div
+                                            key={fb.id}
+                                            className="admin-card-website p-5 rounded-2xl transition-all flex flex-col justify-between shadow-xs hover:shadow-md group relative overflow-hidden"
+                                        >
+                                            <div className="admin-card-shine" />
+                                            <div className="relative z-10">
+                                                <div className="flex items-start justify-between gap-3 mb-3">
+                                                    <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${
+                                                        fb.category === 'bug'
+                                                            ? 'bg-red-50 border-red-200 text-red-700'
+                                                            : fb.category === 'feature'
+                                                                ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                                                                : fb.category === 'compliment'
+                                                                    ? 'bg-pink-50 border-pink-200 text-pink-700'
+                                                                    : 'bg-amber-50 border-amber-200 text-amber-700'
+                                                    }`}>
+                                                        {fb.category || 'General'}
+                                                    </span>
+
+                                                    <button
+                                                        onClick={() => handleDeleteFeedback(fb.id)}
+                                                        title="Delete feedback"
+                                                        className="text-slate-400 hover:text-red-500 p-1 rounded-lg transition-colors"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+
+                                                <p className="text-xs text-slate-700 font-medium whitespace-pre-wrap leading-relaxed mb-4">
+                                                    {fb.message}
+                                                </p>
+                                            </div>
+
+                                            <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-500 font-mono">
+                                                <span className="font-bold text-indigo-600">
+                                                    Student: {fb.studentId || 'Guest'}
+                                                </span>
+                                                <span>
+                                                    {fb.page ? `Page: ${fb.page}` : ''}
+                                                </span>
+                                                <span>
+                                                    {fb.timestamp ? new Date(fb.timestamp).toLocaleString() : ''}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* SITE CONTROLS TAB: Announcements & LTPS Weights */}
+                    {activeTab === 'controls' && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            {/* Announcement Editor */}
+                            <div className="admin-card-website rounded-3xl p-6 shadow-sm space-y-4 relative overflow-hidden">
+                                <div className="admin-card-shine" />
+                                <div className="kpi-strip kpi-strip-indigo" />
+                                <div className="flex items-center justify-between relative z-10">
+                                    <div className="flex items-center gap-2">
+                                        <Sparkles className="w-5 h-5 text-amber-500" />
+                                        <h3 className="text-sm font-black uppercase tracking-wider text-slate-900">
+                                            Global Site Announcement
+                                        </h3>
+                                    </div>
+                                    {announcementSuccess && (
+                                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                                            <CheckCircle2 className="w-3.5 h-3.5" /> Updated Live!
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="text-xs text-slate-500 relative z-10">
+                                    Displays in the animated marquee announcement banner at the very top of all student screens.
+                                </p>
+                                <textarea
+                                    rows={4}
+                                    value={announcement}
+                                    onChange={(e) => setAnnouncement(e.target.value)}
+                                    placeholder="Enter urgent notification (e.g. End sem attendance deadline, new calendar added)..."
+                                    className="w-full admin-input-luxury rounded-xl p-3 text-xs placeholder:text-slate-400 font-medium resize-none relative z-10"
+                                />
+                                <button
+                                    onClick={handleSaveAnnouncement}
+                                    disabled={savingAnnouncement}
+                                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md shadow-indigo-500/25 transition-all admin-btn-shimmer relative z-10"
+                                >
+                                    {savingAnnouncement ? 'Broadcasting...' : 'Save & Broadcast Live'}
+                                </button>
+                            </div>
+
+                            {/* LTPS Calculation Weights Editor */}
+                            <div className="admin-card-website rounded-3xl p-6 shadow-sm space-y-4 relative overflow-hidden">
+                                <div className="admin-card-shine" />
+                                <div className="kpi-strip kpi-strip-blue" />
+                                <div className="flex items-center justify-between relative z-10">
+                                    <div className="flex items-center gap-2">
+                                        <Sliders className="w-5 h-5 text-indigo-600" />
+                                        <h3 className="text-sm font-black uppercase tracking-wider text-slate-900">
+                                            L-T-P-S Calculation Weights
+                                        </h3>
+                                    </div>
+                                    {weightsSuccess && (
+                                        <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                                            <CheckCircle2 className="w-3.5 h-3.5" /> Weights Updated!
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="text-xs text-slate-500 relative z-10">
+                                    Configure official percentage multipliers for KL attendance calculations.
+                                </p>
+                                <div className="grid grid-cols-2 gap-3 relative z-10">
+                                    {Object.entries(ltpsWeights).map(([comp, val]) => (
+                                        <div key={comp} className="bg-slate-50/80 p-3 rounded-xl border border-slate-200">
+                                            <label className="text-[10px] font-black uppercase text-slate-500 block mb-1">
+                                                {comp} Weight
+                                            </label>
+                                            <div className="relative">
+                                                <input
+                                                    type="number"
+                                                    value={val}
+                                                    onChange={(e) => setLtpsWeights(prev => ({ ...prev, [comp]: parseFloat(e.target.value) || 0 }))}
+                                                    className="w-full bg-transparent text-lg font-black text-slate-900 focus:outline-none font-mono"
+                                                />
+                                                <span className="absolute right-0 top-1 text-slate-400 text-xs font-bold">%</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex gap-2 relative z-10">
+                                    <button
+                                        onClick={() => setLtpsWeights({ lecture: 100, tutorial: 100, practical: 50, skill: 25 })}
+                                        className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                                    >
+                                        Reset KLU Default
+                                    </button>
+                                    <button
+                                        onClick={handleSaveWeights}
+                                        disabled={savingWeights}
+                                        className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md shadow-indigo-500/25 transition-all admin-btn-shimmer cursor-pointer"
+                                    >
+                                        {savingWeights ? 'Updating...' : 'Update Calculation Logic'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ACADEMIC CALENDARS TAB */}
+                    {activeTab === 'calendar' && (
+                        <div className="admin-card-website rounded-3xl p-6 shadow-sm space-y-5 relative overflow-hidden">
+                            <div className="admin-card-shine" />
+                            <div className="kpi-strip kpi-strip-blue" />
+                            <div className="flex items-center gap-2 relative z-10">
+                                <CalendarDays className="w-5 h-5 text-indigo-600" />
+                                <h3 className="text-base font-black text-slate-900">Active Academic Calendars (2026-2027)</h3>
+                            </div>
+                            <p className="text-xs text-slate-500 relative z-10">
+                                All officially published PDFs and high-definition rasterized preview sheets are deployed directly:
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 relative z-10">
+                                {[
+                                    { title: 'Y24 (III & IV Year)', file: '/calendar_y24.pdf', thumb: '/calendar_y24_thumb.webp' },
+                                    { title: 'Y25 (II Year Sem)', file: '/calendar_y25.pdf', thumb: '/calendar_y25_thumb.webp' },
+                                    { title: 'Y25 (Trimester)', file: '/calendar_y25_tri.pdf', thumb: '/calendar_y25_tri_thumb.webp' }
+                                ].map((cal, idx) => (
+                                    <div key={idx} className="bg-slate-50/80 rounded-2xl p-4 flex flex-col justify-between border border-slate-200 hover:border-indigo-200 transition-all">
+                                        <div>
+                                            <div className="h-32 bg-slate-100 rounded-xl overflow-hidden mb-3 border border-slate-200 flex items-center justify-center">
+                                                <img src={cal.thumb} alt={cal.title} className="w-full h-full object-cover object-top" />
+                                            </div>
+                                            <h4 className="text-xs font-bold text-slate-900 mb-1">{cal.title}</h4>
+                                            <p className="text-[10px] text-emerald-600 font-mono font-bold">Status: Verified & Live</p>
+                                        </div>
+                                        <a
+                                            href={cal.file}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="mt-3 block text-center py-1.5 bg-slate-200/70 hover:bg-indigo-600 hover:text-white text-slate-700 text-xs font-bold rounded-xl transition-all"
+                                        >
+                                            View PDF
+                                        </a>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* HERO & PROFILE TAB */}
+                    {activeTab === 'profile' && (
+                        <div className="admin-card-website rounded-3xl p-8 shadow-sm max-w-2xl space-y-6 relative overflow-hidden">
+                            <div className="admin-card-shine" />
+                            <div className="kpi-strip kpi-strip-purple" />
+                            <div className="flex items-center gap-4 relative z-10">
+                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white font-black text-2xl shadow-lg shadow-indigo-500/25 ring-2 ring-indigo-200">
+                                    Y
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black text-slate-900">Garlapati Yaswanth Adithya Reddy</h3>
+                                    <p className="text-xs text-indigo-600 font-bold font-mono">ID: 2400030358 • Administrator</p>
+                                    <p className="text-[11px] text-slate-500">KL University • Department of Computer Science & Engineering</p>
+                                </div>
+                            </div>
+
+                            <div className="space-y-3 pt-4 border-t border-slate-100 text-xs relative z-10">
+                                <div className="flex justify-between p-3 rounded-xl bg-slate-50/80 border border-slate-200">
+                                    <span className="text-slate-500 font-medium">Admin Email:</span>
+                                    <span className="text-slate-900 font-mono font-bold">yaswanthadithyareddy11@gmail.com</span>
+                                </div>
+                                <div className="flex justify-between p-3 rounded-xl bg-slate-50/80 border border-slate-200">
+                                    <span className="text-slate-500 font-medium">Student ERP ID:</span>
+                                    <span className="text-slate-900 font-mono font-bold">2400030358</span>
+                                </div>
+                                <div className="flex justify-between p-3 rounded-xl bg-slate-50/80 border border-slate-200">
+                                    <span className="text-slate-500 font-medium">Control Center Version:</span>
+                                    <span className="text-indigo-600 font-mono font-bold">v3.4.0 (Login Analytics Edition)</span>
+                                </div>
+                            </div>
+
+                            <div className="pt-3 border-t border-slate-100 relative z-10">
+                                <button
+                                    onClick={handleLogout}
+                                    className="w-full py-3 bg-red-50 hover:bg-red-600 hover:text-white text-red-600 border border-red-200/90 font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+                                >
+                                    <LogOut className="w-4 h-4" />
+                                    <span>Log Out of Admin Control Center</span>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Student Login Inspection Modal */}
+                    <AnimatePresence>
+                        {selectedUserModal && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.95 }}
+                                    className="bg-white border border-slate-200 rounded-3xl p-6 shadow-2xl max-w-lg w-full space-y-4 max-h-[85vh] flex flex-col"
+                                >
+                                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 border border-indigo-100 flex items-center justify-center shadow-xs">
+                                                <User className="w-5 h-5" />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h3 className="text-base font-black text-slate-900 font-mono">
+                                                        {selectedUserModal.studentId}
+                                                    </h3>
+                                                    <button
+                                                        onClick={() => handleCopyUserId(selectedUserModal.studentId)}
+                                                        className="text-slate-400 hover:text-indigo-600 cursor-pointer"
+                                                        title="Copy ID"
+                                                    >
+                                                        {copiedUserId === selectedUserModal.studentId ? (
+                                                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                                        ) : (
+                                                            <Copy className="w-3.5 h-3.5" />
+                                                        )}
+                                                    </button>
+                                                </div>
+                                                <p className="text-xs text-slate-500">
+                                                    Student Login Profile • {selectedUserModal.batchLabel}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => setSelectedUserModal(null)}
+                                            className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                                        >
+                                            <X className="w-5 h-5" />
+                                        </button>
+                                    </div>
+
+                                    {/* Stats grid */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                                        <div className="bg-indigo-50/70 p-3 rounded-2xl border border-indigo-200/80 shadow-2xs">
+                                            <span className="text-[10px] font-black text-indigo-600 uppercase tracking-wider">Total Logins</span>
+                                            <p className="text-xl font-black text-indigo-700 font-mono mt-0.5">{selectedUserModal.totalLogins}</p>
+                                            <span className="text-[9px] text-indigo-400 font-semibold">All-time recorded</span>
+                                        </div>
+                                        <div className="bg-emerald-50/70 p-3 rounded-2xl border border-emerald-200/80 shadow-2xs">
+                                            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-wider">Today&apos;s Logins</span>
+                                            <p className="text-xl font-black text-emerald-700 font-mono mt-0.5">{selectedUserModal.todayLogins || 0}</p>
+                                            <span className="text-[9px] text-emerald-500 font-semibold">{selectedUserModal.todayLogins > 0 ? 'Active today' : 'None today'}</span>
+                                        </div>
+                                        <div className="bg-blue-50/70 p-3 rounded-2xl border border-blue-200/80 shadow-2xs">
+                                            <span className="text-[10px] font-black text-blue-600 uppercase tracking-wider">Month Logins</span>
+                                            <p className="text-xl font-black text-blue-700 font-mono mt-0.5">{selectedUserModal.monthLogins || 0}</p>
+                                            <span className="text-[9px] text-blue-400 font-semibold">This month</span>
+                                        </div>
+                                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/80 shadow-2xs">
+                                            <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Primary Device</span>
+                                            <p className="text-xs font-black text-slate-800 mt-1 flex items-center justify-center gap-1.5">
+                                                {getDeviceCategory(selectedUserModal.primaryDevice).isMobile ? (
+                                                    <>
+                                                        <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+                                                        <span>Mobile</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Laptop className="w-3.5 h-3.5 text-indigo-600" />
+                                                        <span>Laptop</span>
+                                                    </>
+                                                )}
+                                            </p>
+                                            <span className="text-[9px] text-slate-400 font-semibold">Most frequent</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Session History List */}
+                                    <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[300px] min-h-[160px]">
+                                        <div className="flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-xs py-1 z-10">
+                                            <h4 className="text-xs font-black uppercase tracking-wider text-slate-600">
+                                                All Recorded Sessions ({selectedUserModal.sessions?.length || selectedUserModal.totalLogins} total)
+                                            </h4>
+                                            <span className="text-[10px] font-mono font-bold text-slate-400">
+                                                Latest sessions first
+                                            </span>
+                                        </div>
+                                        {(selectedUserModal.sessions || []).slice().reverse().map((sess, idx) => {
+                                            const sDev = getDeviceCategory(sess.device, sess.userAgent);
+                                            const totalSessionsCount = (selectedUserModal.sessions || []).length || selectedUserModal.totalLogins;
+                                            const sessionNum = totalSessionsCount - idx;
+                                            const isTodaySession = (sess.date || (sess.timestamp ? getISTDateStr(sess.timestamp) : '')) === getISTDateStr(new Date());
+
+                                            return (
+                                                <div
+                                                    key={sess.id || idx}
+                                                    className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-colors ${
+                                                        isTodaySession
+                                                            ? 'bg-emerald-50/40 border-emerald-200/80 shadow-2xs'
+                                                            : 'bg-slate-50/80 border-slate-200/80'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2.5">
+                                                        <span className="px-1.5 py-0.5 rounded font-mono font-bold text-[10px] bg-white border border-slate-200 text-slate-600 shadow-2xs">
+                                                            #{sessionNum}
+                                                        </span>
+                                                        <div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-mono font-black text-slate-900">
+                                                                    {formatLoginTime(sess.timestamp)}
+                                                                </span>
+                                                                {isTodaySession && (
+                                                                    <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                                                        Today
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
+                                                                {formatLoginDate(sess.timestamp) || sess.date || (sess.timestamp ? sess.timestamp.slice(0, 10) : '')}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    {sDev.isMobile ? (
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                                            <Smartphone className="w-3 h-3 text-emerald-600" />
+                                                            <span>Mobile</span>
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                            <Laptop className="w-3 h-3 text-indigo-600" />
+                                                            <span>Laptop</span>
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    <div className="pt-2 border-t border-slate-100">
+                                        <button
+                                            onClick={() => setSelectedUserModal(null)}
+                                            className="w-full py-2 bg-slate-900 hover:bg-indigo-600 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer"
+                                        >
+                                            Close Profile
+                                        </button>
+                                    </div>
+                                </motion.div>
+                            </div>
+                        )}
+                    </AnimatePresence>
+
+                    {/* Google Sheets Dual Sync & Data Import Modal */}
+                    <AnimatePresence>
+                        {showGSheetModal && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.95 }}
+                                    className="bg-white border border-slate-200 rounded-3xl p-6 shadow-2xl max-w-xl w-full space-y-4 max-h-[85vh] flex flex-col"
+                                >
+                                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shadow-xs">
+                                                <FileSpreadsheet className="w-5 h-5" />
+                                            </div>
+                                            <div>
+                                                <h3 className="text-base font-black text-slate-900">
+                                                    Google Sheets Integration (Dual Sheets)
+                                                </h3>
+                                                <p className="text-xs text-slate-500">
+                                                    Automatically imports real student logins without capturing or storing passwords.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => setShowGSheetModal(false)}
+                                            className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                                        >
+                                            <X className="w-5 h-5" />
+                                        </button>
+                                    </div>
+
+                                    {/* Two Connected Sheets List */}
+                                    <div className="space-y-2.5">
+                                        <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">
+                                            Configured Google Spreadsheets
+                                        </h4>
+                                        <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                                            <div className="flex items-center justify-between text-xs">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                                    <span className="font-bold text-slate-800">Sheet 1: Primary ERP Attendance</span>
+                                                </div>
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
+                                                    Connected & Live
+                                                </span>
+                                            </div>
+                                            <p className="text-[11px] font-mono text-slate-400 truncate">
+                                                https://docs.google.com/spreadsheets/d/1dGXtI5hj-Z1NS1sWa6oqMSVdGXIYz14I51icq54YjI8
+                                            </p>
+                                        </div>
+
+                                        <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                                            <div className="flex items-center justify-between text-xs">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                                                    <span className="font-bold text-slate-800">Sheet 2: Secondary ERP Attendance</span>
+                                                </div>
+                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-800">
+                                                    Configured
+                                                </span>
+                                            </div>
+                                            <p className="text-[11px] font-mono text-slate-400 truncate">
+                                                https://docs.google.com/spreadsheets/d/1-lUIx-empblHA6jOqnsZL2MsHoEbt_97Ah5WzdqQtc8
+                                            </p>
+                                            <div className="p-2 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-800 flex items-start gap-1.5">
+                                                <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                                                <span>
+                                                    If Sheet 2 is set to Restricted in Google Drive, set its General Access to <strong>Anyone with the link can view</strong>, or paste rows directly below.
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Sync Actions */}
+                                    <div className="flex items-center gap-2 pt-1">
+                                        <button
+                                            onClick={handleSyncAllSheets}
+                                            disabled={syncingSheets}
+                                            className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                                        >
+                                            <Sparkles className="w-4 h-4" />
+                                            <span>{syncingSheets ? 'Fetching Both Sheets...' : 'Sync Both Sheets Online Now'}</span>
+                                        </button>
+                                    </div>
+
+                                    {/* Sheet Sync Status Report */}
+                                    {sheetSyncResults && (
+                                        <div className="p-3 rounded-2xl bg-slate-100 border border-slate-200 text-xs space-y-1.5">
+                                            <h5 className="font-black text-slate-800">Online Fetch Status:</h5>
+                                            {sheetSyncResults.map((st, i) => (
+                                                <div key={i} className="flex items-center justify-between text-[11px]">
+                                                    <span className="font-medium text-slate-600">Sheet #{i + 1}:</span>
+                                                    {st.success ? (
+                                                        <span className="text-emerald-700 font-bold">✓ Synced {st.count} rows</span>
+                                                    ) : (
+                                                        <span className="text-amber-700 font-bold">⚠ Permission restricted (Set to Anyone with link)</span>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {/* Direct Paste Fallback (Zero Passwords, 100% Secure) */}
+                                    <div className="border-t border-slate-100 pt-3 space-y-2 flex-1 overflow-y-auto">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-xs font-black uppercase tracking-wider text-slate-700">
+                                                Paste Sheet Data (Instant Import)
+                                            </label>
+                                            <span className="text-[10px] text-emerald-600 font-bold">
+                                                🔒 Passwords automatically stripped
+                                            </span>
+                                        </div>
+                                        <textarea
+                                            rows={3}
+                                            value={pastedSheetData}
+                                            onChange={(e) => setPastedSheetData(e.target.value)}
+                                            placeholder="Paste rows copied from Google Sheet (TSV / CSV) here..."
+                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-indigo-500 focus:outline-none font-mono resize-none"
+                                        />
+                                        {pasteImportMsg && (
+                                            <p className="text-xs font-bold text-indigo-600">{pasteImportMsg}</p>
+                                        )}
+                                        <button
+                                            onClick={handleImportPastedData}
+                                            disabled={!pastedSheetData.trim()}
+                                            className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer disabled:opacity-40"
+                                        >
+                                            Import Pasted Data (No Passwords)
+                                        </button>
+                                    </div>
+                                </motion.div>
+                            </div>
+                        )}
+                    </AnimatePresence>
+                </main>
             </div>
         </div>
     );
-};
-
-export default AdminDashboard;
+}

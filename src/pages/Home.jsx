@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useMotionValue, useSpring, useTransform, useScroll, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDays, Bot, Flame } from 'lucide-react';
-import ERPLoginCard from '../components/ERPLoginCard';
+import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDays, Bot, Flame, LogIn } from 'lucide-react';
 
 // --- Ultra-Advanced 3D Parallax Card ---
 const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, to, accentColor, activeBorderColor = "border-indigo-600", hoverBorderColor = "hover:border-indigo-600", onClick }) => {
@@ -599,20 +598,20 @@ export default function Home() {
                             <motion.button
                                 whileHover={{ scale: 1.04 }}
                                 whileTap={{ scale: 0.96 }}
-                                className="w-full py-3.5 px-3 sm:px-5 bg-gradient-to-r from-rose-600 to-pink-600 text-white rounded-2xl font-bold shadow-xl shadow-rose-500/25 flex items-center justify-center gap-1.5 sm:gap-2 group text-xs sm:text-sm whitespace-nowrap"
+                                className="w-full py-3.5 px-3 sm:px-5 bg-gradient-to-r from-sky-400 to-sky-600 text-white rounded-2xl font-bold shadow-lg shadow-sky-500/25 flex items-center justify-center gap-1.5 sm:gap-2 group text-xs sm:text-sm whitespace-nowrap border border-sky-400/30"
                             >
-                                <Flame className="w-4 h-4 group-hover:scale-110 transition-transform shrink-0 animate-pulse" />
+                                <Flame className="w-4 h-4 text-sky-100 group-hover:scale-110 transition-transform shrink-0 animate-pulse" />
                                 <span>Bunk Simulator</span>
                             </motion.button>
                         </Link>
-                        <Link to="/attendance" className="flex-1 min-w-[125px]">
+                        <Link to="/login" className="flex-1 min-w-[125px]">
                             <motion.button
                                 whileHover={{ scale: 1.04 }}
                                 whileTap={{ scale: 0.96 }}
-                                className="w-full py-3.5 px-3 sm:px-5 bg-white text-slate-900 border border-slate-200 rounded-2xl font-bold shadow-lg flex items-center justify-center gap-1.5 sm:gap-2 group hover:border-indigo-200 text-xs sm:text-sm whitespace-nowrap"
+                                className="w-full py-3.5 px-3 sm:px-5 bg-gradient-to-r from-rose-500 to-pink-500 text-white rounded-2xl font-bold shadow-lg shadow-rose-500/25 flex items-center justify-center gap-1.5 sm:gap-2 group text-xs sm:text-sm whitespace-nowrap border border-rose-400/30"
                             >
-                                <Activity className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform shrink-0" />
-                                <span>Live Status</span>
+                                <LogIn className="w-4 h-4 text-white group-hover:scale-110 transition-transform shrink-0" />
+                                <span>ERP Login</span>
                             </motion.button>
                         </Link>
                     </div>
@@ -718,9 +717,37 @@ export default function Home() {
                         </ThreeDParallaxCard>
                     </div>
 
-                    {/* 4. ERP Access Card */}
-                    <div className="min-h-[320px] sm:min-h-[340px] md:h-[360px]">
-                        <ERPLoginCard />
+                    {/* 4. ERP Login Card */}
+                    <div className="min-h-[280px] sm:min-h-[300px] md:h-[360px]">
+                        <ThreeDParallaxCard
+                            to="/login"
+                            icon={LogIn}
+                            colorClass="text-rose-500"
+                            accentColor="bg-gradient-to-tr from-rose-600 to-pink-500"
+                            activeBorderColor="border-rose-600"
+                            hoverBorderColor="hover:border-rose-600"
+                        >
+                            <div className="flex flex-col h-full justify-between">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 text-[10px] font-black uppercase tracking-wider">
+                                            Instant Sync
+                                        </span>
+                                        <span className="text-[10px] font-mono font-bold text-slate-400">
+                                            Live Portal
+                                        </span>
+                                    </div>
+                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 mb-1.5">ERP Login</h3>
+                                    <p className="text-slate-500 text-xs sm:text-sm mb-3">Connect to KL ERP to auto-fetch attendance records and check eligibility without manual entry.</p>
+                                </div>
+
+                                <div className="w-full py-2.5 sm:py-3 bg-rose-50 group-hover:bg-rose-100 text-rose-900 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
+                                    <LogIn className="w-4 h-4 text-rose-600" />
+                                    <span>Login to ERP</span>
+                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                </div>
+                            </div>
+                        </ThreeDParallaxCard>
                     </div>
 
                     {/* 5. Public Holidays 2026 */}

@@ -82,7 +82,11 @@ export const erpService = {
         }
 
         // Fallback to legacy getInitialState
-        return this.getInitialState();
+        const state = await this.getInitialState();
+        if (!state || !state.csrfToken) {
+            throw new Error("Unable to connect to ERP server. Please check your internet connection or refresh.");
+        }
+        return state;
     },
 
     // Ultra-fast captcha refresh in a single round-trip
@@ -129,6 +133,9 @@ export const erpService = {
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
         const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        if (!csrfToken) {
+            throw new Error("Unable to connect to ERP server. Please check your internet connection or refresh.");
+        }
         return { csrfToken };
     },
 

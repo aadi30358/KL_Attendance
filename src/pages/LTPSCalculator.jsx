@@ -628,16 +628,30 @@ const LTPSCalculator = () => {
                                     </div>
 
                                     {/* Duration Note */}
-                                    <div className="p-3 rounded-xl bg-amber-50/80 border border-amber-200/80 flex items-start gap-2.5 text-xs text-amber-900">
+                                    <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200/90 flex items-start gap-3 text-xs text-amber-900 shadow-2xs">
                                         <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                                        <div className="space-y-0.5">
-                                            <p className="font-bold">
-                                                <span>Note: </span>
-                                                <span className="font-mono font-black text-amber-950">1 Lecture = 50 mins</span>, <span className="font-mono font-black text-amber-950">1 Practical = 1.50</span> (1 hr 50m)
+                                        <div className="space-y-1.5 flex-1">
+                                            <p className="font-bold text-amber-950">
+                                                Period Duration & Weightage Guide:
                                             </p>
-                                            <p className="text-[11px] text-amber-800">
-                                                In KLU timetable, 1 practical class represents a 1.50 (1 hr 50 mins) lab session.
-                                            </p>
+                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                                                <div className="bg-white/95 border border-amber-200 p-2 rounded-xl text-center">
+                                                    <span className="text-[10px] text-slate-500 font-bold block uppercase">Lecture (L)</span>
+                                                    <span className="font-mono font-black text-amber-950 text-xs">50 mins (100%)</span>
+                                                </div>
+                                                <div className="bg-white/95 border border-amber-200 p-2 rounded-xl text-center">
+                                                    <span className="text-[10px] text-slate-500 font-bold block uppercase">Tutorial (T)</span>
+                                                    <span className="font-mono font-black text-amber-950 text-xs">50 mins (100%)</span>
+                                                </div>
+                                                <div className="bg-white/95 border border-amber-200 p-2 rounded-xl text-center">
+                                                    <span className="text-[10px] text-slate-500 font-bold block uppercase">Practical (P)</span>
+                                                    <span className="font-mono font-black text-amber-950 text-xs">1.50 (50%)</span>
+                                                </div>
+                                                <div className="bg-white/95 border border-amber-200 p-2 rounded-xl text-center">
+                                                    <span className="text-[10px] text-slate-500 font-bold block uppercase">Skill (S)</span>
+                                                    <span className="font-mono font-black text-amber-950 text-xs">1.50 (25%)</span>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
 

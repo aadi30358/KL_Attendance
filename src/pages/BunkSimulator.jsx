@@ -345,23 +345,47 @@ const BunkSimulator = () => {
                         <div className="space-y-2 flex-1">
                             <div className="flex flex-wrap items-center gap-2">
                                 <h3 className="text-xs sm:text-sm font-black text-amber-950 uppercase tracking-wide">
-                                    Period Duration Note:
+                                    Period Duration & Weightage Guide:
                                 </h3>
                                 <span className="text-[10px] font-bold bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full">
                                     Timetable Calculation Guide
                                 </span>
                             </div>
                             <p className="text-xs text-amber-900/90 font-medium leading-relaxed">
-                                In KLU timetable schedule, <strong>1 lecture class = 50 mins</strong> and <strong>1 practical class represents 1.50 (1 hr 50 mins)</strong>:
+                                In KLU timetable schedule: <strong>Lecture & Tutorial = 50 mins (100% weightage)</strong>, <strong>Practical = 1.50 (50% weightage)</strong>, and <strong>Skill = 1.50 (25% weightage)</strong>:
                             </p>
-                            <div className="grid grid-cols-2 gap-2 pt-1 max-w-sm">
-                                <div className="bg-white/90 border border-amber-200 rounded-xl p-2 sm:p-2.5 text-center shadow-2xs">
-                                    <span className="text-[10px] text-slate-400 font-bold block uppercase">Lecture (L)</span>
-                                    <span className="text-xs sm:text-sm font-black text-amber-900 font-mono">1 Class = 50 mins</span>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                                <div className="bg-white/95 border border-amber-200 rounded-xl p-2.5 text-center shadow-2xs">
+                                    <div className="flex items-center justify-center gap-1 mb-1">
+                                        <span className="text-[10px] text-slate-500 font-bold block uppercase">Lecture (L)</span>
+                                        <span className="text-[9px] font-black bg-indigo-100 text-indigo-800 px-1 rounded">100%</span>
+                                    </div>
+                                    <span className="text-xs sm:text-sm font-black text-amber-900 font-mono block">1 Class = 50 mins</span>
+                                    <span className="text-[10px] text-slate-400 font-medium block mt-0.5">(1 Period)</span>
                                 </div>
-                                <div className="bg-white/90 border border-amber-200 rounded-xl p-2 sm:p-2.5 text-center shadow-2xs">
-                                    <span className="text-[10px] text-slate-400 font-bold block uppercase">Practical (P)</span>
-                                    <span className="text-xs sm:text-sm font-black text-amber-900 font-mono">1 Class = 1.50 <span className="text-[10px] font-normal text-slate-500">(1h 50m)</span></span>
+                                <div className="bg-white/95 border border-amber-200 rounded-xl p-2.5 text-center shadow-2xs">
+                                    <div className="flex items-center justify-center gap-1 mb-1">
+                                        <span className="text-[10px] text-slate-500 font-bold block uppercase">Tutorial (T)</span>
+                                        <span className="text-[9px] font-black bg-indigo-100 text-indigo-800 px-1 rounded">100%</span>
+                                    </div>
+                                    <span className="text-xs sm:text-sm font-black text-amber-900 font-mono block">1 Class = 50 mins</span>
+                                    <span className="text-[10px] text-slate-400 font-medium block mt-0.5">(1 Period)</span>
+                                </div>
+                                <div className="bg-white/95 border border-amber-200 rounded-xl p-2.5 text-center shadow-2xs">
+                                    <div className="flex items-center justify-center gap-1 mb-1">
+                                        <span className="text-[10px] text-slate-500 font-bold block uppercase">Practical (P)</span>
+                                        <span className="text-[9px] font-black bg-rose-100 text-rose-800 px-1 rounded">50%</span>
+                                    </div>
+                                    <span className="text-xs sm:text-sm font-black text-amber-900 font-mono block">1 Class = 1.50</span>
+                                    <span className="text-[10px] text-slate-400 font-medium block mt-0.5">(1h 50m / 2 Periods)</span>
+                                </div>
+                                <div className="bg-white/95 border border-amber-200 rounded-xl p-2.5 text-center shadow-2xs">
+                                    <div className="flex items-center justify-center gap-1 mb-1">
+                                        <span className="text-[10px] text-slate-500 font-bold block uppercase">Skill (S)</span>
+                                        <span className="text-[9px] font-black bg-amber-100 text-amber-800 px-1 rounded">25%</span>
+                                    </div>
+                                    <span className="text-xs sm:text-sm font-black text-amber-900 font-mono block">1 Class = 1.50</span>
+                                    <span className="text-[10px] text-slate-400 font-medium block mt-0.5">(1h 50m / 2 Periods)</span>
                                 </div>
                             </div>
                         </div>
@@ -700,7 +724,7 @@ const BunkSimulator = () => {
                                                                 {count} <span className="text-xs font-semibold text-slate-400">{count === 1 ? 'class' : 'classes'}</span>
                                                             </span>
                                                             <span className="text-[10px] font-semibold text-slate-500 block mt-0.5 font-mono">
-                                                                {k === 'P' ? '1 class = 1.50 (1h 50m)' : count === 2 ? '2 classes = 1.50 (1h 50m)' : count === 1 ? '1 class = 50 mins' : '1 = 50m, 2 = 1.50'}
+                                                                {k === 'P' || k === 'S' ? '1 class = 1.50 (1h 50m)' : count === 2 ? '2 classes = 1.50 (1h 50m)' : count === 1 ? '1 class = 50 mins' : '1 = 50m, 2 = 1.50'}
                                                             </span>
                                                             {bunks > 0 && (
                                                                 <span className="text-[10px] font-bold text-amber-600 block mt-0.5">

@@ -6,7 +6,13 @@ import { erpService } from "../services/erpService";
 
 export function AuthProvider({ children }) {
     const [currentUser, setCurrentUser] = useState(null);
-    const [erpUser, setErpUser] = useState(null);
+    const [erpUser, setErpUser] = useState(() => {
+        try {
+            return localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || null;
+        } catch {
+            return null;
+        }
+    });
     const [loading, setLoading] = useState(true);
 
     // Sign in with Google
@@ -15,13 +21,18 @@ export function AuthProvider({ children }) {
         return signInWithPopup(auth, provider);
     }
 
-    // Logout
+    // Fast non-blocking logout
     async function logout() {
-        // First tell the ERP backend to destroy the actual session cookie
-        await erpService.erpLogout();
+        try {
+            if (typeof erpService?.clearStoredErpCookies === 'function') {
+                erpService.clearStoredErpCookies();
+            }
+        } catch (e) {
+            console.warn("[Auth] Cookie cleanup:", e);
+        }
 
-        // Aggressively clear all ERP session data so no old user data persists 
-        // to a newly logged-in user!
+        // Aggressively clear all ERP session data synchronously
+        sessionStorage.setItem('adminLoggedOut', 'true');
         localStorage.removeItem('activeErpUser');
         localStorage.removeItem('erpDashboardHtml');
         localStorage.removeItem('kleData');
@@ -29,30 +40,36 @@ export function AuthProvider({ children }) {
         localStorage.removeItem('userProfile');
         localStorage.removeItem('sessionCookie');
         localStorage.removeItem('rememberedId');
+        localStorage.removeItem('isAdminAuthenticated');
 
         setErpUser(null);
-        return signOut(auth);
+        setCurrentUser(null);
+
+        // Sign out in background without stalling UI navigation
+        signOut(auth).catch(err => {
+            console.warn("[Auth] SignOut background notice:", err);
+        });
     }
 
     useEffect(() => {
-        // Safety timeout: Ensure app renders after 3 seconds even if Firebase hangs
+        // Check immediate synchronous auth state if already cached
+        if (auth.currentUser) {
+            setCurrentUser(auth.currentUser);
+            setLoading(false);
+        }
+
+        // Safety timer ensures instant UI display (50ms max)
         const timer = setTimeout(() => {
-            if (loading) {
-                console.warn("[Auth] Firebase initialization timed out, proceeding to render...");
-                setLoading(false);
-            }
-        }, 3000);
+            setLoading(false);
+        }, 50);
 
         const unsubscribe = onAuthStateChanged(auth, (user) => {
             clearTimeout(timer);
             setCurrentUser(user);
-
-            // Hydrate ERP user from localStorage if exists
-            const savedErpUser = localStorage.getItem('activeErpUser');
-            if (savedErpUser) {
-                setErpUser(savedErpUser);
-            }
-
+            setLoading(false);
+        }, (err) => {
+            clearTimeout(timer);
+            console.warn("[Auth] Auth state error:", err);
             setLoading(false);
         });
 
@@ -60,7 +77,7 @@ export function AuthProvider({ children }) {
             unsubscribe();
             clearTimeout(timer);
         };
-    }, [loading]);
+    }, []);
 
     const value = {
         currentUser,

@@ -70,12 +70,8 @@ const Navbar = () => {
         { name: 'ATTENDANCE BY L-T-P-S', path: '/ltps' },
         { name: 'BUNK SIMULATOR', path: '/bunk-simulator' },
         { name: 'ATTENDANCE WHEN ABSENT', path: '/attendance' },
-        ...(hasErpSession && location.pathname !== '/' ? [] : [
-            { name: 'ACADEMIC CALENDAR', path: '/calendar' },
-            { name: 'ERP LOGIN', path: '/login', isErpHighlight: true }
-        ]),
-        ...(hasErpSession ? [{ name: 'ERP DASHBOARD', path: '/login', isMobileOnly: true }] : []),
-
+        { name: 'ACADEMIC CALENDAR', path: '/calendar' },
+        { name: 'ERP LOGIN', path: '/login', isErpHighlight: true },
         ...(currentUser?.email === 'yaswanthadithyareddy11@gmail.com' ? [{ name: 'ADMIN', path: '/admin' }] : []),
         ...(hasErpSession && !isAuthPage ? [{ name: 'CHANGE SELECTION', path: '/attendance-register', isReset: true }] : [])
     ];
@@ -272,12 +268,12 @@ const Navbar = () => {
                                         }}
 
                                             className={cn(
-                                                "block w-full text-left px-4 py-3 rounded-xl text-sm font-bold tracking-widest uppercase transition-all flex flex-col",
-                                                    isActive(item.path)
-                                                        ? "bg-indigo-50 text-indigo-600"
-                                                        : item.isErpHighlight
-                                                            ? "bg-red-600 text-white border-2 border-red-400 animate-pulse shadow-lg ring-2 ring-white/20"
-                                                            : "text-slate-600 hover:bg-slate-50"
+                                                "block w-full text-left px-4 py-3 rounded-xl text-sm font-black tracking-widest uppercase transition-all flex flex-col",
+                                                item.isErpHighlight
+                                                    ? "bg-red-600 text-white border-2 border-red-400 shadow-lg shadow-red-500/25 ring-2 ring-red-500/20 animate-pulse hover:bg-red-700 active:scale-[0.99]"
+                                                    : isActive(item.path)
+                                                        ? "bg-indigo-50 text-indigo-600 font-black"
+                                                        : "text-slate-600 hover:bg-slate-50"
                                             )}
                                     >
                                         <span>{item.name}</span>

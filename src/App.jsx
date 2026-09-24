@@ -1,8 +1,10 @@
 import { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import AnnouncementBanner from './components/AnnouncementBanner';
 import { APP_CONFIG } from './config';
+import { doc, setDoc, increment } from 'firebase/firestore';
+import { db } from './firebase';
 
 import { AuthProvider } from './context/AuthContext';
 
@@ -21,6 +23,7 @@ import PublicHolidays from './pages/PublicHolidays';
 import UserProfile from './pages/UserProfile';
 import PlutoAssistant from './pages/PlutoAssistant';
 import BunkSimulator from './pages/BunkSimulator';
+import FeedbackWidget from './components/FeedbackWidget';
 
 import { HelmetProvider } from 'react-helmet-async';
 
@@ -54,18 +57,66 @@ const SOCIAL_LINKS = [
 ];
 
 const AppWithAuth = () => {
-  // Keep backend warm to eliminate cold starts and lag
+  const location = useLocation();
+  const isAdminPage = location.pathname.startsWith('/admin');
+
+  // Keep backend warm to eliminate cold starts and latency
   useEffect(() => {
     const pingBackend = () => {
       const url = `${APP_CONFIG.API_URL || ''}/api/health`;
       if (url.startsWith('http')) {
-        fetch(url, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+        try {
+          const controller = new AbortController();
+          const tid = setTimeout(() => controller.abort(), 6000);
+          fetch(url, { signal: controller.signal, cache: 'no-store' })
+            .catch(() => {})
+            .finally(() => clearTimeout(tid));
+        } catch {
+          // ignore
+        }
       }
     };
     pingBackend();
-    const interval = setInterval(pingBackend, 4 * 60 * 1000); // every 4 minutes
+    const interval = setInterval(pingBackend, 3 * 60 * 1000); // every 3 minutes
     return () => clearInterval(interval);
   }, []);
+
+  // Visitor traffic tracking: Record genuine website visits into Firestore analytics
+  useEffect(() => {
+    if (isAdminPage) return;
+    try {
+      const sessionMarker = 'kl_visit_counted';
+      if (!sessionStorage.getItem(sessionMarker)) {
+        sessionStorage.setItem(sessionMarker, 'true');
+        const todayStr = new Date().toISOString().slice(0, 10);
+
+        // Update local counter
+        const currentLocal = parseInt(localStorage.getItem('kl_total_visits') || '0', 10) + 1;
+        localStorage.setItem('kl_total_visits', currentLocal.toString());
+
+        // Sync live to Firestore
+        setDoc(doc(db, 'analytics', 'traffic'), {
+          totalVisits: increment(1),
+          [`daily.${todayStr}`]: increment(1),
+          lastVisitAt: new Date().toISOString()
+        }, { merge: true }).catch(err => {
+          console.warn('Analytics ping notice:', err);
+        });
+      }
+    } catch {
+      // Ignore
+    }
+  }, [isAdminPage]);
+
+  if (isAdminPage) {
+    return (
+      <main className="min-h-screen font-sans">
+        <Routes>
+          <Route path="/admin" element={<AdminDashboard />} />
+        </Routes>
+      </main>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-900">
@@ -73,7 +124,6 @@ const AppWithAuth = () => {
       <Navbar />
 
       <main>
-
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
@@ -93,6 +143,8 @@ const AppWithAuth = () => {
           <Route path="/coding-assistant" element={<PlutoAssistant />} />
         </Routes>
       </main>
+
+      <FeedbackWidget />
 
       <footer className="w-full py-6 text-center border-t border-slate-200/80 bg-white/60 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2.5">

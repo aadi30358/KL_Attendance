@@ -57,7 +57,7 @@ export default function PublicHolidays() {
                 doc.setFontSize(8);
                 doc.setFont("helvetica", "normal");
                 doc.setTextColor(100, 116, 139);
-                doc.text("Green Fields, Vaddeswaram, Guntur Dist., A.P. - 522302 • klattendancecalculator.web.app", pageWidth / 2, y, { align: "center" });
+                doc.text("Green Fields, Vaddeswaram, Guntur Dist., A.P. - 522302 • klattendance.online", pageWidth / 2, y, { align: "center" });
 
                 y += 3;
                 doc.setDrawColor(203, 213, 225); // Slate 300

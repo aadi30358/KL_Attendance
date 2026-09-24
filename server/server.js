@@ -18,27 +18,91 @@ const PORT = process.env.PORT || 3000;
 const allowedOrigins = [
     'https://klattendancecalculator.web.app',
     'https://klattendancecalculator.firebaseapp.com',
+    'https://klattendance.online',
+    'https://www.klattendance.online',
+    'http://klattendance.online',
+    'http://www.klattendance.online',
     'https://kl-attendance-backend.onrender.com', // Own backend
     'http://localhost:5173', // Vite default dev port
     'http://127.0.0.1:5173',
-    'http://localhost:3000'
+    'http://localhost:4173', // Vite preview port
+    'http://127.0.0.1:4173',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
 ];
 
-// Mount CORS before rate limiting to ensure 429 and error responses include CORS headers
-app.use(cors({
-    origin: function (origin, callback) {
-        if (!origin) return callback(null, true);
+const isOriginAllowed = (origin) => {
+    // Requests from mobile webviews (Instagram, etc.), curl, or server-to-server can have null or undefined origin
+    if (!origin || origin === 'null') return true;
 
-        // Allow dynamic local network IP addresses for mobile testing
-        if (origin.startsWith('http://192.168.') || allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(origin)) return true;
+
+    if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) return true;
+
+    try {
+        const url = new URL(origin);
+        const host = url.hostname.toLowerCase();
+
+        // Allow klattendance.online domain and any subdomains
+        if (host === 'klattendance.online' || host.endsWith('.klattendance.online')) {
+            return true;
+        }
+
+        // Allow Firebase hosting domains
+        if (host.endsWith('.web.app') || host.endsWith('.firebaseapp.com')) {
+            return true;
+        }
+
+        // Allow Render domains
+        if (host.endsWith('.onrender.com')) {
+            return true;
+        }
+
+        // Allow localhost and loopback on any port
+        if (host === 'localhost' || host === '127.0.0.1') {
+            return true;
+        }
+
+        // Allow private network IP addresses (mobile testing on WiFi: 192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+        if (/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(host)) {
+            return true;
+        }
+    } catch {
+        // Fallback
+    }
+
+    return false;
+};
+
+const corsOptions = {
+    origin: function (origin, callback) {
+        if (isOriginAllowed(origin)) {
             return callback(null, true);
         } else {
+            console.warn(`[CORS] Blocked request from origin: ${origin}`);
             return callback(null, false);
         }
     },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'x-erp-cookie',
+        'x-csrf-token',
+        'x-requested-with',
+        'Pragma',
+        'Cache-Control',
+        'Accept',
+        'Origin',
+        'User-Agent'
+    ],
     exposedHeaders: ['x-set-erp-cookie', 'set-cookie', 'Location']
-}));
+};
+
+// Mount CORS before rate limiting to ensure 429 and error responses include CORS headers
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Rate limiting: 600 requests per 15 minutes
 const limiter = rateLimit({
