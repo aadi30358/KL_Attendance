@@ -572,9 +572,18 @@ app.post('/api/fast-login', async (req, res) => {
             if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
         });
 
-        // If status is 302, authentication succeeded!
+        // If status is 302, authentication might have succeeded - verify target location
         if (loginResp.status === 302) {
             let nextLoc = loginResp.headers.get('location') || '/index.php?r=site%2Findexindi';
+
+            // If redirect points back to login, authentication failed
+            if (nextLoc.includes('site%2Flogin') || nextLoc.includes('site/login')) {
+                return res.status(401).json({
+                    success: false,
+                    error: 'Incorrect username or password. Please verify your credentials.'
+                });
+            }
+
             if (!nextLoc.includes('indexindi') && (nextLoc.endsWith('/index.php') || nextLoc.endsWith('index.php') || nextLoc === '/')) {
                 nextLoc = '/index.php?r=site%2Findexindi';
             }
@@ -614,12 +623,30 @@ app.post('/api/fast-login', async (req, res) => {
             const allCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
             const dashHtml = await dashResp.text();
 
+            // Strict authentication check: Does dashHtml belong to a verified student session?
+            const isLoginForm = dashHtml.includes('id="login-form"') || dashHtml.includes('LoginForm[');
+            const hasAuthProof = dashHtml.includes('site%2Flogout') || 
+                                 dashHtml.includes('site/logout') || 
+                                 dashHtml.includes('indexindi') || 
+                                 dashHtml.includes('logout') || 
+                                 dashHtml.includes(username.trim());
+
+            if (isLoginForm || !hasAuthProof) {
+                console.warn("[Fast Login] Dashboard HTML returned login-form or lacks auth proof. Rejecting unverified login.");
+                return res.status(401).json({
+                    success: false,
+                    error: 'Incorrect username or password. Please verify your credentials.',
+                    cookies: allCookies
+                });
+            }
+
             res.setHeader('x-set-erp-cookie', allCookies);
             const rewrittenCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}; path=/; SameSite=None; Secure; Partitioned`);
             res.setHeader('Set-Cookie', rewrittenCookies);
 
             return res.json({
                 success: true,
+                verified: true,
                 cookies: allCookies,
                 html: dashHtml
             });

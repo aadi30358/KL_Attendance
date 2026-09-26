@@ -166,9 +166,20 @@ export const erpService = {
                     localStorage.setItem('erp_session_cookie', fastData.cookies);
                 }
 
-                if (fastResp.ok && fastData.success) {
-                    console.log("[ERP] Fast login succeeded in single hop!");
-                    return { success: true, html: fastData.html };
+                if (fastResp.ok && fastData.success && fastData.html) {
+                    const html = fastData.html;
+                    const isForm = html.includes('id="login-form"') || html.includes('loginFormUserNameID');
+                    const hasAuthProof = html.includes('site%2Flogout') || 
+                                         html.includes('site/logout') || 
+                                         html.includes('indexindi') || 
+                                         html.includes('logout') || 
+                                         html.includes(username);
+
+                    if (!isForm && hasAuthProof) {
+                        console.log("[ERP] Fast login succeeded and verified in single hop!");
+                        return { success: true, verified: true, html };
+                    }
+                    throw new Error("Credentials verification failed. Please check your Student ID and Password.");
                 }
 
                 if (fastData && fastData.error) {
@@ -207,6 +218,10 @@ export const erpService = {
             cache: 'no-store'
         });
 
+        if (!response.ok) {
+            throw new Error(`ERP server responded with status ${response.status}. Please check your connection or try again.`);
+        }
+
         saveErpCookiesFromResponse(response);
         const html = await response.text();
 
@@ -214,16 +229,6 @@ export const erpService = {
         const doc = parser.parseFromString(html, 'text/html');
 
         const loginForm = doc.getElementById('login-form');
-        if (!loginForm) {
-            return { success: true, html };
-        }
-
-        // Check if authentication actually succeeded:
-        // 1. If kl_erp_device_id was issued in cookies, authentication was successful.
-        // 2. If loginForm is present, but NO field errors (password, captcha, username, summary) exist,
-        //    verify if session is active by attempting to fetch the student dashboard.
-        const storedCookies = getStoredErpCookies();
-        const hasDeviceId = storedCookies.includes('kl_erp_device_id');
 
         // Extract precise error message from ERP page:
         // 1. Password error
@@ -246,6 +251,28 @@ export const erpService = {
         const alertBanner = doc.querySelector('.alert-danger, .error-summary');
         const alertErrText = alertBanner?.textContent?.trim();
 
+        if (pwdErrText) throw new Error(pwdErrText);
+        if (capErrText) throw new Error(capErrText);
+        if (usrErrText) throw new Error(usrErrText);
+        if (anyErrText) throw new Error(anyErrText);
+        if (alertErrText) throw new Error(alertErrText);
+
+        // If loginForm is NOT found, verify that html is genuine authenticated student HTML (not an error page)
+        if (!loginForm) {
+            const hasAuthProof = html.includes('site%2Flogout') || 
+                                 html.includes('site/logout') || 
+                                 html.includes('indexindi') || 
+                                 html.includes('logout') || 
+                                 html.includes(username);
+            if (hasAuthProof) {
+                return { success: true, verified: true, html };
+            }
+            throw new Error("Credentials verification failed. Please check your Student ID and Password.");
+        }
+
+        // If loginForm is present, verify if active session exists via indexindi fallback
+        const storedCookies = getStoredErpCookies();
+        const hasDeviceId = storedCookies.includes('kl_erp_device_id');
         const hasAnyFormError = !!(pwdErrText || capErrText || usrErrText || anyErrText || alertErrText);
 
         if (!hasAnyFormError || hasDeviceId) {
@@ -259,23 +286,25 @@ export const erpService = {
                     credentials: 'include',
                     cache: 'no-store'
                 });
-                saveErpCookiesFromResponse(dashResp);
-                const dashHtml = await dashResp.text();
-                const dashDoc = parser.parseFromString(dashHtml, 'text/html');
-                if (!dashDoc.getElementById('login-form')) {
-                    console.log("[ERP] Successfully verified active session via indexindi fallback!");
-                    return { success: true, html: dashHtml };
+                if (dashResp.ok) {
+                    saveErpCookiesFromResponse(dashResp);
+                    const dashHtml = await dashResp.text();
+                    const dashDoc = parser.parseFromString(dashHtml, 'text/html');
+                    const isForm = dashDoc.getElementById('login-form');
+                    const hasAuth = dashHtml.includes('site%2Flogout') || 
+                                    dashHtml.includes('site/logout') || 
+                                    dashHtml.includes('indexindi') || 
+                                    dashHtml.includes('logout') || 
+                                    dashHtml.includes(username);
+                    if (!isForm && hasAuth) {
+                        console.log("[ERP] Successfully verified active session via indexindi fallback!");
+                        return { success: true, verified: true, html: dashHtml };
+                    }
                 }
             } catch (e) {
                 console.warn("[ERP] Fallback dashboard check failed:", e);
             }
         }
-
-        if (pwdErrText) throw new Error(pwdErrText);
-        if (capErrText) throw new Error(capErrText);
-        if (usrErrText) throw new Error(usrErrText);
-        if (anyErrText) throw new Error(anyErrText);
-        if (alertErrText) throw new Error(alertErrText);
 
         throw new Error("Incorrect username or password. Please verify your credentials.");
     },

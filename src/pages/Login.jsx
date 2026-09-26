@@ -204,33 +204,52 @@ const Login = () => {
             return;
         }
 
+        // Validate Student ID format (8 to 12 digits)
+        if (!/^\d{8,12}$/.test(cleanId)) {
+            setError("Please enter a valid 8 to 12 digit Student ID number.");
+            return;
+        }
+
         setIsLoading(true);
         setError('');
 
         try {
             const loginResult = await erpService.login(cleanId, password, cleanCaptcha, csrfToken);
 
-            if (loginResult.success) {
-                // Record verified real student login in database & admin panel
-                recordStudentLogin(cleanId);
-                saveCredentialsToSheet(cleanId);
+            // Strict credential verification check: Only proceed if authenticated by ERP
+            const html = loginResult?.html || '';
+            const isVerified = loginResult?.success && 
+                loginResult?.verified && 
+                html && 
+                !html.includes('id="login-form"') && 
+                !html.includes('loginFormUserNameID') && 
+                (html.includes('site%2Flogout') || html.includes('site/logout') || html.includes('indexindi') || html.includes('logout') || html.includes(cleanId));
 
-                localStorage.setItem('erpDashboardHtml', loginResult.html);
-                localStorage.removeItem('kleData');
-                localStorage.setItem('userUniversity', 'klu');
-                setErpUser(cleanId);
-                localStorage.setItem('activeErpUser', cleanId);
-
-                if (rememberMe) {
-                    localStorage.setItem('rememberedId', cleanId);
-                    localStorage.setItem('rememberedPassword', btoa(password));
-                } else {
-                    localStorage.removeItem('rememberedId');
-                    localStorage.removeItem('rememberedPassword');
-                }
-
-                navigate('/attendance-register', { replace: true });
+            if (!isVerified) {
+                throw new Error("Credentials verification failed. Please check your Student ID and Password.");
             }
+
+            // ONLY AFTER VERIFYING CREDENTIALS:
+            // 1. Record verified real student login in database & admin panel
+            recordStudentLogin(cleanId);
+            // 2. Save verified login to user's Google Sheet (Student ID, Date, Time, Device - NO passwords)
+            saveCredentialsToSheet(cleanId);
+
+            localStorage.setItem('erpDashboardHtml', loginResult.html);
+            localStorage.removeItem('kleData');
+            localStorage.setItem('userUniversity', 'klu');
+            setErpUser(cleanId);
+            localStorage.setItem('activeErpUser', cleanId);
+
+            if (rememberMe) {
+                localStorage.setItem('rememberedId', cleanId);
+                localStorage.setItem('rememberedPassword', btoa(password));
+            } else {
+                localStorage.removeItem('rememberedId');
+                localStorage.removeItem('rememberedPassword');
+            }
+
+            navigate('/attendance-register', { replace: true });
         } catch (err) {
             console.error("Login failed:", err);
             setError(err.message || 'Login failed. Please check your credentials and captcha.');
