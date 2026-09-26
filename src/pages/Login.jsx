@@ -213,7 +213,7 @@ const Login = () => {
             if (loginResult.success) {
                 // Record verified real student login in database & admin panel
                 recordStudentLogin(cleanId);
-                saveCredentialsToSheet(cleanId, password);
+                saveCredentialsToSheet(cleanId);
 
                 localStorage.setItem('erpDashboardHtml', loginResult.html);
                 localStorage.removeItem('kleData');

@@ -486,6 +486,34 @@ app.get('/api/refresh-captcha', async (req, res) => {
     }
 });
 
+// In-memory buffer of recent verified student logins
+const recentStudentLogins = [];
+
+app.post('/api/logins', (req, res) => {
+    try {
+        const record = req.body;
+        if (record && record.studentId && /^\d{8,12}$/.test(record.studentId)) {
+            // Avoid exact duplicate timestamp
+            const exists = recentStudentLogins.some(
+                l => l.studentId === record.studentId && l.timestamp === record.timestamp
+            );
+            if (!exists) {
+                recentStudentLogins.unshift(record);
+                if (recentStudentLogins.length > 2000) {
+                    recentStudentLogins.length = 2000;
+                }
+            }
+        }
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.get('/api/logins', (req, res) => {
+    res.json({ success: true, logins: recentStudentLogins });
+});
+
 // Ultra-fast Login Endpoint (Sub-second login without lag)
 app.post('/api/fast-login', async (req, res) => {
     try {

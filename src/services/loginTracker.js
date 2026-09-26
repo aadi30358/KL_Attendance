@@ -90,10 +90,10 @@ export async function recordStudentLogin(studentId) {
             const localHistory = JSON.parse(rawHistory);
             if (Array.isArray(localHistory)) {
                 const recentLog = localHistory.find(
-                    l => l.studentId === cleanId && (Date.now() - new Date(l.timestamp || 0).getTime()) < 3000
+                    l => l.studentId === cleanId && (Date.now() - new Date(l.timestamp || 0).getTime()) < 1000
                 );
                 if (recentLog) {
-                    // Accidental immediate double-click within 3 seconds, ignore
+                    // Accidental immediate double-click within 1 second, ignore
                     return;
                 }
             }

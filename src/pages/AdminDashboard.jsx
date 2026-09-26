@@ -101,8 +101,11 @@ export const cleanAndDeduplicateLogins = (rawList = []) => {
     if (!Array.isArray(rawList)) return [];
 
     const cleaned = [];
-    rawList.forEach((item, index) => {
-        if (!item) return;
+    const seenExactKeys = new Set();
+
+    for (let i = 0; i < rawList.length; i++) {
+        const item = rawList[i];
+        if (!item) continue;
 
         let sId = String(item.studentId || '').trim().toUpperCase();
         if (!sId && item.id) {
@@ -117,42 +120,37 @@ export const cleanAndDeduplicateLogins = (rawList = []) => {
         }
 
         // Strictly real KLU student ID format
-        if (!sId || !/^\d{8,12}$/.test(sId)) return;
+        if (!sId || !/^\d{8,12}$/.test(sId)) continue;
 
         const tsDate = item.timestamp ? new Date(item.timestamp) : new Date();
         const validTs = !isNaN(tsDate.getTime()) ? tsDate.toISOString() : new Date().toISOString();
+
+        // Exact deduplication key (only duplicate if exact same student AND exact same timestamp)
+        const exactKey = `${sId}_${validTs}`;
+        if (seenExactKeys.has(exactKey)) continue;
+        seenExactKeys.add(exactKey);
+
         const istDate = getISTDateStr(tsDate);
         const dateKey = item.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date) ? item.date : istDate;
         const monthKey = item.month && /^\d{4}-\d{2}$/.test(item.month) ? item.month : dateKey.slice(0, 7);
         const yearKey = item.year && /^\d{4}$/.test(item.year) ? item.year : dateKey.slice(0, 4);
 
         cleaned.push({
-            id: item.id || `log_${tsDate.getTime()}_${sId}_${index}`,
+            id: item.id || `log_${tsDate.getTime()}_${sId}_${cleaned.length}`,
             studentId: sId,
             timestamp: validTs,
             date: dateKey,
             month: monthKey,
             year: yearKey,
-            device: item.device || 'Google Sheets',
+            device: item.device || 'Laptop / PC',
             userAgent: item.userAgent || 'Web Browser',
             source: item.source || 'Google Sheet'
         });
-    });
-
-    // Deduplicate only exact identical timestamps for the same student (e.g. repeated sync fetch)
-    const deduped = [];
-    const seenExactKeys = new Set();
-
-    cleaned.forEach(item => {
-        const exactKey = `${item.studentId}_${item.timestamp}`;
-        if (seenExactKeys.has(exactKey)) return;
-        seenExactKeys.add(exactKey);
-        deduped.push(item);
-    });
+    }
 
     // Reverse chronological order (latest logins first)
-    deduped.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    return deduped;
+    cleaned.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return cleaned;
 };
 
 // Pre-clean bundled static Google Sheets data once to avoid repeated loops
@@ -280,47 +278,7 @@ export default function AdminDashboard() {
         navigate('/');
     };
 
-    // Google Sheets Dual Sync State
-    const [showGSheetModal, setShowGSheetModal] = useState(false);
-    const [syncingSheets, setSyncingSheets] = useState(false);
-    const [sheetSyncResults, setSheetSyncResults] = useState(null);
-    const [pastedSheetData, setPastedSheetData] = useState('');
-    const [pasteImportMsg, setPasteImportMsg] = useState('');
 
-    // Handle Manual Sync of all configured Google Sheets
-    const handleSyncAllSheets = async () => {
-        setSyncingSheets(true);
-        setSheetSyncResults(null);
-        try {
-            const { records, statuses } = await fetchAllGoogleSheetsCSV(DEFAULT_GOOGLE_SHEET_URLS);
-            if (records && records.length > 0) {
-                setUserLogins(prev => cleanAndDeduplicateLogins([...records, ...prev]));
-            }
-            setSheetSyncResults(statuses);
-        } catch (err) {
-            console.error('Manual sheet sync failed:', err);
-        } finally {
-            setSyncingSheets(false);
-        }
-    };
-
-    // Handle Import of Pasted Sheet Data (Passwords stripped, only real student IDs & timestamps kept)
-    const handleImportPastedData = () => {
-        if (!pastedSheetData.trim()) return;
-        try {
-            const parsed = parseGoogleSheetData(pastedSheetData);
-            if (!parsed || parsed.length === 0) {
-                setPasteImportMsg('No valid student roll numbers found. Passwords are strictly discarded.');
-                return;
-            }
-            setUserLogins(prev => cleanAndDeduplicateLogins([...parsed, ...prev]));
-            setPasteImportMsg(`Successfully imported ${parsed.length} login sessions! No passwords saved.`);
-            setPastedSheetData('');
-            setTimeout(() => setPasteImportMsg(''), 4000);
-        } catch (err) {
-            setPasteImportMsg(`Import error: ${err.message}`);
-        }
-    };
 
     // Clean up any lingering simulated, seed, or corrupted duplicate items from localStorage on initial mount
     useEffect(() => {
@@ -433,6 +391,35 @@ export default function AdminDashboard() {
         } catch {
             // ignore
         }
+
+        // 3c. Auto-sync with live Google Sheet and backend API in the background (0ms non-blocking)
+        const syncLiveSources = async () => {
+            try {
+                const sheetResult = await fetchAllGoogleSheetsCSV(DEFAULT_GOOGLE_SHEET_URLS);
+                if (sheetResult && sheetResult.records && sheetResult.records.length > 0) {
+                    setUserLogins(prev => cleanAndDeduplicateLogins([...sheetResult.records, ...prev]));
+                }
+            } catch (err) {
+                // non-critical fallback
+            }
+
+            try {
+                const apiBase = APP_CONFIG.API_URL || '';
+                if (apiBase) {
+                    const resp = await fetch(`${apiBase}/api/logins`);
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data.success && Array.isArray(data.logins) && data.logins.length > 0) {
+                            setUserLogins(prev => cleanAndDeduplicateLogins([...data.logins, ...prev]));
+                        }
+                    }
+                }
+            } catch (err) {
+                // non-critical
+            }
+        };
+
+        syncLiveSources();
 
         // 4. Real-time Logins Aggregated Analytics
         let unsubLoginStats = null;
@@ -826,71 +813,69 @@ export default function AdminDashboard() {
         };
     }, [isAuthenticated, effectiveAllLogins, uniqueUsersData]);
 
-    // Filtered Logins List (Filters effectiveAllLogins for 100% parity)
+    // Filtered Logins List (Zero-lag, highly optimized for smooth typing)
     const filteredLogins = useMemo(() => {
+        const search = loginSearch.trim().toLowerCase();
+        if (loginDateFilter === 'all' && !search) {
+            return effectiveAllLogins;
+        }
+
         const todayStr = getISTDateStr(new Date());
         const monthStr = todayStr.slice(0, 7);
         const yearStr = todayStr.slice(0, 4);
-        const searchLower = loginSearch.toLowerCase();
 
-        return effectiveAllLogins
-            .filter(item => {
+        return effectiveAllLogins.filter(item => {
+            if (loginDateFilter !== 'all') {
                 const d = item.date || (item.timestamp ? getISTDateStr(new Date(item.timestamp)) : '');
-                const m = item.month || (d ? d.slice(0, 7) : '');
-                const y = item.year || (d ? d.slice(0, 4) : '');
+                if (loginDateFilter === 'today' && d !== todayStr) return false;
+                if (loginDateFilter === 'month' && (item.month || d.slice(0, 7)) !== monthStr) return false;
+                if (loginDateFilter === 'year' && (item.year || d.slice(0, 4)) !== yearStr) return false;
+            }
 
-                let matchesDate = true;
-                if (loginDateFilter === 'today') matchesDate = d === todayStr;
-                else if (loginDateFilter === 'month') matchesDate = m === monthStr;
-                else if (loginDateFilter === 'year') matchesDate = y === yearStr;
-
-                const matchesSearch = !loginSearch || 
-                    (item.studentId && item.studentId.toLowerCase().includes(searchLower)) ||
-                    (item.device && item.device.toLowerCase().includes(searchLower));
-
-                return matchesDate && matchesSearch;
-            })
-            .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+            if (search) {
+                const sId = item.studentId ? item.studentId.toLowerCase() : '';
+                const dev = item.device ? item.device.toLowerCase() : '';
+                return sId.includes(search) || dev.includes(search);
+            }
+            return true;
+        });
     }, [effectiveAllLogins, loginDateFilter, loginSearch]);
 
-    // Filtered and Sorted Unique Users List for the Users Tab
+    // Filtered and Sorted Unique Users List for the Users Tab (Optimized for instant search)
     const filteredUniqueUsers = useMemo(() => {
         const search = userDirectorySearch.trim().toLowerCase();
 
-        return uniqueUsersData.list
-            .filter(user => {
-                if (search && !user.studentId.toLowerCase().includes(search)) {
-                    return false;
-                }
-                if (userDirectoryFilter === 'today') return user.activeToday && user.todayLogins > 0;
-                if (userDirectoryFilter === 'month') return user.activeThisMonth && user.monthLogins > 0;
-                if (userDirectoryFilter === 'top') return user.totalLogins >= 5;
-                return true;
-            })
-            .sort((a, b) => {
-                if (userDirectorySort === 'logins_desc') {
-                    if (userDirectoryFilter === 'today') {
-                        return (b.todayLogins - a.todayLogins) || (b.totalLogins - a.totalLogins);
-                    }
-                    if (userDirectoryFilter === 'month') {
-                        return (b.monthLogins - a.monthLogins) || (b.totalLogins - a.totalLogins);
-                    }
-                    return b.totalLogins - a.totalLogins;
-                }
-                if (userDirectorySort === 'logins_asc') {
-                    if (userDirectoryFilter === 'today') {
-                        return (a.todayLogins - b.todayLogins) || (a.totalLogins - b.totalLogins);
-                    }
-                    if (userDirectoryFilter === 'month') {
-                        return (a.monthLogins - b.monthLogins) || (a.totalLogins - b.totalLogins);
-                    }
-                    return a.totalLogins - b.totalLogins;
-                }
-                if (userDirectorySort === 'recent') return b.lastLoginTs - a.lastLoginTs;
-                if (userDirectorySort === 'id_asc') return a.studentId.localeCompare(b.studentId);
-                if (userDirectorySort === 'id_desc') return b.studentId.localeCompare(a.studentId);
+        const filtered = uniqueUsersData.list.filter(user => {
+            if (search && !user.studentId.toLowerCase().includes(search)) {
+                return false;
+            }
+            if (userDirectoryFilter === 'today') return user.activeToday && user.todayLogins > 0;
+            if (userDirectoryFilter === 'month') return user.activeThisMonth && user.monthLogins > 0;
+            if (userDirectoryFilter === 'top') return user.totalLogins >= 5;
+            return true;
+        });
+
+        // Fast path: if already default sort (logins_desc) and 'all' filter, skip re-sort
+        if (userDirectorySort === 'logins_desc' && userDirectoryFilter === 'all') {
+            return filtered;
+        }
+
+        return [...filtered].sort((a, b) => {
+            if (userDirectorySort === 'logins_desc') {
+                if (userDirectoryFilter === 'today') return (b.todayLogins - a.todayLogins) || (b.totalLogins - a.totalLogins);
+                if (userDirectoryFilter === 'month') return (b.monthLogins - a.monthLogins) || (b.totalLogins - a.totalLogins);
                 return b.totalLogins - a.totalLogins;
-            });
+            }
+            if (userDirectorySort === 'logins_asc') {
+                if (userDirectoryFilter === 'today') return (a.todayLogins - b.todayLogins) || (a.totalLogins - b.totalLogins);
+                if (userDirectoryFilter === 'month') return (a.monthLogins - b.monthLogins) || (a.totalLogins - b.totalLogins);
+                return a.totalLogins - b.totalLogins;
+            }
+            if (userDirectorySort === 'recent') return b.lastLoginTs - a.lastLoginTs;
+            if (userDirectorySort === 'id_asc') return a.studentId.localeCompare(b.studentId);
+            if (userDirectorySort === 'id_desc') return b.studentId.localeCompare(a.studentId);
+            return b.totalLogins - a.totalLogins;
+        });
     }, [uniqueUsersData.list, userDirectorySearch, userDirectoryFilter, userDirectorySort]);
 
     // Total Logins sum for current active filter
@@ -2311,13 +2296,6 @@ export default function AdminDashboard() {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-2.5 relative z-10">
-                                    <button
-                                        onClick={() => setShowGSheetModal(true)}
-                                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold transition-all shadow-2xs cursor-pointer active:scale-95 admin-btn-shimmer"
-                                    >
-                                        <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-600" />
-                                        <span>Google Sheets Sync</span>
-                                    </button>
                                     <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold shadow-2xs">
                                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                                         <span>Real-Time Auto Sync Active</span>
@@ -3384,141 +3362,7 @@ export default function AdminDashboard() {
                         )}
                     </AnimatePresence>
 
-                    {/* Google Sheets Dual Sync & Data Import Modal */}
-                    <AnimatePresence>
-                        {showGSheetModal && (
-                            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-                                <motion.div
-                                    initial={{ opacity: 0, scale: 0.95 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.95 }}
-                                    className="bg-white border border-slate-200 rounded-3xl p-6 shadow-2xl max-w-xl w-full space-y-4 max-h-[85vh] flex flex-col"
-                                >
-                                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shadow-xs">
-                                                <FileSpreadsheet className="w-5 h-5" />
-                                            </div>
-                                            <div>
-                                                <h3 className="text-base font-black text-slate-900">
-                                                    Google Sheets Integration (Dual Sheets)
-                                                </h3>
-                                                <p className="text-xs text-slate-500">
-                                                    Automatically imports real student logins without capturing or storing passwords.
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => setShowGSheetModal(false)}
-                                            className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                                        >
-                                            <X className="w-5 h-5" />
-                                        </button>
-                                    </div>
 
-                                    {/* Two Connected Sheets List */}
-                                    <div className="space-y-2.5">
-                                        <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">
-                                            Configured Google Spreadsheets
-                                        </h4>
-                                        <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                                            <div className="flex items-center justify-between text-xs">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                                                    <span className="font-bold text-slate-800">Sheet 1: Primary ERP Attendance</span>
-                                                </div>
-                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800">
-                                                    Connected & Live
-                                                </span>
-                                            </div>
-                                            <p className="text-[11px] font-mono text-slate-400 truncate">
-                                                https://docs.google.com/spreadsheets/d/1dGXtI5hj-Z1NS1sWa6oqMSVdGXIYz14I51icq54YjI8
-                                            </p>
-                                        </div>
-
-                                        <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                                            <div className="flex items-center justify-between text-xs">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="w-2 h-2 rounded-full bg-indigo-500" />
-                                                    <span className="font-bold text-slate-800">Sheet 2: Secondary ERP Attendance</span>
-                                                </div>
-                                                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 text-indigo-800">
-                                                    Configured
-                                                </span>
-                                            </div>
-                                            <p className="text-[11px] font-mono text-slate-400 truncate">
-                                                https://docs.google.com/spreadsheets/d/1-lUIx-empblHA6jOqnsZL2MsHoEbt_97Ah5WzdqQtc8
-                                            </p>
-                                            <div className="p-2 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-800 flex items-start gap-1.5">
-                                                <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-                                                <span>
-                                                    If Sheet 2 is set to Restricted in Google Drive, set its General Access to <strong>Anyone with the link can view</strong>, or paste rows directly below.
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Sync Actions */}
-                                    <div className="flex items-center gap-2 pt-1">
-                                        <button
-                                            onClick={handleSyncAllSheets}
-                                            disabled={syncingSheets}
-                                            className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                                        >
-                                            <Sparkles className="w-4 h-4" />
-                                            <span>{syncingSheets ? 'Fetching Both Sheets...' : 'Sync Both Sheets Online Now'}</span>
-                                        </button>
-                                    </div>
-
-                                    {/* Sheet Sync Status Report */}
-                                    {sheetSyncResults && (
-                                        <div className="p-3 rounded-2xl bg-slate-100 border border-slate-200 text-xs space-y-1.5">
-                                            <h5 className="font-black text-slate-800">Online Fetch Status:</h5>
-                                            {sheetSyncResults.map((st, i) => (
-                                                <div key={i} className="flex items-center justify-between text-[11px]">
-                                                    <span className="font-medium text-slate-600">Sheet #{i + 1}:</span>
-                                                    {st.success ? (
-                                                        <span className="text-emerald-700 font-bold">✓ Synced {st.count} rows</span>
-                                                    ) : (
-                                                        <span className="text-amber-700 font-bold">⚠ Permission restricted (Set to Anyone with link)</span>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Direct Paste Fallback (Zero Passwords, 100% Secure) */}
-                                    <div className="border-t border-slate-100 pt-3 space-y-2 flex-1 overflow-y-auto">
-                                        <div className="flex items-center justify-between">
-                                            <label className="text-xs font-black uppercase tracking-wider text-slate-700">
-                                                Paste Sheet Data (Instant Import)
-                                            </label>
-                                            <span className="text-[10px] text-emerald-600 font-bold">
-                                                🔒 Passwords automatically stripped
-                                            </span>
-                                        </div>
-                                        <textarea
-                                            rows={3}
-                                            value={pastedSheetData}
-                                            onChange={(e) => setPastedSheetData(e.target.value)}
-                                            placeholder="Paste rows copied from Google Sheet (TSV / CSV) here..."
-                                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-indigo-500 focus:outline-none font-mono resize-none"
-                                        />
-                                        {pasteImportMsg && (
-                                            <p className="text-xs font-bold text-indigo-600">{pasteImportMsg}</p>
-                                        )}
-                                        <button
-                                            onClick={handleImportPastedData}
-                                            disabled={!pastedSheetData.trim()}
-                                            className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer disabled:opacity-40"
-                                        >
-                                            Import Pasted Data (No Passwords)
-                                        </button>
-                                    </div>
-                                </motion.div>
-                            </div>
-                        )}
-                    </AnimatePresence>
                 </main>
             </div>
         </div>

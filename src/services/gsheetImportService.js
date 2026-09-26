@@ -1,5 +1,6 @@
 import { doc, writeBatch, increment, setDoc } from 'firebase/firestore';
 import { db } from '../firebase.js';
+import { GOOGLE_SHEET_WEB_APP_URL, GOOGLE_SHEET_URL } from './gsheetsService.js';
 
 /**
  * Robust date/time parser to create standard ISO timestamps
@@ -259,12 +260,10 @@ export function parseGoogleSheetData(rawInput) {
     return dedupedRecords;
 }
 
+export const DEFAULT_GOOGLE_SHEET_URL = GOOGLE_SHEET_URL || "https://docs.google.com/spreadsheets/d/1kRokaA31REd4MR2f1N9Q4mH8Lh0IBVwSYB0yiMzrpt0/edit?usp=sharing";
 export const DEFAULT_GOOGLE_SHEET_URLS = [
-    "https://docs.google.com/spreadsheets/d/1dGXtI5hj-Z1NS1sWa6oqMSVdGXIYz14I51icq54YjI8/edit?gid=0#gid=0",
-    "https://docs.google.com/spreadsheets/d/1-lUIx-empblHA6jOqnsZL2MsHoEbt_97Ah5WzdqQtc8/edit?gid=0#gid=0"
+    DEFAULT_GOOGLE_SHEET_URL
 ];
-
-export const DEFAULT_GOOGLE_SHEET_URL = DEFAULT_GOOGLE_SHEET_URLS[0];
 
 /**
  * Fetches Google Sheet data from all configured sheets in parallel,
@@ -331,6 +330,20 @@ export function extractSpreadsheetId(urlOrId) {
  * Works for any Google Sheet shared with "Anyone with the link can view"
  */
 export async function fetchGoogleSheetCSV(urlOrId) {
+    if (!urlOrId) return [];
+    if (urlOrId.includes('script.google.com')) {
+        try {
+            const resp = await fetch(urlOrId);
+            if (resp.ok) {
+                const text = await resp.text();
+                if (text && !text.includes('Script function not found') && !text.includes('<!DOCTYPE html>')) {
+                    return parseGoogleSheetData(text);
+                }
+            }
+        } catch {}
+        return [];
+    }
+
     const sheetId = extractSpreadsheetId(urlOrId);
     if (!sheetId) {
         throw new Error('Invalid Google Sheet URL or ID. Please check the link and try again.');
