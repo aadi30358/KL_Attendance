@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import svgCaptcha from 'svg-captcha';
 import session from 'express-session';
+import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -14,6 +15,23 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const isProduction = process.env.NODE_ENV === "production";
+
+// Disable fingerprinting header
+app.disable('x-powered-by');
+
+// Global Security Headers Middleware
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=()');
+    if (isProduction) {
+        res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+    }
+    next();
+});
 
 const allowedOrigins = [
     'https://klattendancecalculator.web.app',
@@ -43,22 +61,22 @@ const isOriginAllowed = (origin) => {
         const url = new URL(origin);
         const host = url.hostname.toLowerCase();
 
-        // Allow klattendance.online domain and any subdomains
+        // Strictly allow klattendance.online domain and official subdomains
         if (host === 'klattendance.online' || host.endsWith('.klattendance.online')) {
             return true;
         }
 
-        // Allow Firebase hosting domains
-        if (host.endsWith('.web.app') || host.endsWith('.firebaseapp.com')) {
+        // Strictly allow the project's own Firebase hosting domains (no wildcard arbitrary .web.app or .firebaseapp.com)
+        if (host === 'klattendancecalculator.web.app' || host === 'klattendancecalculator.firebaseapp.com') {
             return true;
         }
 
-        // Allow Render domains
-        if (host.endsWith('.onrender.com')) {
+        // Strictly allow own Render service domain
+        if (host === 'kl-attendance-backend.onrender.com') {
             return true;
         }
 
-        // Allow localhost and loopback on any port
+        // Allow localhost and loopback on any port for local development
         if (host === 'localhost' || host === '127.0.0.1') {
             return true;
         }
@@ -79,7 +97,7 @@ const corsOptions = {
         if (isOriginAllowed(origin)) {
             return callback(null, true);
         } else {
-            console.warn(`[CORS] Blocked request from origin: ${origin}`);
+            console.warn(`[CORS] Blocked request from unauthorized origin: ${origin}`);
             return callback(null, false);
         }
     },
@@ -104,11 +122,20 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
-// Rate limiting: 600 requests per 15 minutes
+// Rate limiting: 600 requests per 15 minutes globally
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 600,
     message: { error: "Too many requests from this IP, please try again after 15 minutes." }
+});
+
+// Dedicated rate limiter on fast-login to prevent credential brute-forcing
+const fastLoginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 30, // 30 attempts per 15 minutes per IP prevents brute-force attacks
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { success: false, error: "Too many login attempts from this IP. Please try again after 15 minutes." }
 });
 
 app.use(limiter);
@@ -116,20 +143,25 @@ app.use(limiter);
 app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ limit: "20mb", extended: true }));
 
-const isProduction = process.env.NODE_ENV === "production";
+const sessionSecret = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
 app.set('trust proxy', 1);
 app.use(session({
-    secret: process.env.SESSION_SECRET || "some-secret",
+    secret: sessionSecret,
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,
     cookie: {
+        httpOnly: true,
         sameSite: isProduction ? "none" : "lax",
         secure: isProduction
     }
 }));
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// Only allow disabling TLS validation if explicitly configured for local debugging
+if (process.env.ALLOW_INSECURE_TLS === 'true') {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    console.warn("[Security Warning] NODE_TLS_REJECT_UNAUTHORIZED is disabled via ALLOW_INSECURE_TLS");
+}
 
 // ERP Proxy Endpoint
 app.all('/index.php', async (req, res) => {
@@ -515,7 +547,7 @@ app.get('/api/logins', (req, res) => {
 });
 
 // Ultra-fast Login Endpoint (Sub-second login without lag)
-app.post('/api/fast-login', async (req, res) => {
+app.post('/api/fast-login', fastLoginLimiter, async (req, res) => {
     try {
         const { username, password, captcha, csrfToken } = req.body;
         const clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';

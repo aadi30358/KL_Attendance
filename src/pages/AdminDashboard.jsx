@@ -162,6 +162,21 @@ export const cleanAndDeduplicateLogins = (rawList = []) => {
     return cleaned;
 };
 
+// Cryptographic hash of authorized admin credentials (zero plaintext secrets)
+const ADMIN_CRED_HASH = 'b7d3879744f849d4a1d1105ac3730c8e84bcee16add6894c2e655c6047e71e6d';
+const ADMIN_SESSION_KEY = 'kl_admin_token_hash';
+
+async function sha256Hex(str) {
+    try {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(str);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch {
+        return '';
+    }
+}
+
 // Pre-clean bundled static Google Sheets data once to avoid repeated loops
 const INITIAL_STATIC_LOGINS = cleanAndDeduplicateLogins(gsheetLoginsData || []);
 
@@ -169,7 +184,13 @@ export default function AdminDashboard() {
     const navigate = useNavigate();
     const { currentUser, logout } = useAuth();
     const [adminLoggedOut, setAdminLoggedOut] = useState(() => sessionStorage.getItem('adminLoggedOut') === 'true');
-    const [isLocalAdmin, setIsLocalAdmin] = useState(() => localStorage.getItem('isAdminAuthenticated') === 'true');
+    const [isLocalAdmin, setIsLocalAdmin] = useState(() => {
+        try {
+            return sessionStorage.getItem(ADMIN_SESSION_KEY) === ADMIN_CRED_HASH;
+        } catch {
+            return false;
+        }
+    });
     const isGoogleAdmin = !adminLoggedOut && currentUser?.email === 'yaswanthadithyareddy11@gmail.com';
     const isAuthenticated = !adminLoggedOut && (isGoogleAdmin || isLocalAdmin);
 
@@ -252,26 +273,34 @@ export default function AdminDashboard() {
     const [savingWeights, setSavingWeights] = useState(false);
     const [weightsSuccess, setWeightsSuccess] = useState(false);
 
-    // Handle Login with immediate state transition
-    const handleLogin = (e) => {
+    // Handle Login with cryptographic verification
+    const handleLogin = async (e) => {
         e.preventDefault();
-        if (username === 'aadi' && password === 'adithya3130') {
-            sessionStorage.removeItem('adminLoggedOut');
-            setAdminLoggedOut(false);
-            setIsLocalAdmin(true);
-            localStorage.setItem('isAdminAuthenticated', 'true');
-            setLoginError('');
-        } else {
-            setLoginError('Invalid username or password');
+        try {
+            const inputHash = await sha256Hex(`${username.trim().toLowerCase()}:${password}`);
+            if (inputHash === ADMIN_CRED_HASH) {
+                sessionStorage.removeItem('adminLoggedOut');
+                sessionStorage.setItem(ADMIN_SESSION_KEY, ADMIN_CRED_HASH);
+                setAdminLoggedOut(false);
+                setIsLocalAdmin(true);
+                setLoginError('');
+            } else {
+                setLoginError('Invalid username or password');
+            }
+        } catch {
+            setLoginError('Authentication error');
         }
     };
 
     // Handle Logout with instant UI response and instant return to website
     const handleLogout = () => {
         sessionStorage.setItem('adminLoggedOut', 'true');
+        sessionStorage.removeItem(ADMIN_SESSION_KEY);
         setAdminLoggedOut(true);
         setIsLocalAdmin(false);
-        localStorage.removeItem('isAdminAuthenticated');
+        try {
+            localStorage.removeItem('isAdminAuthenticated');
+        } catch {}
         setUsername('');
         setPassword('');
         

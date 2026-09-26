@@ -12,20 +12,16 @@ const Login = () => {
     const { setErpUser } = useAuth();
     const navigate = useNavigate();
 
-    // Read stored credentials immediately (synchronous)
+    // Ensure no plaintext/base64 passwords linger in localStorage
+    try {
+        localStorage.removeItem('rememberedPassword');
+    } catch {}
+
+    // Read stored Student ID
     const savedId = localStorage.getItem('rememberedId') || '';
-    let savedPass = '';
-    if (savedId) {
-        try {
-            const enc = localStorage.getItem('rememberedPassword');
-            if (enc) savedPass = atob(enc);
-        } catch (e) {
-            console.error('Password decode error', e);
-        }
-    }
 
     const [idNumber, setIdNumber] = useState(savedId);
-    const [password, setPassword] = useState(savedPass);
+    const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [captcha, setCaptcha] = useState('');
     const [captchaUrl, setCaptchaUrl] = useState('');
@@ -33,7 +29,7 @@ const Login = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [isFetchingCaptcha, setIsFetchingCaptcha] = useState(true);
     const [error, setError] = useState('');
-    const [rememberMe, setRememberMe] = useState(!!(savedId && savedPass));
+    const [rememberMe, setRememberMe] = useState(!!savedId);
 
     const captchaUrlRef = useRef('');
     const captchaInputRef = useRef(null);
@@ -243,11 +239,12 @@ const Login = () => {
 
             if (rememberMe) {
                 localStorage.setItem('rememberedId', cleanId);
-                localStorage.setItem('rememberedPassword', btoa(password));
             } else {
                 localStorage.removeItem('rememberedId');
-                localStorage.removeItem('rememberedPassword');
             }
+            try {
+                localStorage.removeItem('rememberedPassword');
+            } catch {}
 
             navigate('/attendance-register', { replace: true });
         } catch (err) {
