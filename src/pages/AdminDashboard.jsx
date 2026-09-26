@@ -101,6 +101,7 @@ export const cleanAndDeduplicateLogins = (rawList = []) => {
     if (!Array.isArray(rawList)) return [];
 
     const cleaned = [];
+    const seenIds = new Set();
     const seenExactKeys = new Set();
 
     for (let i = 0; i < rawList.length; i++) {
@@ -122,13 +123,21 @@ export const cleanAndDeduplicateLogins = (rawList = []) => {
         // Strictly real KLU student ID format
         if (!sId || !/^\d{8,12}$/.test(sId)) continue;
 
+        // Deduplicate by unique item ID
+        if (item.id && seenIds.has(item.id)) continue;
+
         const tsDate = item.timestamp ? new Date(item.timestamp) : new Date();
         const validTs = !isNaN(tsDate.getTime()) ? tsDate.toISOString() : new Date().toISOString();
 
-        // Exact deduplication key (only duplicate if exact same student AND exact same timestamp)
-        const exactKey = `${sId}_${validTs}`;
-        if (seenExactKeys.has(exactKey)) continue;
-        seenExactKeys.add(exactKey);
+        // If not a sheet row, deduplicate if exact same student and timestamp exists
+        if (!item.id?.startsWith('gsheet_row_')) {
+            const key = `${sId}_${validTs}`;
+            if (seenExactKeys.has(key)) continue;
+            seenExactKeys.add(key);
+        }
+
+        if (item.id) seenIds.add(item.id);
+        seenExactKeys.add(`${sId}_${validTs}`);
 
         const istDate = getISTDateStr(tsDate);
         const dateKey = item.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date) ? item.date : istDate;
@@ -505,37 +514,11 @@ export default function AdminDashboard() {
         };
     }, [isAuthenticated]);
 
-    // Merged Logins with all registered students ensuring 100% parity between log rows and total logins
+    // All real verified student logins (100% exact parity with Google Sheet & live logins)
     const effectiveAllLogins = useMemo(() => {
         if (!isAuthenticated) return [];
-        const studentIdsInLogs = new Set(userLogins.map(l => l.studentId));
-        const synthetic = [];
-        firestoreStudents.forEach(st => {
-            let sId = String(st.studentId || st.id || '').trim().toUpperCase();
-            if (sId.includes('_')) {
-                const parts = sId.split('_');
-                const roll = parts.find(p => /^\d{8,12}$/.test(p));
-                if (roll) sId = roll;
-            }
-            if (!sId || !/^\d{8,12}$/.test(sId)) return;
-            if (!studentIdsInLogs.has(sId)) {
-                studentIdsInLogs.add(sId);
-                synthetic.push({
-                    id: `student_init_${sId}`,
-                    studentId: sId,
-                    timestamp: st.lastLoginAt || new Date().toISOString(),
-                    date: st.lastLoginAt ? getISTDateStr(st.lastLoginAt) : getISTDateStr(new Date()),
-                    month: (st.lastLoginAt ? getISTDateStr(st.lastLoginAt) : getISTDateStr(new Date())).slice(0, 7),
-                    year: (st.lastLoginAt ? getISTDateStr(st.lastLoginAt) : getISTDateStr(new Date())).slice(0, 4),
-                    device: 'Web Portal',
-                    source: 'Web Login',
-                    userAgent: 'Web Browser'
-                });
-            }
-        });
-        if (synthetic.length === 0) return userLogins;
-        return cleanAndDeduplicateLogins([...userLogins, ...synthetic]);
-    }, [isAuthenticated, userLogins, firestoreStudents]);
+        return userLogins;
+    }, [isAuthenticated, userLogins]);
 
     // Deduplicated Unique Users Computation (1 Student = Exactly 1 User, Zero Duplicates)
     const uniqueUsersData = useMemo(() => {

@@ -230,7 +230,7 @@ export function parseGoogleSheetData(rawInput) {
         if (!cleanId || !/^\d{8,12}$/.test(cleanId)) continue;
 
         const dateObj = normalizeDateTime(date, time, timestamp);
-        const recordId = `gsheet_${dateObj.getTime() || Date.now()}_${cleanId}_${parsedRecords.length}`;
+        const recordId = `gsheet_row_${i + 1}_${cleanId}`;
 
         parsedRecords.push({
             id: recordId,
@@ -240,24 +240,15 @@ export function parseGoogleSheetData(rawInput) {
             year: dateObj.toISOString().slice(0, 4),
             time: time || dateObj.toLocaleTimeString('en-IN'),
             timestamp: timestamp || dateObj.toISOString(),
-            device: device || 'Google Sheets',
-            source: 'Google Sheet'
+            device: device || 'Laptop / PC',
+            source: 'Google Sheet',
+            userAgent: 'Google Sheets Integration'
         });
     }
 
-    // Deduplicate only EXACT duplicate entries (identical studentId and timestamp)
-    const dedupedRecords = [];
-    const seenExactKeys = new Set();
-    parsedRecords.forEach(rec => {
-        const exactKey = `${rec.studentId}_${rec.timestamp}`;
-        if (seenExactKeys.has(exactKey)) return;
-        seenExactKeys.add(exactKey);
-        dedupedRecords.push(rec);
-    });
-
     // Return in reverse chronological order (newest first)
-    dedupedRecords.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    return dedupedRecords;
+    parsedRecords.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return parsedRecords;
 }
 
 export const DEFAULT_GOOGLE_SHEET_URL = GOOGLE_SHEET_URL || "https://docs.google.com/spreadsheets/d/1kRokaA31REd4MR2f1N9Q4mH8Lh0IBVwSYB0yiMzrpt0/edit?usp=sharing";
