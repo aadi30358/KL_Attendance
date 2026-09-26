@@ -359,7 +359,14 @@ export default function AdminDashboard() {
             // ignore
         }
 
-        // 3. Real-time User Logins Stream (Deduplicated 100% real logins)
+        // Clean stale local history to ensure 100% exact parity with Google Sheet
+        try {
+            localStorage.removeItem('kl_user_login_history');
+        } catch {
+            // ignore
+        }
+
+        // 3. Real-time User Logins Stream (Deduplicated 100% real logins from Google Sheet & live sessions)
         let unsubLogins = null;
         try {
             const loginsQuery = query(
@@ -371,16 +378,15 @@ export default function AdminDashboard() {
                 const fsList = snapshot.docs
                     .map(d => ({ id: d.id, ...d.data() }));
 
-                const local = JSON.parse(localStorage.getItem('kl_user_login_history') || '[]');
-                const combined = [...(gsheetLoginsData || []), ...fsList, ...(Array.isArray(local) ? local : [])];
-                const clean = cleanAndDeduplicateLogins(combined);
+                const sheetData = gsheetLoginsData || [];
+                const sheetKeys = new Set(sheetData.map(s => `${s.studentId}_${(s.timestamp || '').slice(0, 16)}`));
+                const newLiveLogins = fsList.filter(f => f && f.studentId && !sheetKeys.has(`${f.studentId}_${(f.timestamp || '').slice(0, 16)}`));
 
-                setUserLogins(clean);
+                const combined = [...newLiveLogins, ...sheetData];
+                setUserLogins(cleanAndDeduplicateLogins(combined));
             }, (err) => {
                 console.warn('Logins listener notice:', err);
-                const local = JSON.parse(localStorage.getItem('kl_user_login_history') || '[]');
-                const combined = [...(gsheetLoginsData || []), ...(Array.isArray(local) ? local : [])];
-                setUserLogins(cleanAndDeduplicateLogins(combined));
+                setUserLogins(cleanAndDeduplicateLogins(gsheetLoginsData || []));
             });
         } catch {
             // ignore
@@ -401,12 +407,12 @@ export default function AdminDashboard() {
             // ignore
         }
 
-        // 3c. Auto-sync with live Google Sheet and backend API in the background (0ms non-blocking)
+        // 3c. Auto-sync with live Google Sheet (Google Sheet is the absolute source of truth!)
         const syncLiveSources = async () => {
             try {
                 const sheetResult = await fetchAllGoogleSheetsCSV(DEFAULT_GOOGLE_SHEET_URLS);
                 if (sheetResult && sheetResult.records && sheetResult.records.length > 0) {
-                    setUserLogins(prev => cleanAndDeduplicateLogins([...sheetResult.records, ...prev]));
+                    setUserLogins(sheetResult.records);
                 }
             } catch (err) {
                 // non-critical fallback
