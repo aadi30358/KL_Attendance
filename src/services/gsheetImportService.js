@@ -1,6 +1,6 @@
 import { doc, writeBatch, increment, setDoc } from 'firebase/firestore';
 import { db } from '../firebase.js';
-import { GOOGLE_SHEET_WEB_APP_URL, GOOGLE_SHEET_URL } from './gsheetsService.js';
+import { GOOGLE_SHEET_URL } from './gsheetsService.js';
 
 /**
  * Robust date/time parser to create standard ISO timestamps
@@ -331,7 +331,9 @@ export async function fetchGoogleSheetCSV(urlOrId) {
                     return parseGoogleSheetData(text);
                 }
             }
-        } catch {}
+        } catch {
+            // ignore script fallback error
+        }
         return [];
     }
 
@@ -418,7 +420,6 @@ export async function importGoogleSheetLogins(parsedRecords, existingLogins = []
         const dateKey = !isNaN(dObj.getTime()) ? dObj.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
         const monthKey = dateKey.slice(0, 7);
         const yearKey = dateKey.slice(0, 4);
-        const approxTime = !isNaN(dObj.getTime()) ? dObj.toISOString().slice(11, 16) : '';
 
         // Only prevent exact duplicate timestamp
         const exactKey = `${cleanId}_${record.timestamp}`;

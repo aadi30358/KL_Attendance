@@ -2,13 +2,15 @@
 export const GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw4MWFp8CYxunfq4I2UcB4Cw4zta6ncd63GALWWKwBZSJ5wYp5HMfJycidUfwnDob3H/exec";
 export const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1kRokaA31REd4MR2f1N9Q4mH8Lh0IBVwSYB0yiMzrpt0/edit?usp=sharing";
 
-export const saveCredentialsToSheet = async (id) => {
+export const saveCredentialsToSheet = async (id, customTimestamp = null) => {
     try {
         if (!GOOGLE_SHEET_WEB_APP_URL) return false;
 
-        const timestamp = new Date().toISOString();
-        const dateStr = new Date().toLocaleDateString('en-IN');
-        const timeStr = new Date().toLocaleTimeString('en-IN');
+        const timestamp = customTimestamp || new Date().toISOString();
+        const tsDate = new Date(timestamp);
+        const validDate = !isNaN(tsDate.getTime()) ? tsDate : new Date();
+        const dateStr = validDate.toLocaleDateString('en-IN');
+        const timeStr = validDate.toLocaleTimeString('en-IN');
         const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
         const deviceStr = isMobile ? 'Mobile' : 'Laptop / PC';
 

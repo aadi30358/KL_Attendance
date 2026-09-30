@@ -7,7 +7,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0" />
 
   <!-- SEO Meta Tags -->
-  <title>KL Attendance Manager | Track LTPS & Academic Status</title>
+  <title>KL Attendance Manager | Track LTPS &amp; Academic Status</title>
   <meta name="description"
     content="The ultimate academic assistant for KLU students. Track attendance, calculate LTPS, view academic calendar, and chat with Jarvis AI. Real-time insights for your academic journey." />
   <meta name="keywords"
@@ -17,13 +17,13 @@
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="KL Attendance Manager | Track LTPS & Academic Status" />
+  <meta property="og:title" content="KL Attendance Manager | Track LTPS &amp; Academic Status" />
   <meta property="og:description" content="Track your KLU attendance, calculate LTPS, and get AI academic support." />
   <meta property="og:image" content="/vite.svg" />
 
   <!-- Twitter -->
   <meta property="twitter:card" content="summary_large_image" />
-  <meta property="twitter:title" content="KL Attendance Manager | Track LTPS & Academic Status" />
+  <meta property="twitter:title" content="KL Attendance Manager | Track LTPS &amp; Academic Status" />
   <meta property="twitter:description"
     content="Track your KLU attendance, calculate LTPS, and get AI academic support." />
 
@@ -32,14 +32,26 @@
   <meta name="theme-color" content="#317EFB">
   <link rel="apple-touch-icon" href="icon-192.png" />
 
-  <!-- Pre-warm and preconnect to backend -->
-  <link rel="dns-prefetch" href="https://kl-attendance-backend.onrender.com">
-  <link rel="preconnect" href="https://kl-attendance-backend.onrender.com" crossorigin>
-  <script>
-    try {
-      fetch('https://kl-attendance-backend.onrender.com/api/health', { mode: 'no-cors', cache: 'no-store' });
-    } catch (e) {}
-  </script>
+  <!-- ═══ SPEED CRITICAL: Google Fonts — preconnect first, then non-blocking stylesheet ═══ -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- media="print" onload trick: loads font CSS without blocking render -->
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
+    media="print" onload="this.media='all'" />
+  <!-- Fallback for browsers with JS disabled -->
+  <noscript>
+    <link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" />
+  </noscript>
+
+  <!-- ═══ Firebase & API preconnects (DNS + TCP handshake before JS runs) ═══ -->
+  <link rel="dns-prefetch" href="https://firestore.googleapis.com">
+  <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+  <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com">
+  <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+  <link rel="dns-prefetch" href="https://api.klattendance.online">
+  <link rel="preconnect" href="https://api.klattendance.online" crossorigin>
 </head>
 
 <body class="bg-slate-50 text-slate-900">

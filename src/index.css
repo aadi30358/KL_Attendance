@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+/* Fonts are preloaded via <link> in index.html for faster rendering */
 /* @import './home.css';   << Consider uncommenting if you want to use home.css globally */
 /* @import './calc2.css';  << Consider uncommenting if you want to use calc2.css globally */
 
@@ -51,6 +51,26 @@
   to {
     background-position: 200% center;
   }
+}
+
+@keyframes marquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.animate-marquee {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: marquee 25s linear infinite;
+  will-change: transform;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
 }
 
 /* Polished Scrollbar */

@@ -17,7 +17,11 @@ import {
     Copy,
     ExternalLink,
     Send,
-    Code2
+    Code2,
+    Wrench,
+    Home,
+    Clock,
+    AlertTriangle
 } from 'lucide-react';
 import { FaTelegram } from 'react-icons/fa6';
 import SEO from '../components/SEO';
@@ -63,6 +67,9 @@ const IMPORTANT_POINTS = [
 
 const SUPPORTED_LANGUAGES = ['C', 'C++', 'Java', 'Python', 'JavaScript', 'Rust', 'Go', 'SQL'];
 
+// Set to false whenever Pluto AI is ready to be active again - all original code & features are 100% preserved
+export const PLUTO_UNDER_MAINTENANCE = false;
+
 export default function PlutoAssistant() {
     const navigate = useNavigate();
     const [copied, setCopied] = useState(false);
@@ -96,6 +103,84 @@ export default function PlutoAssistant() {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
+
+    if (PLUTO_UNDER_MAINTENANCE) {
+        return (
+            <div className="relative min-h-screen bg-[#F8FAFC] text-slate-900 selection:bg-amber-500 selection:text-white pb-20 overflow-x-hidden w-full flex items-center justify-center px-4">
+                <SEO
+                    title="Pluto AI — Under Maintenance"
+                    description="Pluto AI is currently undergoing scheduled maintenance and system upgrades. Access is temporarily offline."
+                />
+
+                {/* Ambient Background Lights */}
+                <div className="fixed inset-0 pointer-events-none overflow-hidden">
+                    <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-amber-500/10 blur-3xl rounded-full" />
+                    <div className="absolute top-[40%] right-[-10%] w-[450px] h-[450px] bg-orange-500/10 blur-3xl rounded-full" />
+                </div>
+
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={{ duration: 0.35 }}
+                    className="relative z-10 w-full max-w-xl bg-white border-2 border-black rounded-3xl p-6 sm:p-10 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] text-center my-12"
+                >
+                    {/* Maintenance Badge */}
+                    <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-xs font-black uppercase tracking-wider mb-6">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                        <span>System Under Maintenance</span>
+                    </div>
+
+                    {/* Animated Icon Avatar */}
+                    <div className="relative w-24 h-24 mx-auto mb-6">
+                        <div className="w-24 h-24 rounded-3xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center shadow-lg border-2 border-black">
+                            <Bot className="w-12 h-12 text-white" />
+                        </div>
+                        <div className="absolute -bottom-2 -right-2 w-9 h-9 rounded-full bg-white border-2 border-black flex items-center justify-center text-amber-600 shadow-md">
+                            <Wrench className="w-4 h-4 text-amber-600 animate-bounce" />
+                        </div>
+                    </div>
+
+                    <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mb-3">
+                        Pluto AI is Under Maintenance
+                    </h1>
+
+                    <p className="text-sm sm:text-base text-slate-600 leading-relaxed max-w-md mx-auto mb-6">
+                        Pluto AI coding mentor (@PlutoSpark_bot) is currently offline while our team performs scheduled infrastructure upgrades and system improvements. Access is temporarily disabled.
+                    </p>
+
+                    {/* Status Box */}
+                    <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-4 text-left mb-8 space-y-2.5">
+                        <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                            <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>Status: Maintenance in Progress (Offline)</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-medium text-amber-800">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>Bot access and coding assistant routes are temporarily offline.</span>
+                        </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                        <button
+                            onClick={() => navigate('/')}
+                            className="w-full sm:w-auto px-6 py-3 bg-slate-900 hover:bg-black text-white text-xs sm:text-sm font-black uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer border-2 border-black"
+                        >
+                            <Home className="w-4 h-4" />
+                            <span>Return to Main Website</span>
+                        </button>
+                        <button
+                            onClick={() => navigate(-1)}
+                            className="w-full sm:w-auto px-6 py-3 bg-white hover:bg-slate-100 text-slate-800 text-xs sm:text-sm font-black uppercase tracking-wider rounded-xl transition-all shadow-sm active:scale-95 flex items-center justify-center gap-2 cursor-pointer border-2 border-black"
+                        >
+                            <ArrowLeft className="w-4 h-4" />
+                            <span>Go Back</span>
+                        </button>
+                    </div>
+                </motion.div>
+            </div>
+        );
+    }
 
     return (
         <div className="relative min-h-screen bg-[#F8FAFC] text-slate-900 selection:bg-[#229ED9] selection:text-white pb-20 overflow-x-hidden w-full">

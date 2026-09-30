@@ -1,33 +1,42 @@
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
-import AnnouncementBanner from './components/AnnouncementBanner';
 import { APP_CONFIG } from './config';
 import { doc, setDoc, increment } from 'firebase/firestore';
 import { db } from './firebase';
+import { useDeploymentSync } from './services/useDeploymentSync';
 
 import { AuthProvider } from './context/AuthContext';
-
 import { AttendanceProvider } from './context/AttendanceContext';
-import Home from './pages/Home';
-import LTPSCalculator from './pages/LTPSCalculator';
-import StudyHub from './pages/StudyHub';
-import SubjectAttendance from './pages/SubjectAttendance';
-import AdminDashboard from './pages/AdminDashboard';
-import TotalAttendance from './pages/TotalAttendance';
-import AcademicCalendar from './pages/AcademicCalendar';
-import Login from './pages/Login';
-import AttendanceRegister from './pages/AttendanceRegister';
-import Predictor from './pages/Predictor';
-import PublicHolidays from './pages/PublicHolidays';
-import UserProfile from './pages/UserProfile';
-import PlutoAssistant from './pages/PlutoAssistant';
-import BunkSimulator from './pages/BunkSimulator';
-import FeedbackWidget from './components/FeedbackWidget';
+import { InstallPwaPrompt } from './components/InstallPwaPrompt';
+
+// ─── Lazy-loaded pages (only loaded when the user navigates to that route) ───
+const Home             = lazy(() => import('./pages/Home'));
+const LTPSCalculator   = lazy(() => import('./pages/LTPSCalculator'));
+const StudyHub         = lazy(() => import('./pages/StudyHub'));
+const SubjectAttendance = lazy(() => import('./pages/SubjectAttendance'));
+const AdminDashboard   = lazy(() => import('./pages/AdminDashboard'));
+const TotalAttendance  = lazy(() => import('./pages/TotalAttendance'));
+const AcademicCalendar = lazy(() => import('./pages/AcademicCalendar'));
+const Login            = lazy(() => import('./pages/Login'));
+const AttendanceRegister = lazy(() => import('./pages/AttendanceRegister'));
+const Predictor        = lazy(() => import('./pages/Predictor'));
+const PublicHolidays   = lazy(() => import('./pages/PublicHolidays'));
+const UserProfile      = lazy(() => import('./pages/UserProfile'));
+const PlutoAssistant   = lazy(() => import('./pages/PlutoAssistant'));
+const BunkSimulator    = lazy(() => import('./pages/BunkSimulator'));
+const FeedbackWidget   = lazy(() => import('./components/FeedbackWidget'));
 
 import { HelmetProvider } from 'react-helmet-async';
-
 import { FaGithub, FaLinkedin, FaInstagram, FaTelegram } from 'react-icons/fa6';
+
+// Tiny placeholder shown while a lazy page chunk loads (usually < 100ms on Firebase CDN)
+const PageLoader = () => (
+  <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ width: 36, height: 36, border: '3px solid #e2e8f0', borderTopColor: '#4F46E5', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />
+    <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+  </div>
+);
 
 const SOCIAL_LINKS = [
   {
@@ -60,7 +69,11 @@ const AppWithAuth = () => {
   const location = useLocation();
   const isAdminPage = location.pathname.startsWith('/admin');
 
-  // Keep backend warm to eliminate cold starts and latency
+  // Activate cross-domain instant deployment synchronization
+  useDeploymentSync();
+
+
+  // Keep backend warm — runs AFTER browser is idle so it never delays rendering
   useEffect(() => {
     const pingBackend = () => {
       const url = `${APP_CONFIG.API_URL || ''}/api/health`;
@@ -76,75 +89,102 @@ const AppWithAuth = () => {
         }
       }
     };
-    pingBackend();
-    const interval = setInterval(pingBackend, 3 * 60 * 1000); // every 3 minutes
-    return () => clearInterval(interval);
+    // Defer first ping until idle (browser renders page first)
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(() => {
+        pingBackend();
+        const interval = setInterval(pingBackend, 3 * 60 * 1000);
+        return () => clearInterval(interval);
+      }, { timeout: 3000 });
+    } else {
+      const t = setTimeout(() => {
+        pingBackend();
+        const interval = setInterval(pingBackend, 3 * 60 * 1000);
+        return () => clearInterval(interval);
+      }, 2000);
+      return () => clearTimeout(t);
+    }
   }, []);
 
-  // Visitor traffic tracking: Record genuine website visits into Firestore analytics
+
+  // Visitor traffic tracking — deferred 1.5s so it never delays page paint
   useEffect(() => {
     if (isAdminPage) return;
-    try {
-      const sessionMarker = 'kl_visit_counted';
-      if (!sessionStorage.getItem(sessionMarker)) {
-        sessionStorage.setItem(sessionMarker, 'true');
-        const todayStr = new Date().toISOString().slice(0, 10);
-
-        // Update local counter
-        const currentLocal = parseInt(localStorage.getItem('kl_total_visits') || '0', 10) + 1;
-        localStorage.setItem('kl_total_visits', currentLocal.toString());
-
-        // Sync live to Firestore
-        setDoc(doc(db, 'analytics', 'traffic'), {
-          totalVisits: increment(1),
-          [`daily.${todayStr}`]: increment(1),
-          lastVisitAt: new Date().toISOString()
-        }, { merge: true }).catch(err => {
-          console.warn('Analytics ping notice:', err);
-        });
+    const track = () => {
+      try {
+        const sessionMarker = 'kl_visit_counted';
+        if (!sessionStorage.getItem(sessionMarker)) {
+          sessionStorage.setItem(sessionMarker, 'true');
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const currentLocal = parseInt(localStorage.getItem('kl_total_visits') || '0', 10) + 1;
+          localStorage.setItem('kl_total_visits', currentLocal.toString());
+          setDoc(doc(db, 'analytics', 'traffic'), {
+            totalVisits: increment(1),
+            [`daily.${todayStr}`]: increment(1),
+            lastVisitAt: new Date().toISOString()
+          }, { merge: true }).catch(err => {
+            console.warn('Analytics ping notice:', err);
+          });
+        }
+      } catch {
+        // Ignore
       }
-    } catch {
-      // Ignore
-    }
+    };
+    const t = setTimeout(track, 1500);
+    return () => clearTimeout(t);
   }, [isAdminPage]);
 
   if (isAdminPage) {
     return (
       <main className="min-h-screen font-sans">
-        <Routes>
-          <Route path="/admin" element={<AdminDashboard />} />
-        </Routes>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/admin" element={<AdminDashboard />} />
+          </Routes>
+        </Suspense>
       </main>
     );
   }
 
+  // Ensure root html has no residual dark mode class
+  useEffect(() => {
+    try {
+      document.documentElement.classList.remove('dark');
+      localStorage.removeItem('kl_theme');
+    } catch {
+      // ignore
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-900">
-      <AnnouncementBanner />
       <Navbar />
 
       <main>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/attendance" element={<TotalAttendance />} />
-          <Route path="/attendance-register" element={<AttendanceRegister />} />
-          <Route path="/ltps" element={<LTPSCalculator />} />
-          <Route path="/calendar" element={<AcademicCalendar />} />
-          <Route path="/holidays" element={<PublicHolidays />} />
-          <Route path="/study" element={<StudyHub />} />
-          <Route path="/subject-attendance" element={<SubjectAttendance />} />
-          <Route path="/predictor" element={<Predictor />} />
-          <Route path="/bunk-simulator" element={<BunkSimulator />} />
-          <Route path="/bunk" element={<BunkSimulator />} />
-          <Route path="/profile" element={<UserProfile />} />
-          <Route path="/admin" element={<AdminDashboard />} />
-          <Route path="/pluto" element={<PlutoAssistant />} />
-          <Route path="/coding-assistant" element={<PlutoAssistant />} />
-        </Routes>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/attendance" element={<TotalAttendance />} />
+            <Route path="/attendance-register" element={<AttendanceRegister />} />
+            <Route path="/ltps" element={<LTPSCalculator />} />
+            <Route path="/calendar" element={<AcademicCalendar />} />
+            <Route path="/holidays" element={<PublicHolidays />} />
+            <Route path="/study" element={<StudyHub />} />
+            <Route path="/subject-attendance" element={<SubjectAttendance />} />
+            <Route path="/predictor" element={<Predictor />} />
+            <Route path="/bunk-simulator" element={<BunkSimulator />} />
+            <Route path="/bunk" element={<BunkSimulator />} />
+            <Route path="/profile" element={<UserProfile />} />
+            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/pluto" element={<PlutoAssistant />} />
+            <Route path="/coding-assistant" element={<PlutoAssistant />} />
+          </Routes>
+        </Suspense>
       </main>
 
-      <FeedbackWidget />
+      <InstallPwaPrompt />
+      <Suspense fallback={null}><FeedbackWidget /></Suspense>
 
       <footer className="w-full py-6 text-center border-t border-slate-200/80 bg-white/60 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2.5">

@@ -9,8 +9,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy": "vite build && firebase deploy",
-    "deploy:hosting": "firebase deploy --only hosting",
+    "deploy": "vite build && node scripts/updateDeploymentDoc.js && firebase deploy",
+    "deploy:hosting": "vite build && node scripts/updateDeploymentDoc.js && firebase deploy --only hosting",
     "deploy:functions": "firebase deploy --only functions"
   },
   "dependencies": {

@@ -30,41 +30,22 @@ const ChatAssistant = () => {
         setIsLoading(true);
 
         try {
-            // Using raw fetch to Anthropic API
-            const response = await fetch('https://api.anthropic.com/v1/messages', {
+            const apiBase = APP_CONFIG.API_URL || '';
+            const response = await fetch(`${apiBase}/api/ai/gemini`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': APP_CONFIG.ANTHROPIC_API_KEY,
-                    'anthropic-version': '2023-06-01',
-                    'dangerously-allow-browser': 'true' // Note: This is usually for the SDK, for raw fetch we just hope for the best or use a proxy if needed
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    model: 'claude-3-haiku-20240307',
-                    max_tokens: 1024,
-                    messages: [
-                        { role: 'user', content: input }
-                    ],
-                    system: "You are a helpful academic assistant for KL University students. You help with attendance calculation, exam prep, and finding study materials. Be concise and friendly."
+                    contents: input,
+                    systemInstruction: "You are a helpful academic assistant for KL University students. You help with attendance calculation, exam prep, and finding study materials. Be concise and friendly."
                 })
             });
 
             if (!response.ok) {
-                // Fallback to Gemini if Anthropic fails (e.g. CORS) or just show error
-                throw new Error('Anthropic API call failed');
+                throw new Error('AI service error');
             }
 
-            const contentType = response.headers.get("content-type");
-            if (!contentType || !contentType.includes("application/json")) {
-                throw new Error("Invalid response format from Anthropic API.");
-            }
-            let data;
-            try {
-                data = await response.json();
-            } catch {
-                throw new Error("Failed to parse JSON response from server.");
-            }
-            const botMsg = { role: 'assistant', content: data.content[0].text };
+            const data = await response.json();
+            const botMsg = { role: 'assistant', content: data.text || "I'm sorry, I couldn't process that question." };
             setMessages(prev => [...prev, botMsg]);
         } catch (error) {
             console.error("Chat Error:", error);

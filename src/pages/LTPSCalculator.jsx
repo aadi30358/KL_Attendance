@@ -5,6 +5,8 @@ import { Download, RotateCcw, History, ArrowLeft, ArrowRight, Star, CheckCircle,
 import jsPDF from 'jspdf';
 import { cn } from '../lib/utils';
 import Confetti from 'react-confetti';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 
 
 const LTPSCalculator = () => {
@@ -91,14 +93,35 @@ const LTPSCalculator = () => {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    // Official KL University ERP Component Weights
-    // L: 1.0 (100%), T: 1.0 (100%), P: 0.5 (50%), S: 0.25 (25%)
-    const weights = {
+    // Official KL University ERP Component Weights with real-time Firestore sync (< 1 second)
+    const [weights, setWeights] = useState({
         lecture: 100,
         tutorial: 100,
         practical: 50,
         skill: 25
-    };
+    });
+
+    useEffect(() => {
+        let unsub = null;
+        try {
+            unsub = onSnapshot(doc(db, 'config', 'weights'), (snap) => {
+                if (snap.exists()) {
+                    const data = snap.data();
+                    setWeights({
+                        lecture: Number(data.lecture) || 100,
+                        tutorial: Number(data.tutorial) || 100,
+                        practical: Number(data.practical) || 50,
+                        skill: Number(data.skill) || 25
+                    });
+                }
+            }, () => {});
+        } catch {
+            // ignore
+        }
+        return () => {
+            if (unsub) unsub();
+        };
+    }, []);
 
     const ITEMS_PER_PAGE = windowSize.width > 768 ? 6 : 3;
     const totalPages = Math.ceil(history.length / ITEMS_PER_PAGE);

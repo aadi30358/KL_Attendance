@@ -283,7 +283,7 @@ const BunkSimulator = () => {
     };
 
     return (
-        <div className="min-h-screen bg-[#FAFAFA] pt-24 pb-16 px-4 sm:px-6 lg:px-8 selection:bg-indigo-500 selection:text-white">
+        <div className="min-h-screen bg-[#FAFAFA] dark:bg-[#0b1120] pt-24 pb-16 px-4 sm:px-6 lg:px-8 selection:bg-indigo-500 selection:text-white transition-colors duration-200">
             <SEO
                 title="Bunk Simulator | KL Attendance Calculator"
                 description="Simulate bunking classes using official KL University LTPS weights. Calculate how much your attendance drops before you bunk."
@@ -296,27 +296,27 @@ const BunkSimulator = () => {
                     animate={{ opacity: 1, y: 0 }}
                     className="text-center space-y-3"
                 >
-                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-rose-50 border border-rose-200 text-rose-700 text-xs font-black uppercase tracking-wider shadow-sm">
+                    <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 text-rose-700 dark:text-rose-300 text-xs font-black uppercase tracking-wider shadow-sm">
                         <Flame className="w-4 h-4 text-rose-500 animate-pulse" />
                         <span>KLU Bunk Simulator Engine</span>
                     </div>
-                    <h1 className="text-3xl sm:text-5xl font-black text-slate-900 tracking-tight">
-                        Simulate Before You <span className="text-transparent bg-clip-text bg-gradient-to-r from-rose-600 via-pink-600 to-indigo-600">Bunk</span>
+                    <h1 className="text-3xl sm:text-5xl font-black text-slate-900 dark:text-white tracking-tight">
+                        Simulate Before You <span className="text-transparent bg-clip-text bg-gradient-to-r from-rose-600 via-pink-600 to-indigo-600 dark:from-rose-400 dark:via-pink-400 dark:to-indigo-300">Bunk</span>
                     </h1>
-                    <p className="text-slate-500 max-w-xl mx-auto text-sm sm:text-base font-medium">
+                    <p className="text-slate-500 dark:text-slate-400 max-w-xl mx-auto text-sm sm:text-base font-medium">
                         Calculate exactly how much your percentage drops when skipping classes with official KLU L-T-P-S weightages.
                     </p>
                 </motion.div>
 
                 {/* Mode Selector Tabs */}
                 <div className="flex justify-center">
-                    <div className="bg-slate-200/70 p-1.5 rounded-2xl flex gap-1 border border-slate-300/60 shadow-inner max-w-md w-full">
+                    <div className="bg-slate-200/70 dark:bg-slate-800/80 p-1.5 rounded-2xl flex gap-1 border border-slate-300/60 dark:border-slate-700 shadow-inner max-w-md w-full">
                         <button
                             onClick={() => setMode('ltps')}
-                            className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${
+                            className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
                                 mode === 'ltps'
-                                    ? 'bg-white text-indigo-700 shadow-md border border-slate-200'
-                                    : 'text-slate-600 hover:text-slate-900'
+                                    ? 'bg-white dark:bg-[#1e293b] text-indigo-700 dark:text-indigo-300 shadow-md border border-slate-200 dark:border-slate-700/80'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                             }`}
                         >
                             <Calculator className="w-4 h-4" />
@@ -324,10 +324,10 @@ const BunkSimulator = () => {
                         </button>
                         <button
                             onClick={() => setMode('quick')}
-                            className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 ${
+                            className={`flex-1 py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer ${
                                 mode === 'quick'
-                                    ? 'bg-white text-indigo-700 shadow-md border border-slate-200'
-                                    : 'text-slate-600 hover:text-slate-900'
+                                    ? 'bg-white dark:bg-[#1e293b] text-indigo-700 dark:text-indigo-300 shadow-md border border-slate-200 dark:border-slate-700/80'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                             }`}
                         >
                             <Flame className="w-4 h-4 text-rose-500" />
@@ -337,7 +337,7 @@ const BunkSimulator = () => {
                 </div>
 
                 {/* Period Duration Reference Note */}
-                <div className="bg-gradient-to-r from-amber-50 to-orange-50/60 border border-amber-200/90 rounded-3xl p-4 sm:p-5 shadow-sm text-slate-800">
+                <div className="bg-gradient-to-r from-amber-50 to-orange-50/60 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-200/90 dark:border-amber-800/60 rounded-3xl p-4 sm:p-5 shadow-sm text-slate-800 dark:text-slate-200">
                     <div className="flex items-start gap-3 sm:gap-4">
                         <div className="p-2.5 bg-amber-100/90 text-amber-700 rounded-2xl shrink-0 mt-0.5 shadow-2xs">
                             <Clock className="w-5 h-5" />

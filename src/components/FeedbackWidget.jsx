@@ -15,6 +15,7 @@ import {
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../context/useAuth';
+import { publishCrossDomainEvent } from '../services/crossDomainSync';
 
 const CATEGORIES = [
     { id: 'suggestion', label: 'Idea', icon: Lightbulb, color: 'text-amber-500 bg-amber-50 border-amber-200' },
@@ -83,7 +84,7 @@ export default function FeedbackWidget() {
             // Ignore storage quota errors
         }
 
-        // 3. Broadcast in real-time to open Admin tabs (instant 0ms update)
+        // 3. Broadcast in real-time to open Admin tabs and across domains (instant < 1s update)
         try {
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('kl_new_feedback', { detail: feedbackRecord }));
@@ -93,6 +94,7 @@ export default function FeedbackWidget() {
                     setTimeout(() => bc.close(), 1000);
                 }
             }
+            publishCrossDomainEvent('FEEDBACK_EVENT', feedbackRecord);
         } catch {
             // ignore
         }

@@ -67,3 +67,4 @@ lint*.txt
 lint*.json
 error.*
 out.txt
+scratch/

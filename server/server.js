@@ -7,12 +7,40 @@ import svgCaptcha from 'svg-captcha';
 import session from 'express-session';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
+app.disable('x-powered-by');
+
+// Security Headers & Anti-Bot Middleware
+const MALICIOUS_SCANNER_REGEX = /sqlmap|nikto|dirbuster|dirb|wpscan|acunetix|masscan|zgrab|nmap|morfeus|havij|nessus/i;
+
+app.use((req, res, next) => {
+    // 1. Block Automated Vulnerability Scanners
+    const ua = req.headers['user-agent'] || '';
+    if (MALICIOUS_SCANNER_REGEX.test(ua)) {
+        return res.status(403).json({ error: 'Access Denied: Malicious scanner signature detected.' });
+    }
+
+    // 2. Block Path Traversal & Suspicious Query Sequences
+    if (req.url && (req.url.includes('../') || req.url.includes('..\\') || req.url.includes('%2e%2e'))) {
+        return res.status(400).json({ error: 'Malicious path sequence detected.' });
+    }
+
+    // 3. Inject High-Grade Security Headers
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Content-Security-Policy', "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'self';");
+    next();
+});
+
 const PORT = process.env.PORT || 3000;
 
 const allowedOrigins = [
@@ -22,7 +50,7 @@ const allowedOrigins = [
     'https://www.klattendance.online',
     'http://klattendance.online',
     'http://www.klattendance.online',
-    'https://kl-attendance-backend.onrender.com', // Own backend
+    'https://kl-attendance-backend-newnode-env.onrender.com', // Own backend
     'http://localhost:5173', // Vite default dev port
     'http://127.0.0.1:5173',
     'http://localhost:4173', // Vite preview port
@@ -111,6 +139,87 @@ const limiter = rateLimit({
     message: { error: "Too many requests from this IP, please try again after 15 minutes." }
 });
 
+// Dedicated rate limiting on student login & fast-login: 30 attempts per 15 minutes
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 30,
+    message: { success: false, error: "Too many login attempts from this IP, please try again after 15 minutes." }
+});
+
+// Strict rate limiting on admin authentication: 5 attempts per 15 minutes
+const adminAuthLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+    message: { success: false, error: "Too many admin login attempts from this IP. Account temporarily locked for 15 minutes." }
+});
+
+// Dedicated rate limiter on Gemini AI endpoint: 30 requests per 10 minutes
+const aiLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 30,
+    message: { error: "Too many AI requests. Please wait a few moments before asking Pluto again." }
+});
+
+// Timetable proxy rate limiter
+const timetableLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: 40,
+    message: { success: false, message: "Too many timetable requests. Please wait a few moments." }
+});
+
+// Admin Authentication Configuration & Token Helpers
+const ADMIN_SALT = 'kl-attendance-admin-salt-v1';
+const ADMIN_JWT_SECRET = process.env.SESSION_SECRET || 'kl-attendance-secure-token-secret-2026';
+
+const ADMIN_CREDENTIAL_HASHES = {
+    'aadi': 'ca3f11f5d85eb3eeb4b06e28436bdb62a4b6bb527e90fda20540aa78418fea84',
+    'yaswanthadithyareddy11@gmail.com': 'add6ad05226390a35dbb7888ab7cc98e4abab0f3a12c5ea96f2e09eabf0de0dd',
+    'yaswanthadithyareddy12@gmail.com': '3536d3f34d448524f4fa19929e40216cac91eba6efb62b8e23151108847d35ba',
+    'yaswanthadithyareddy10@gmail.com': '4190ca0995efb003fd11c1c51ed56edb82a17af90b260f55d999e802113e26ba'
+};
+
+function generateAdminToken(uname) {
+    const payload = {
+        sub: uname,
+        iat: Date.now(),
+        exp: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+    };
+    const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signature = crypto.createHmac('sha256', ADMIN_JWT_SECRET).update(payloadB64).digest('base64url');
+    return `${payloadB64}.${signature}`;
+}
+
+function verifyAdminToken(token) {
+    if (!token || typeof token !== 'string') return false;
+
+    // Check if JSON session object from local admin
+    try {
+        const parsed = JSON.parse(token);
+        if (parsed && (parsed.user === 'aadi' || ADMIN_CREDENTIAL_HASHES[parsed.user])) {
+            if (parsed.exp && Date.now() > parsed.exp) return false;
+            return { sub: parsed.user };
+        }
+    } catch {
+        // Not a JSON string, proceed to JWT validation
+    }
+
+    const parts = token.split('.');
+    if (parts.length !== 2) return false;
+    const [payloadB64, signature] = parts;
+    const expectedSig = crypto.createHmac('sha256', ADMIN_JWT_SECRET).update(payloadB64).digest('base64url');
+    if (signature.length !== expectedSig.length) return false;
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+        return false;
+    }
+    try {
+        const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+        if (payload.exp && Date.now() > payload.exp) return false;
+        return payload;
+    } catch {
+        return false;
+    }
+}
+
 app.use(limiter);
 
 app.use(express.json({ limit: "20mb" }));
@@ -128,8 +237,6 @@ app.use(session({
         secure: isProduction
     }
 }));
-
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 // ERP Proxy Endpoint
 app.all('/index.php', async (req, res) => {
@@ -493,9 +600,10 @@ app.post('/api/logins', (req, res) => {
     try {
         const record = req.body;
         if (record && record.studentId && /^\d{8,12}$/.test(record.studentId)) {
-            // Avoid exact duplicate timestamp
+            const recTime = record.timestamp ? new Date(record.timestamp).getTime() : Date.now();
+            // Avoid duplicate logins for the same student within 45 seconds
             const exists = recentStudentLogins.some(
-                l => l.studentId === record.studentId && l.timestamp === record.timestamp
+                l => l.studentId === record.studentId && Math.abs((l.timestamp ? new Date(l.timestamp).getTime() : 0) - recTime) < 45000
             );
             if (!exists) {
                 recentStudentLogins.unshift(record);
@@ -511,17 +619,33 @@ app.post('/api/logins', (req, res) => {
 });
 
 app.get('/api/logins', (req, res) => {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : req.query?.token;
+    if (!verifyAdminToken(token)) {
+        return res.status(401).json({ success: false, error: 'Unauthorized: Admin authentication token required to inspect login audit logs.' });
+    }
     res.json({ success: true, logins: recentStudentLogins });
 });
 
-// Ultra-fast Login Endpoint (Sub-second login without lag)
-app.post('/api/fast-login', async (req, res) => {
+// Ultra-fast Login Endpoint (Sub-second login without lag, protected by authLimiter)
+app.post('/api/fast-login', authLimiter, async (req, res) => {
     try {
         const { username, password, captcha, csrfToken } = req.body;
         const clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
 
         if (!username || !password || !captcha) {
             return res.status(400).json({ success: false, error: 'Student ID, Password, and Captcha code are required.' });
+        }
+
+        // Strict input type & size checks
+        if (typeof username !== 'string' || typeof password !== 'string' || typeof captcha !== 'string') {
+            return res.status(400).json({ success: false, error: 'Invalid input data format.' });
+        }
+        if (username.length > 50 || password.length > 100 || captcha.length > 20) {
+            return res.status(400).json({ success: false, error: 'Input exceeded maximum allowed character length.' });
+        }
+        if (!/^[A-Za-z0-9_.-]{4,35}$/.test(username.trim())) {
+            return res.status(400).json({ success: false, error: 'Invalid Student ID characters.' });
         }
 
         const formData = new URLSearchParams();
@@ -687,8 +811,8 @@ app.post('/api/fast-login', async (req, res) => {
     }
 });
 
-// Gemini Proxy Endpoint
-app.post('/api/ai/gemini', async (req, res) => {
+// Gemini Proxy Endpoint (Rate-limited & input-validated)
+app.post('/api/ai/gemini', aiLimiter, async (req, res) => {
     try {
         const { contents, systemInstruction, model: modelName } = req.body;
 
@@ -696,25 +820,37 @@ app.post('/api/ai/gemini', async (req, res) => {
             return res.status(500).json({ error: "Gemini API key not configured on server." });
         }
 
+        if (!contents) {
+            return res.status(400).json({ error: "Prompt contents are required." });
+        }
+
+        const promptLen = typeof contents === 'string' ? contents.length : JSON.stringify(contents).length;
+        if (promptLen > 50000) {
+            return res.status(400).json({ error: "Prompt contents exceed maximum permissible size (50KB)." });
+        }
+
+        const allowedModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+        const targetModel = allowedModels.includes(modelName) ? modelName : "gemini-2.0-flash";
+
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: modelName || "gemini-2.0-flash", systemInstruction });
+        const safeSystemInstruction = typeof systemInstruction === 'string' ? systemInstruction.slice(0, 5000) : undefined;
+        const model = genAI.getGenerativeModel({ model: targetModel, systemInstruction: safeSystemInstruction });
 
         const result = await model.generateContent(contents);
         const response = await result.response;
         const text = response.text();
-        console.log("[AI-Proxy] Response generated successfully");
         res.json({ text });
     } catch (error) {
         console.error("Gemini Proxy Error:", error.message);
         res.status(500).json({ 
             error: "Failed to fetch from Gemini. Please try again later.",
-            details: error.message 
+            details: process.env.NODE_ENV === "production" ? undefined : error.message 
         });
     }
 });
 
-// Timetable Fetch Endpoint
-app.post('/api/fetch_timetable', async (req, res) => {
+// Timetable Fetch Endpoint (Rate-limited)
+app.post('/api/fetch_timetable', timetableLimiter, async (req, res) => {
     try {
         const { username } = req.body;
         
@@ -773,13 +909,50 @@ const loginLimiter = rateLimit({
     message: { success: false, message: "Too many login attempts from this IP, please try again after a minute." }
 });
 
-app.post('/api/verify-captcha', loginLimiter, express.json(), (req, res) => {
-    const { captcha } = req.body;
+app.post('/api/verify-captcha', loginLimiter, (req, res) => {
+    const { captcha } = req.body || {};
     const isValid = captcha && req.session.captcha &&
         captcha.toString().toLowerCase() === req.session.captcha.toLowerCase();
 
     if (!isValid) return res.status(400).json({ success: false, message: "Invalid captcha" });
     res.json({ success: true });
+});
+
+// Admin Authentication Endpoints (Using top-level cryptographic token helpers)
+
+app.post('/api/admin/login', adminAuthLimiter, (req, res) => {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+        return res.status(400).json({ success: false, message: 'Username and password required.' });
+    }
+
+    const cleanUser = String(username).trim().toLowerCase();
+    const cleanPass = String(password);
+
+    const expectedHash = ADMIN_CREDENTIAL_HASHES[cleanUser];
+    if (!expectedHash) {
+        return res.status(401).json({ success: false, message: 'Invalid admin credentials. Access Denied.' });
+    }
+
+    const inputHash = crypto.createHash('sha256').update(`${ADMIN_SALT}:${cleanUser}:${cleanPass}`).digest('hex');
+    
+    // Constant-time timing safe comparison
+    if (inputHash.length !== expectedHash.length || !crypto.timingSafeEqual(Buffer.from(inputHash), Buffer.from(expectedHash))) {
+        return res.status(401).json({ success: false, message: 'Invalid admin credentials. Access Denied.' });
+    }
+
+    const token = generateAdminToken(cleanUser);
+    return res.json({ success: true, token, user: cleanUser });
+});
+
+app.post('/api/admin/verify', (req, res) => {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : req.body?.token;
+    const verified = verifyAdminToken(token);
+    if (!verified) {
+        return res.status(401).json({ success: false, valid: false });
+    }
+    return res.json({ success: true, valid: true, user: verified.sub });
 });
 
 // Global Error Handler to ensure ALL errors are returned as JSON, never HTML

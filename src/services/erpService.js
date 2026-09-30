@@ -1,6 +1,4 @@
 import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear, findSemesterFromHtml, isHtmlMatchingRequestedYear } from '../config/api';
-import { db } from '../firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { APP_CONFIG } from '../config';
 
 const getErpBase = () => APP_CONFIG.API_URL || '';
@@ -60,7 +58,7 @@ export const erpService = {
         if (apiBase) {
             try {
                 const resp = await fetch(`${apiBase}/api/session-init`, {
-                    headers: { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' }
+                    headers: { 'Cache-Control': 'no-cache' }
                 });
                 if (resp.ok) {
                     const data = await resp.json();
@@ -94,7 +92,7 @@ export const erpService = {
         const apiBase = getErpBase();
         if (apiBase) {
             try {
-                const headers = buildErpHeaders({ 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' });
+                const headers = buildErpHeaders({ 'Cache-Control': 'no-cache' });
                 const resp = await fetch(`${apiBase}/api/refresh-captcha`, { headers });
                 if (resp.ok) {
                     const data = await resp.json();
@@ -120,7 +118,6 @@ export const erpService = {
         clearStoredErpCookies();
         const timestamp = new Date().getTime();
         const headers = {
-            'Pragma': 'no-cache',
             'Cache-Control': 'no-cache'
         };
         const response = await fetch(`${getErpBase()}/index.php?_t=${timestamp}`, { 
@@ -130,6 +127,9 @@ export const erpService = {
         });
         saveErpCookiesFromResponse(response);
         const html = await response.text();
+        if (response.status === 503 || html.includes('Service Suspended')) {
+            throw new Error("ERP backend server is suspended on Render (503). Please resume the service in your Render dashboard.");
+        }
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
         const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
@@ -151,7 +151,6 @@ export const erpService = {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Pragma': 'no-cache',
                         'Cache-Control': 'no-cache',
                         ...(storedCookie ? { 'x-erp-cookie': storedCookie } : {})
                     },
@@ -206,7 +205,6 @@ export const erpService = {
 
         const headers = buildErpHeaders({
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Pragma': 'no-cache',
             'Cache-Control': 'no-cache'
         });
 
@@ -280,7 +278,6 @@ export const erpService = {
                 const dashResp = await fetch(`${getErpBase()}/index.php?r=site%2Findexindi`, {
                     method: 'GET',
                     headers: buildErpHeaders({
-                        'Pragma': 'no-cache',
                         'Cache-Control': 'no-cache'
                     }),
                     credentials: 'include',
@@ -327,7 +324,6 @@ export const erpService = {
 
                 const headers = buildErpHeaders({
                     'Content-Type': 'application/x-www-form-urlencoded',
-                    'Pragma': 'no-cache',
                     'Cache-Control': 'no-cache'
                 });
 
@@ -381,7 +377,6 @@ export const erpService = {
         const extraHeaders = {
             'Content-Type': 'application/x-www-form-urlencoded',
             'X-Requested-With': 'XMLHttpRequest',
-            'Pragma': 'no-cache',
             'Cache-Control': 'no-cache'
         };
         if (csrfToken) {
@@ -448,7 +443,6 @@ export const erpService = {
         try {
             const timestamp = new Date().getTime();
             const headers = buildErpHeaders({
-                'Pragma': 'no-cache',
                 'Cache-Control': 'no-cache'
             });
             const response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
@@ -473,44 +467,40 @@ export const erpService = {
         return null;
     },
 
-    // Fetch Subjects and Attendance (Wrapped with Firebase Cache)
+    // Fetch Subjects and Attendance (Secure Isolated Session Cache)
     async fetchAttendance(year, semester) {
         const username = sessionStorage.getItem('erp_username');
-        const cacheDocId = username ? `${username}_${year}_${semester}` : null;
+        const cacheKey = username ? `kl_att_cache_${username}_${year}_${semester}` : null;
         
-        // 1. Read from Cache
-        if (cacheDocId) {
+        // 1. Read from Isolated Client Session Cache (Zero latency, completely private to this student)
+        if (cacheKey) {
             try {
-                const docRef = doc(db, 'attendanceCache', cacheDocId);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    const now = new Date().getTime();
+                const cachedRaw = sessionStorage.getItem(cacheKey);
+                if (cachedRaw) {
+                    const data = JSON.parse(cachedRaw);
+                    const now = Date.now();
                     // 6 hours cache validity (21600000 ms)
-                    if (now - data.last_updated < 21600000) {
-                        console.log(`[ERP] Fetched attendance from Firebase cache for ${year} ${semester}`);
+                    if (now - (data.last_updated || 0) < 21600000 && Array.isArray(data.subjects) && data.subjects.length > 0) {
                         return data.subjects;
                     }
                 }
             } catch (err) {
-                console.warn("[ERP] Firebase cache read error:", err);
+                console.warn("[ERP] Session cache read notice:", err);
             }
         }
 
         // 2. Scrape from ERP
         const subjects = await this._fetchAttendanceFromERP(year, semester);
 
-        // 3. Write to Cache
-        if (cacheDocId && subjects && subjects.length > 0) {
+        // 3. Write to Isolated Client Session Cache
+        if (cacheKey && subjects && subjects.length > 0) {
             try {
-                const docRef = doc(db, 'attendanceCache', cacheDocId);
-                await setDoc(docRef, {
+                sessionStorage.setItem(cacheKey, JSON.stringify({
                     subjects: subjects,
-                    last_updated: new Date().getTime()
-                });
-                console.log(`[ERP] Saved attendance to Firebase cache for ${year} ${semester}`);
+                    last_updated: Date.now()
+                }));
             } catch (err) {
-                console.warn("[ERP] Firebase cache write error:", err);
+                console.warn("[ERP] Session cache write notice:", err);
             }
         }
 

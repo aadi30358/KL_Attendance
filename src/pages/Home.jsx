@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useMotionValue, useSpring, useTransform, useScroll, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDays, Bot, Flame, LogIn } from 'lucide-react';
+import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDays, Bot, Flame, LogIn, Wrench, X } from 'lucide-react';
 
 // --- Ultra-Advanced 3D Parallax Card ---
-const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, to, accentColor, activeBorderColor = "border-indigo-600", hoverBorderColor = "hover:border-indigo-600", onClick }) => {
+const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, to, accentColor, activeBorderColor = "border-indigo-600", hoverBorderColor = "hover:border-indigo-600", onClick, isUnderMaintenance = false }) => {
     const [isClicked, setIsClicked] = useState(false);
     const ref = useRef(null);
     const x = useMotionValue(0);
@@ -55,12 +55,12 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
                     setIsClicked(!isClicked);
                     if (onClick) onClick(e);
                 }}
-                className={`relative h-full bg-white sm:bg-white/80 sm:backdrop-blur-xl border-2 transition-colors duration-300 rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-7 shadow-xl hover:shadow-2xl overflow-hidden flex flex-col justify-between z-10 cursor-pointer touch-pan-y ${
-                    isClicked ? activeBorderColor : `border-black ${hoverBorderColor}`
+                className={`relative h-full bg-white dark:bg-[#1e293b] sm:bg-white/80 dark:sm:bg-[#1e293b]/95 sm:backdrop-blur-xl border-2 transition-colors duration-300 rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-7 shadow-xl hover:shadow-2xl overflow-hidden flex flex-col justify-between z-10 cursor-pointer touch-pan-y ${
+                    isClicked ? activeBorderColor : `border-black dark:border-slate-700/60 ${hoverBorderColor}`
                 }`}
             >
                 {/* Shine Effect */}
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/80 via-transparent to-transparent opacity-50 pointer-events-none" />
+                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/80 dark:from-white/5 via-transparent to-transparent opacity-50 pointer-events-none" />
 
                 <div className="relative z-10 transform-style-3d flex flex-col justify-between h-full flex-1">
                     <div className="flex justify-between items-start mb-4 sm:mb-6">
@@ -70,14 +70,22 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
                         >
                             <Icon className={`w-7 h-7 sm:w-8 sm:h-8 text-white`} />
                         </motion.div>
-                        {to && (
+                        {isUnderMaintenance ? (
                             <motion.div
                                 style={{ transform: "translateZ(30px)" }}
-                                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-slate-900 group-hover:text-white transition-colors duration-300 shrink-0"
+                                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-center text-amber-600 dark:text-amber-400 shadow-2xs shrink-0"
+                                title="Under Maintenance"
+                            >
+                                <Wrench className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600 dark:text-amber-400" />
+                            </motion.div>
+                        ) : to ? (
+                            <motion.div
+                                style={{ transform: "translateZ(30px)" }}
+                                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 flex items-center justify-center text-slate-700 dark:text-slate-200 group-hover:bg-slate-900 group-hover:text-white dark:group-hover:bg-indigo-600 dark:group-hover:text-white transition-colors duration-300 shrink-0"
                             >
                                 <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 -rotate-45 group-hover:rotate-0 transition-transform duration-300" />
                             </motion.div>
-                        )}
+                        ) : null}
                     </div>
 
                     <motion.div style={{ transform: "translateZ(30px)" }} className="flex-1 flex flex-col justify-between">
@@ -88,7 +96,7 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
         </motion.div>
     );
 
-    if (to) {
+    if (to && !isUnderMaintenance) {
         return <Link to={to} onClick={onClick} className="h-full block perspective-1000">{CardContent}</Link>;
     }
     return <div onClick={onClick} className="h-full perspective-1000">{CardContent}</div>;
@@ -333,8 +341,8 @@ const ExamCountdownSection = () => {
                                 onClick={() => handleBatchChange(b.id)}
                                 className={`px-3.5 sm:px-4 py-2 rounded-xl sm:rounded-2xl text-xs sm:text-sm font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 border-2 shrink-0 ${
                                     isActive
-                                        ? 'bg-slate-900 text-white border-black shadow-md scale-[1.02]'
-                                        : 'bg-white hover:bg-slate-100 text-slate-800 border-black/30 hover:border-black'
+                                        ? 'bg-slate-900 dark:bg-indigo-600 text-white border-black dark:border-indigo-400/50 shadow-md scale-[1.02]'
+                                        : 'bg-white dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border-black/30 dark:border-slate-700'
                                 }`}
                             >
                                 <span>{b.shortName}</span>
@@ -348,7 +356,7 @@ const ExamCountdownSection = () => {
 
                 <Link
                     to="/calendar"
-                    className="text-xs sm:text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1.5 self-start sm:self-auto group"
+                    className="text-xs sm:text-sm font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 flex items-center gap-1.5 self-start sm:self-auto group"
                 >
                     <span>Full Academic Calendar</span>
                     <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
@@ -359,10 +367,10 @@ const ExamCountdownSection = () => {
             <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 px-1 sm:px-4">
                 <div className={`h-7 sm:h-9 w-1 sm:w-1.5 ${activeBatch.barColor} rounded-full transition-colors duration-300 shrink-0`} />
                 <div>
-                    <h2 className="text-xl sm:text-3xl font-bold text-slate-900 leading-snug">
+                    <h2 className="text-xl sm:text-3xl font-bold text-slate-900 dark:text-white leading-snug">
                         {activeBatch.title}
                     </h2>
-                    <p className="text-xs sm:text-sm font-semibold text-slate-500 mt-0.5">
+                    <p className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400 mt-0.5">
                         {activeBatch.years}
                     </p>
                 </div>
@@ -388,18 +396,18 @@ const ExamCountdownSection = () => {
                                 whileHover={{ scale: 1.03, y: -6 }}
                                 whileTap={{ scale: 0.97 }}
                                 onClick={() => setSelectedCard(isSelected ? null : idx)}
-                                className={`group relative bg-white rounded-[1.75rem] sm:rounded-[2rem] border-2 cursor-pointer transition-all duration-300 shadow-md hover:shadow-xl ${item.shadow} ${
-                                    isSelected ? item.activeBorder : `border-black ${item.hoverBorder}`
+                                className={`group relative bg-white dark:bg-[#1e293b] rounded-[1.75rem] sm:rounded-[2rem] border-2 cursor-pointer transition-all duration-300 shadow-md hover:shadow-xl ${item.shadow} ${
+                                    isSelected ? item.activeBorder : `border-black dark:border-slate-700/60 ${item.hoverBorder}`
                                 }`}
                             >
                                 {/* Gradient Border Effect */}
                                 <div className={`absolute inset-0 bg-gradient-to-br ${item.color} rounded-[1.75rem] sm:rounded-[2rem] opacity-0 group-hover:opacity-100 blur transition-opacity duration-300 -z-10`} />
 
                                 {/* Card Content */}
-                                <div className="relative bg-white rounded-[1.6rem] sm:rounded-[1.85rem] p-4 sm:p-6 h-full flex flex-col justify-between z-10">
+                                <div className="relative bg-white dark:bg-[#1e293b] rounded-[1.6rem] sm:rounded-[1.85rem] p-4 sm:p-6 h-full flex flex-col justify-between z-10">
                                     <div className="flex justify-between items-start mb-4 sm:mb-6">
                                         <div>
-                                            <h4 className="font-extrabold text-slate-800 text-base sm:text-lg tracking-tight">{item.label}</h4>
+                                            <h4 className="font-extrabold text-slate-800 dark:text-white text-base sm:text-lg tracking-tight">{item.label}</h4>
                                             <div className={`mt-1.5 inline-flex px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full bg-gradient-to-r ${item.color} bg-opacity-10 opacity-90`}>
                                                 <span className="text-[10px] font-bold text-white uppercase tracking-wider">{item.date}</span>
                                             </div>
@@ -417,10 +425,10 @@ const ExamCountdownSection = () => {
                                             ['Sec', time.secs]
                                         ].map(([l, v], i) => (
                                             <div key={i} className="flex flex-col items-center">
-                                                <div className="bg-slate-50 w-full rounded-xl py-2 sm:py-3 border border-slate-100 group-hover:border-slate-200 transition-colors">
-                                                    <span className="block text-lg sm:text-xl font-black text-slate-800 leading-none mb-1">{v}</span>
+                                                <div className="bg-slate-50 dark:bg-slate-800/80 w-full rounded-xl py-2 sm:py-3 border border-slate-100 dark:border-slate-700/60 group-hover:border-slate-200 dark:group-hover:border-slate-600 transition-colors">
+                                                    <span className="block text-lg sm:text-xl font-black text-slate-800 dark:text-slate-100 leading-none mb-1">{v}</span>
                                                 </div>
-                                                <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase mt-1">{l}</span>
+                                                <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 dark:text-slate-400 uppercase mt-1">{l}</span>
                                             </div>
                                         ))}
                                     </div>
@@ -473,6 +481,7 @@ const StaggeredText = ({ text, className, delay = 0 }) => {
 import SEO from '../components/SEO';
 
 export default function Home() {
+    const [plutoMaintenanceModal, setPlutoMaintenanceModal] = useState(false);
     const { scrollY } = useScroll();
     const heroY = useTransform(scrollY, [0, 500], [0, 150]);
     const heroOpacity = useTransform(scrollY, [0, 300], [1, 0]);
@@ -498,7 +507,7 @@ export default function Home() {
     });
 
     return (
-        <div className="relative min-h-screen bg-[#FAFAFA] selection:bg-indigo-500 selection:text-white">
+        <div className="relative min-h-screen bg-[#FAFAFA] dark:bg-[#0b1120] selection:bg-indigo-500 selection:text-white transition-colors duration-200">
             <SEO
                 title="Home | Master Academic Journey"
                 description="Track attendance, calculate LTPS, and ace your exams with the KL Attendance Manager."
@@ -506,18 +515,18 @@ export default function Home() {
 
             {/* --- High-Performance Ambient Background --- */}
             <div className="fixed inset-0 pointer-events-none overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-90" />
+                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white dark:from-[#0b1120] dark:to-[#0f172a] opacity-90" />
 
                 {/* Ambient Soft Glows */}
-                <div className="absolute -top-[15%] -left-[10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-r from-indigo-100 via-purple-100 to-pink-100 blur-[50px] sm:blur-[100px] opacity-40 pointer-events-none" />
-                <div className="absolute top-[35%] -right-[15%] w-[50vw] h-[50vw] rounded-full bg-gradient-to-l from-blue-100 via-teal-100 to-emerald-100 blur-[50px] sm:blur-[100px] opacity-30 pointer-events-none" />
+                <div className="absolute -top-[15%] -left-[10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-r from-indigo-100 via-purple-100 to-pink-100 dark:from-indigo-950/30 dark:via-purple-950/20 dark:to-transparent blur-[50px] sm:blur-[100px] opacity-40 pointer-events-none" />
+                <div className="absolute top-[35%] -right-[15%] w-[50vw] h-[50vw] rounded-full bg-gradient-to-l from-blue-100 via-teal-100 to-emerald-100 dark:from-blue-950/25 dark:via-indigo-950/25 dark:to-transparent blur-[50px] sm:blur-[100px] opacity-30 pointer-events-none" />
 
                 {/* 3D Floating Particles (Desktop Only for buttery-smooth mobile scrolling) */}
                 <div className="hidden lg:block absolute inset-0 preserve-3d">
                     {particles.map((p) => (
                         <motion.div
                             key={p.id}
-                            className="absolute rounded-full bg-gradient-to-br from-white to-slate-100 shadow-xl border border-white/50 backdrop-blur-md"
+                            className="absolute rounded-full bg-gradient-to-br from-white to-slate-100 dark:from-slate-800 dark:to-slate-900 shadow-xl border border-white/50 dark:border-slate-800/80 backdrop-blur-md"
                             style={{
                                 width: p.width,
                                 height: p.height,
@@ -553,20 +562,20 @@ export default function Home() {
                         initial={{ scale: 0, rotate: -180 }}
                         animate={{ scale: 1, rotate: 0 }}
                         transition={{ type: "spring", stiffness: 200, damping: 20 }}
-                        className="w-20 h-20 mb-8 rounded-3xl bg-white shadow-2xl shadow-indigo-200 flex items-center justify-center relative group"
+                        className="w-20 h-20 mb-8 rounded-3xl bg-white dark:bg-[#1e293b] border border-slate-200 dark:border-slate-700/70 shadow-2xl shadow-indigo-200 dark:shadow-none flex items-center justify-center relative group"
                     >
-                        <div className="absolute inset-0 bg-indigo-500 rounded-3xl blur-xl opacity-20 group-hover:opacity-40 transition-opacity" />
-                        <Sparkles className="w-10 h-10 text-indigo-600 animate-pulse-slow" />
+                        <div className="absolute inset-0 bg-indigo-500 dark:bg-indigo-600 rounded-3xl blur-xl opacity-20 group-hover:opacity-40 transition-opacity" />
+                        <Sparkles className="w-10 h-10 text-indigo-600 dark:text-indigo-400 animate-pulse-slow" />
                     </motion.div>
 
-                    <h1 className="text-3xl sm:text-6xl lg:text-8xl font-black text-slate-900 tracking-tight leading-tight sm:leading-[0.9] mb-6 sm:mb-8 relative perspective-1000 flex flex-col items-center px-2">
+                    <h1 className="text-3xl sm:text-6xl lg:text-8xl font-black text-slate-900 dark:text-white tracking-tight leading-tight sm:leading-[0.9] mb-6 sm:mb-8 relative perspective-1000 flex flex-col items-center px-2">
                         <div className="mb-1 sm:mb-2">
-                            <StaggeredText text="Master Your" className="text-slate-900" delay={0.2} />
+                            <StaggeredText text="Master Your" className="text-slate-900 dark:text-white" delay={0.2} />
                         </div>
                         <div className="relative inline-block">
                             <StaggeredText
                                 text="Academic Journey"
-                                className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 animate-gradient bg-300-percent"
+                                className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 dark:from-indigo-400 dark:via-violet-400 dark:to-indigo-300 animate-gradient bg-300-percent"
                                 delay={0.8}
                             />
                             <motion.div
@@ -579,7 +588,7 @@ export default function Home() {
                         </div>
                     </h1>
 
-                    <div className="text-sm sm:text-xl text-slate-500 font-medium max-w-xl leading-relaxed mb-8 sm:mb-12 px-3 text-center">
+                    <div className="text-sm sm:text-xl text-slate-500 dark:text-slate-400 font-medium max-w-xl leading-relaxed mb-8 sm:mb-12 px-3 text-center">
                         <TypewriterText text="The next-generation academic suite for KLU students." delay={0.5} />
                     </div>
 
@@ -588,7 +597,7 @@ export default function Home() {
                             <motion.button
                                 whileHover={{ scale: 1.04 }}
                                 whileTap={{ scale: 0.96 }}
-                                className="w-full py-3.5 px-3 sm:px-5 bg-slate-900 text-white rounded-2xl font-bold shadow-xl shadow-slate-900/25 flex items-center justify-center gap-1.5 sm:gap-2 group text-xs sm:text-sm whitespace-nowrap"
+                                className="w-full py-3.5 px-3 sm:px-5 bg-slate-900 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-2xl font-bold shadow-xl shadow-slate-900/25 flex items-center justify-center gap-1.5 sm:gap-2 group text-xs sm:text-sm whitespace-nowrap"
                             >
                                 <Calculator className="w-4 h-4 group-hover:rotate-12 transition-transform shrink-0" />
                                 <span>LTPS Engine</span>
@@ -598,7 +607,7 @@ export default function Home() {
                             <motion.button
                                 whileHover={{ scale: 1.04 }}
                                 whileTap={{ scale: 0.96 }}
-                                className="w-full py-3.5 px-3 sm:px-5 bg-gradient-to-r from-sky-400 to-sky-600 text-white rounded-2xl font-bold shadow-lg shadow-sky-500/25 flex items-center justify-center gap-1.5 sm:gap-2 group text-xs sm:text-sm whitespace-nowrap border border-sky-400/30"
+                                className="w-full py-3.5 px-3 sm:px-5 bg-gradient-to-r from-sky-500 to-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-sky-500/25 flex items-center justify-center gap-1.5 sm:gap-2 group text-xs sm:text-sm whitespace-nowrap border border-sky-400/30"
                             >
                                 <Flame className="w-4 h-4 text-sky-100 group-hover:scale-110 transition-transform shrink-0 animate-pulse" />
                                 <span>Bunk Simulator</span>
@@ -632,54 +641,54 @@ export default function Home() {
                             hoverBorderColor="hover:border-indigo-600"
                         >
                             <div>
-                                <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mb-2">L-T-P-S Logic Engine</h3>
-                                <p className="text-slate-500 text-sm sm:text-base mb-6 max-w-sm">Precision calculation based on the latest KLU weightage algorithms. Visualize your grades in 3D.</p>
+                                <h3 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mb-2">L-T-P-S Logic Engine</h3>
+                                <p className="text-slate-500 dark:text-slate-400 text-sm sm:text-base mb-6 max-w-sm">Precision calculation based on the latest KLU weightage algorithms. Visualize your grades in 3D.</p>
                             </div>
 
                             {/* Detailed 3D Mockup inside Card */}
-                            <div className="absolute -bottom-2 -right-2 sm:bottom-6 sm:right-6 w-28 h-20 sm:w-44 sm:h-28 bg-slate-100 rounded-xl border border-slate-200 shadow-inner p-3 transform rotate-y-12 rotate-x-12 translate-z-10 flex flex-col gap-2 opacity-80 group-hover:opacity-100 transition-opacity pointer-events-none">
-                                <div className="w-full h-2 bg-indigo-200 rounded-full" />
-                                <div className="w-3/4 h-2 bg-indigo-200 rounded-full" />
+                            <div className="absolute -bottom-2 -right-2 sm:bottom-6 sm:right-6 w-28 h-20 sm:w-44 sm:h-28 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200 dark:border-slate-700/60 shadow-inner p-3 transform rotate-y-12 rotate-x-12 translate-z-10 flex flex-col gap-2 opacity-80 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                <div className="w-full h-2 bg-indigo-200 dark:bg-indigo-500/40 rounded-full" />
+                                <div className="w-3/4 h-2 bg-indigo-200 dark:bg-indigo-500/40 rounded-full" />
                                 <div className="mt-auto flex gap-2">
-                                    <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-indigo-500/20" />
-                                    <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-indigo-500/20" />
+                                    <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-indigo-500/20 dark:bg-indigo-500/30" />
+                                    <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg bg-indigo-500/20 dark:bg-indigo-500/30" />
                                 </div>
                             </div>
                         </ThreeDParallaxCard>
                     </div>
 
-                    {/* 2. Pluto AI Coding Assistant */}
+                    {/* 2. Pluto AI Coding Assistant - Active */}
                     <div className="min-h-[260px] sm:min-h-[280px] md:h-[380px]">
 
                         <ThreeDParallaxCard
                             to="/pluto"
                             icon={Bot}
                             colorClass="text-sky-500"
-                            accentColor="bg-gradient-to-tr from-[#229ED9] to-blue-600"
-                            activeBorderColor="border-[#229ED9]"
-                            hoverBorderColor="hover:border-[#229ED9]"
+                            accentColor="bg-gradient-to-tr from-sky-500 to-indigo-600"
+                            activeBorderColor="border-sky-500"
+                            hoverBorderColor="hover:border-sky-500"
                         >
-                            <div>
-                                <div className="flex items-center gap-2 mb-2">
-                                    <span className="px-2.5 py-0.5 rounded-full bg-sky-100 text-[#1474a4] border border-sky-200 text-[10px] font-black uppercase tracking-wider">
-                                        Telegram AI Bot
-                                    </span>
-                                    <span className="text-[10px] font-mono font-bold text-slate-400">
-                                        @PlutoSpark_bot
-                                    </span>
+                            <div className="flex flex-col h-full justify-between">
+                                <div>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                            <span>Live Bot</span>
+                                        </span>
+                                        <span className="text-[10px] font-mono font-bold text-slate-400">
+                                            @PlutoSpark_bot
+                                        </span>
+                                    </div>
+                                    <h3 className="text-2xl font-black text-slate-900 mb-1.5 flex items-center gap-2">
+                                        <span>Pluto AI</span>
+                                    </h3>
+                                    <p className="text-slate-500 text-xs sm:text-sm mb-4">AI coding & DSA mentor for students on Telegram.</p>
                                 </div>
-                                <h3 className="text-2xl font-black text-slate-900 mb-1.5">Pluto AI</h3>
-                                <p className="text-slate-500 text-xs sm:text-sm mb-4">AI coding & DSA mentor for students.</p>
-                            </div>
 
-                            <div className="space-y-2 mt-auto">
-                                <div className="p-2.5 rounded-xl bg-sky-50/70 border border-sky-100 flex items-center gap-2.5 text-xs text-slate-700 font-medium">
-                                    <span className="w-2 h-2 rounded-full bg-[#229ED9] shrink-0" />
-                                    <span>Instant code solutions & debugging</span>
-                                </div>
-                                <div className="p-2.5 rounded-xl bg-sky-50/70 border border-sky-100 flex items-center gap-2.5 text-xs text-slate-700 font-medium">
-                                    <span className="w-2 h-2 rounded-full bg-[#229ED9] shrink-0" />
-                                    <span>18-milestone DSA roadmap & quizzes</span>
+                                <div className="w-full py-2.5 sm:py-3 bg-sky-50 group-hover:bg-sky-100 text-sky-900 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
+                                    <Bot className="w-4 h-4 text-sky-600" />
+                                    <span>Launch Pluto AI</span>
+                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                                 </div>
                             </div>
                         </ThreeDParallaxCard>
@@ -698,18 +707,18 @@ export default function Home() {
                             <div className="flex flex-col h-full justify-between">
                                 <div>
                                     <div className="flex items-center gap-2 mb-2">
-                                        <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 text-[10px] font-black uppercase tracking-wider">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 text-[10px] font-black uppercase tracking-wider">
                                             KLU Weightage Simulator
                                         </span>
-                                        <span className="text-[10px] font-mono font-bold text-slate-400">
+                                        <span className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-400">
                                             Safe Zone vs Detained
                                         </span>
                                     </div>
-                                    <h3 className="text-2xl sm:text-3xl font-black text-slate-900 mb-2">Bunk Simulator</h3>
-                                    <p className="text-slate-500 text-sm sm:text-base max-w-md">Simulate skipping classes before you bunk. Computes exact percentage drop across Lecture, Tutorial, Practical, & Skill components.</p>
+                                    <h3 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mb-2">Bunk Simulator</h3>
+                                    <p className="text-slate-500 dark:text-slate-400 text-sm sm:text-base max-w-md">Simulate skipping classes before you bunk. Computes exact percentage drop across Lecture, Tutorial, Practical, & Skill components.</p>
                                 </div>
-                                <div className="w-full py-2.5 sm:py-3 bg-rose-50 group-hover:bg-rose-100 text-rose-900 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
-                                    <Flame className="w-4 h-4 text-rose-600" />
+                                <div className="w-full py-2.5 sm:py-3 bg-rose-50 dark:bg-rose-950/40 group-hover:bg-rose-100 dark:group-hover:bg-rose-900/50 text-rose-900 dark:text-rose-200 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black dark:border-rose-800/60 transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
+                                    <Flame className="w-4 h-4 text-rose-600 dark:text-rose-400" />
                                     <span>Launch Bunk Simulator</span>
                                     <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                                 </div>
@@ -730,19 +739,19 @@ export default function Home() {
                             <div className="flex flex-col h-full justify-between">
                                 <div>
                                     <div className="flex items-center gap-2 mb-2">
-                                        <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200 text-[10px] font-black uppercase tracking-wider">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 text-[10px] font-black uppercase tracking-wider">
                                             Instant Sync
                                         </span>
-                                        <span className="text-[10px] font-mono font-bold text-slate-400">
+                                        <span className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-400">
                                             Live Portal
                                         </span>
                                     </div>
-                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 mb-1.5">ERP Login</h3>
-                                    <p className="text-slate-500 text-xs sm:text-sm mb-3">Connect to KL ERP to auto-fetch attendance records and check eligibility without manual entry.</p>
+                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mb-1.5">ERP Login</h3>
+                                    <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mb-3">Connect to KL ERP to auto-fetch attendance records and check eligibility without manual entry.</p>
                                 </div>
 
-                                <div className="w-full py-2.5 sm:py-3 bg-rose-50 group-hover:bg-rose-100 text-rose-900 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
-                                    <LogIn className="w-4 h-4 text-rose-600" />
+                                <div className="w-full py-2.5 sm:py-3 bg-rose-50 dark:bg-rose-950/40 group-hover:bg-rose-100 dark:group-hover:bg-rose-900/50 text-rose-900 dark:text-rose-200 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black dark:border-rose-800/60 transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
+                                    <LogIn className="w-4 h-4 text-rose-600 dark:text-rose-400" />
                                     <span>Login to ERP</span>
                                     <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                                 </div>
@@ -763,22 +772,22 @@ export default function Home() {
                             <div className="flex flex-col h-full justify-between">
                                 <div>
                                     <div className="flex items-center gap-2 mb-2">
-                                        <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black uppercase tracking-wider">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 text-[10px] font-black uppercase tracking-wider">
                                             11 Holidays
                                         </span>
-                                        <span className="text-[10px] font-mono font-bold text-slate-400">
+                                        <span className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-400">
                                             Year 2026
                                         </span>
                                     </div>
-                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 mb-1">
+                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mb-1">
                                         Public Holidays
                                     </h3>
-                                    <p className="text-slate-500 text-xs sm:text-sm mb-3">
+                                    <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mb-3">
                                         Official General Holidays Schedule.
                                     </p>
                                 </div>
 
-                                <div className="w-full py-2.5 sm:py-3 bg-amber-50 group-hover:bg-amber-100 text-amber-900 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
+                                <div className="w-full py-2.5 sm:py-3 bg-amber-50 dark:bg-amber-950/40 group-hover:bg-amber-100 dark:group-hover:bg-amber-900/50 text-amber-900 dark:text-amber-200 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black dark:border-amber-800/60 transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
                                     <span>View Holiday List (11)</span>
                                     <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                                 </div>
@@ -798,10 +807,10 @@ export default function Home() {
                         >
                             <div className="flex flex-col h-full justify-between">
                                 <div>
-                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 mb-2">Calendar</h3>
-                                    <p className="text-slate-500 text-xs sm:text-sm mb-3">Official KLU Schedule 2026–27.</p>
+                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mb-2">Calendar</h3>
+                                    <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mb-3">Official KLU Schedule 2026–27.</p>
                                 </div>
-                                <div className="w-full py-2.5 sm:py-3 bg-slate-50 group-hover:bg-slate-100 text-slate-700 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
+                                <div className="w-full py-2.5 sm:py-3 bg-slate-50 dark:bg-slate-800/60 group-hover:bg-slate-100 dark:group-hover:bg-slate-700/60 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black dark:border-slate-700/60 transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
                                     <span>View Y24 / Y25 / Tri-Sem</span>
                                     <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                                 </div>
@@ -822,14 +831,14 @@ export default function Home() {
                             <div className="flex flex-col h-full justify-between">
                                 <div>
                                     <div className="flex items-center gap-2 mb-2">
-                                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-black uppercase tracking-wider">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 text-[10px] font-black uppercase tracking-wider">
                                             Live Tracker
                                         </span>
                                     </div>
-                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 mb-2">Total Attendance</h3>
-                                    <p className="text-slate-500 text-xs sm:text-sm mb-3">Track cumulative attendance, safe zone margins, and recovery classes.</p>
+                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mb-2">Total Attendance</h3>
+                                    <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mb-3">Track cumulative attendance, safe zone margins, and recovery classes.</p>
                                 </div>
-                                <div className="w-full py-2.5 sm:py-3 bg-emerald-50 group-hover:bg-emerald-100 text-emerald-900 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
+                                <div className="w-full py-2.5 sm:py-3 bg-emerald-50 dark:bg-emerald-950/40 group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/50 text-emerald-900 dark:text-emerald-200 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black dark:border-emerald-800/60 transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
                                     <span>Check Attendance Status</span>
                                     <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
                                 </div>
@@ -843,6 +852,59 @@ export default function Home() {
                 <ExamCountdownSection />
 
             </main>
+
+            {/* Pluto Maintenance Notice Modal */}
+            <AnimatePresence>
+                {plutoMaintenanceModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60 backdrop-blur-sm"
+                        onClick={() => setPlutoMaintenanceModal(false)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.92, opacity: 0, y: 16 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.92, opacity: 0, y: 16 }}
+                            transition={{ type: "spring", stiffness: 350, damping: 25 }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="bg-white dark:bg-[#1e293b] rounded-3xl p-6 sm:p-8 max-w-md w-full border-2 border-black dark:border-slate-700/80 shadow-2xl relative overflow-hidden"
+                        >
+                            <button
+                                onClick={() => setPlutoMaintenanceModal(false)}
+                                className="absolute top-4 right-4 p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                aria-label="Close"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800/60 flex items-center justify-center text-amber-700 dark:text-amber-400 shrink-0">
+                                    <Wrench className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                                </div>
+                                <div>
+                                    <span className="px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 text-[10px] font-black uppercase tracking-wider">
+                                        Under Maintenance
+                                    </span>
+                                    <h4 className="text-xl font-black text-slate-900 dark:text-white mt-0.5">Pluto AI is Offline</h4>
+                                </div>
+                            </div>
+
+                            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed mb-6">
+                                Pluto AI coding mentor is currently undergoing scheduled infrastructure upgrades and system maintenance. Opening the assistant is temporarily paused. Please check back later!
+                            </p>
+
+                            <button
+                                onClick={() => setPlutoMaintenanceModal(false)}
+                                className="w-full py-3 bg-slate-900 hover:bg-black dark:bg-indigo-600 dark:hover:bg-indigo-700 text-white text-xs font-black uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-98 cursor-pointer"
+                            >
+                                Got it, Thanks
+                            </button>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

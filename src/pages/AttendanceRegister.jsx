@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Calendar, LogOut, ArrowLeft } from 'lucide-react';
+import { BookOpen, Calendar, LogOut, ArrowLeft, Zap, WifiOff } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -15,9 +15,9 @@ const COMPONENT_NAMES = {
 };
 
 function getColor(pct) {
-    if (pct >= 85) return 'text-emerald-600';
-    if (pct >= 75) return 'text-amber-500';
-    return 'text-red-500';
+    if (pct >= 85) return 'text-emerald-600 dark:text-emerald-400';
+    if (pct >= 75) return 'text-amber-500 dark:text-amber-400';
+    return 'text-red-500 dark:text-rose-400';
 }
 
 function getBgStrip(pct) {
@@ -27,9 +27,188 @@ function getBgStrip(pct) {
 }
 
 function getStatusLabel(pct) {
-    if (pct >= 85) return { text: '✓ Safe (85%+)', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
-    if (pct >= 75) return { text: '⚠ OK (75–85%)', cls: 'bg-amber-50 text-amber-700 ring-amber-200' };
-    return { text: '✗ Shortage', cls: 'bg-red-50 text-red-600 ring-red-200' };
+    if (pct >= 85) return { text: '✓ Safe (85%+)', cls: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 ring-emerald-200 dark:ring-emerald-800' };
+    if (pct >= 75) return { text: '⚠ OK (75–85%)', cls: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 ring-amber-200 dark:ring-amber-800' };
+    return { text: '✗ Shortage', cls: 'bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-rose-400 ring-red-200 dark:ring-red-800' };
+}
+
+// ── 🎯 Instant Safe Bunk Badge Calculator (Component Aware: Lecture / Tutorial / Practical / Skill) ──
+function getQuickBunkBadge(subject) {
+    const pct = typeof subject.percent === 'number' ? subject.percent : parseFloat(subject.percent) || 0;
+    
+    let totalAttended = 0;
+    let totalConducted = 0;
+    const hasComponents = subject.components && Object.keys(subject.components).length > 0;
+
+    // Detect all components actually present in this subject
+    const activeComponents = [];
+    if (hasComponents) {
+        Object.entries(subject.components).forEach(([compName, data]) => {
+            const firstChar = compName ? compName.charAt(0).toUpperCase() : 'L';
+            const w = WEIGHTS[firstChar] || WEIGHTS[compName] || 100;
+            const label = COMPONENT_NAMES[firstChar] || (compName.charAt(0).toUpperCase() + compName.slice(1));
+            const cConducted = Number(data.conducted) || 0;
+            const cAttended = Number(data.attended) || 0;
+            totalAttended += cAttended * w;
+            totalConducted += cConducted * w;
+            if (!activeComponents.some(c => c.id === firstChar)) {
+                activeComponents.push({ id: firstChar, label, w });
+            }
+        });
+    }
+
+    if (totalConducted === 0) {
+        // Fallback to raw attended string e.g. "28/32"
+        if (typeof subject.attended === 'string' && subject.attended.includes('/')) {
+            const parts = subject.attended.split('/');
+            const att = parseInt(parts[0], 10) || 0;
+            const cond = parseInt(parts[1], 10) || 0;
+            totalAttended = att * 100;
+            totalConducted = cond * 100;
+        }
+    }
+
+    if (totalConducted === 0) {
+        return null;
+    }
+
+    if (activeComponents.length === 0) {
+        activeComponents.push({ id: 'L', label: 'Lecture', w: 100 });
+    }
+
+    // Helper to format component counts nicely (e.g., "2 Lectures" or "1 Skill")
+    const formatCompText = (count, label) => `${count} ${label}${count > 1 ? 's' : ''}`;
+
+    // 🟢 1. Safe Zone: >= 85%
+    if (pct >= 85) {
+        const buffer = totalAttended - 0.85 * totalConducted;
+        
+        // Calculate bunks for each available component
+        const compBunks = activeComponents.map(c => ({
+            ...c,
+            bunks: Math.floor(buffer / (0.85 * c.w))
+        }));
+
+        const maxBunk = Math.max(...compBunks.map(c => c.bunks));
+
+        if (maxBunk > 0) {
+            let badgeText = '';
+            let subText = 'Safe (>85%)';
+
+            if (compBunks.length === 1) {
+                badgeText = `Can bunk ${formatCompText(compBunks[0].bunks, compBunks[0].label)}`;
+            } else {
+                const mainComp = compBunks.find(c => c.id === 'L' || c.id === 'T') || compBunks[0];
+                const otherComps = compBunks.filter(c => c.id !== mainComp.id);
+
+                if (mainComp.bunks > 0) {
+                    if (otherComps.length === 1 && otherComps[0].bunks > 0) {
+                        badgeText = `Can bunk ${formatCompText(mainComp.bunks, mainComp.label)} or ${formatCompText(otherComps[0].bunks, otherComps[0].label)}`;
+                    } else {
+                        badgeText = `Can bunk ${formatCompText(mainComp.bunks, mainComp.label)}`;
+                        const altParts = otherComps.filter(c => c.bunks > 0).map(c => formatCompText(c.bunks, c.label));
+                        if (altParts.length > 0) {
+                            subText = `Safe (>85%) · or ${altParts.join(' / ')}`;
+                        }
+                    }
+                } else {
+                    const positiveComps = otherComps.filter(c => c.bunks > 0);
+                    if (positiveComps.length > 0) {
+                        badgeText = `Can bunk ${positiveComps.map(c => formatCompText(c.bunks, c.label)).join(' or ')}`;
+                        subText = `Safe (>85%) · 0 ${mainComp.label}s buffer`;
+                    } else {
+                        badgeText = 'On 85% border';
+                        subText = 'Attend next class to build buffer';
+                    }
+                }
+            }
+
+            return {
+                level: 'safe',
+                badgeText,
+                subText,
+                dotColor: 'bg-emerald-500',
+                cls: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/70'
+            };
+        } else {
+            return {
+                level: 'safe',
+                badgeText: 'On 85% border',
+                subText: 'Attend next class to build buffer',
+                dotColor: 'bg-emerald-500',
+                cls: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/70'
+            };
+        }
+    }
+
+    // 🟡 2. Warning Zone: 75% to 84.99%
+    if (pct >= 75) {
+        const deficit85 = 0.85 * totalConducted - totalAttended;
+        const buffer75 = totalAttended - 0.75 * totalConducted;
+
+        const compNeeds = activeComponents.map(c => ({
+            ...c,
+            need: Math.max(1, Math.ceil(deficit85 / (0.15 * c.w))),
+            canBunk75: Math.max(0, Math.floor(buffer75 / (0.75 * c.w)))
+        }));
+
+        let badgeText = '';
+        let subText = 'Warning (75%–85%)';
+
+        const mainComp = compNeeds.find(c => c.id === 'L' || c.id === 'T') || compNeeds[0];
+        const otherComps = compNeeds.filter(c => c.id !== mainComp.id);
+
+        if (compNeeds.length === 1) {
+            badgeText = `Must attend next ${formatCompText(mainComp.need, mainComp.label)}`;
+            if (mainComp.canBunk75 > 0) {
+                subText = `Can bunk ${formatCompText(mainComp.canBunk75, mainComp.label)} before <75%`;
+            }
+        } else {
+            if (otherComps.length === 1) {
+                badgeText = `Attend ${formatCompText(mainComp.need, mainComp.label)} or ${formatCompText(otherComps[0].need, otherComps[0].label)}`;
+            } else {
+                badgeText = `Must attend next ${formatCompText(mainComp.need, mainComp.label)}`;
+            }
+            if (mainComp.canBunk75 > 0) {
+                subText = `Can bunk ${formatCompText(mainComp.canBunk75, mainComp.label)} before <75%`;
+            }
+        }
+
+        return {
+            level: 'warning',
+            badgeText,
+            subText,
+            dotColor: 'bg-amber-500',
+            cls: 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/70'
+        };
+    }
+
+    // 🔴 3. Critical Shortage Zone: < 75%
+    const deficit75 = 0.75 * totalConducted - totalAttended;
+    const compNeeds75 = activeComponents.map(c => ({
+        ...c,
+        need: Math.max(1, Math.ceil(deficit75 / (0.25 * c.w)))
+    }));
+
+    const mainComp = compNeeds75.find(c => c.id === 'L' || c.id === 'T') || compNeeds75[0];
+    const otherComps = compNeeds75.filter(c => c.id !== mainComp.id);
+
+    let badgeText = '';
+    if (compNeeds75.length === 1) {
+        badgeText = `Attend next ${formatCompText(mainComp.need, mainComp.label)} to reach 75%`;
+    } else if (otherComps.length === 1) {
+        badgeText = `Attend ${formatCompText(mainComp.need, mainComp.label)} or ${formatCompText(otherComps[0].need, otherComps[0].label)} to reach 75%`;
+    } else {
+        badgeText = `Attend ${formatCompText(mainComp.need, mainComp.label)} to reach 75%`;
+    }
+
+    return {
+        level: 'critical',
+        badgeText,
+        subText: 'Shortage (<75%)',
+        dotColor: 'bg-rose-500',
+        cls: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/70'
+    };
 }
 
 // ── BunkSimulator sub-component ──────────────────────────────────────
@@ -116,14 +295,14 @@ function BunkSimulator({ subject }) {
     const isSafe = projectedActual !== null && projectedActual >= 85;
 
     return (
-        <div className="mt-4 pt-4 border-t border-slate-100">
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.12em] mb-2">Bunk Simulator</p>
+        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700/60">
+            <p className="text-[9px] font-black text-slate-400 dark:text-slate-400 uppercase tracking-[0.12em] mb-2">Detailed Simulator</p>
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                     <select
                         value={selectedComp}
                         onChange={(e) => setSelectedComp(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 font-semibold focus:outline-none focus:border-indigo-400 cursor-pointer"
+                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 font-semibold focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 cursor-pointer"
                     >
                         {availableComps.map(c => (
                             <option key={c.id} value={c.id}>{c.label}</option>
@@ -135,34 +314,34 @@ function BunkSimulator({ subject }) {
                         placeholder="Classes bunked..."
                         value={bunkInput}
                         onChange={(e) => setBunkInput(e.target.value)}
-                        className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-700 font-semibold placeholder:text-slate-400 focus:outline-none focus:border-indigo-400"
+                        className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500"
                     />
                 </div>
                 {projectedActual !== null && (
                     <div className="flex items-center gap-2 mt-1.5">
-                        <span className={`text-sm font-black tabular-nums ${isSafe ? 'text-emerald-700' : 'text-red-600'}`}>
+                        <span className={`text-sm font-black tabular-nums ${isSafe ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-rose-400'}`}>
                             {projectedActual}%
                         </span>
                         {projectedExact !== null && projectedExact !== projectedActual && (
-                            <span className="text-[10px] font-semibold text-slate-400 font-mono">
+                            <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 font-mono">
                                 ({projectedExact}%)
                             </span>
                         )}
                         <span
                             className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ring-1 ${
                                 isSafe
-                                    ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-                                    : 'bg-red-50 text-red-600 ring-red-200'
+                                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 ring-emerald-200 dark:ring-emerald-800'
+                                    : 'bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-rose-400 ring-red-200 dark:ring-red-800'
                             }`}
                         >
                             {isSafe ? 'Safe' : 'Danger'}
                         </span>
                     </div>
                 )}
-                <p className="text-[10px] text-slate-400 italic font-medium mt-2">
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 italic font-medium mt-2">
                     * Note: 1 = 50 mins, 2 = 1.50 (1 hr 50m). Enter 2 if skipping a double period / lab session.
                 </p>
-                <p className="text-[10px] text-slate-400 italic font-medium">
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 italic font-medium">
                     * The percentage drops differently depending on component weight (e.g. Lecture drops more than Skill).
                 </p>
             </div>
@@ -182,22 +361,61 @@ const AttendanceRegister = () => {
     const [debugHtml, setDebugHtml] = useState(null);
     const [fetchError, setFetchError] = useState(null);
     const [showDashboard, setShowDashboard] = useState(false);
+    const [cachedSummary, setCachedSummary] = useState(null);
+    const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
     const navigate = useNavigate();
 
+    // Check for cached attendance data for instant 0.1s offline loading
     useEffect(() => {
         const html = localStorage.getItem('erpDashboardHtml');
         
-        // Always start on the selection form after login or refresh
-        // to satisfy the "it should ask like" requirement.
         setShowDashboard(false);
 
         if (!html) {
             navigate('/login');
         }
 
+        try {
+            const raw = localStorage.getItem(storageKey) || localStorage.getItem('kleData');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                const list = parsed.attendance_data || (Array.isArray(parsed) ? parsed : null);
+                if (list && list.length > 0) {
+                    setCachedSummary({
+                        count: list.length,
+                        year: parsed.year || '2026-2027',
+                        semester: parsed.semester || 'Odd',
+                        savedAt: parsed.savedAt ? new Date(parsed.savedAt).toLocaleDateString() : null,
+                        data: list
+                    });
+
+                    // If student is currently offline, automatically load the cached data in 0.1s
+                    if (!navigator.onLine) {
+                        setSubjects(list);
+                        if (parsed.year) setYear(parsed.year);
+                        if (parsed.semester) setSemester(parsed.semester);
+                        setShowDashboard(true);
+                        setIsOfflineMode(true);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[Cache] Could not parse local attendance cache:', e);
+        }
+
         // Cleanup any old flags
         sessionStorage.removeItem('manual_sem_reset');
     }, [navigate, storageKey]);
+
+    const loadFromCache = () => {
+        if (cachedSummary?.data) {
+            setSubjects(cachedSummary.data);
+            if (cachedSummary.year) setYear(cachedSummary.year);
+            if (cachedSummary.semester) setSemester(cachedSummary.semester);
+            setShowDashboard(true);
+            setIsOfflineMode(true);
+        }
+    };
 
     const handleSearch = async (fetchYear = year, fetchSemester = semester) => {
         if (!fetchYear || !fetchSemester) { 
@@ -207,12 +425,26 @@ const AttendanceRegister = () => {
         setLoading(true); 
         setDebugHtml(null);
         setFetchError(null);
+        setIsOfflineMode(false);
         try {
             const data = await erpService.fetchAttendance(fetchYear, fetchSemester);
             setSubjects(data);
             setShowDashboard(true);
-            // Save fetched data to standard location for persistence
-            localStorage.setItem(storageKey, JSON.stringify({ attendance_data: data }));
+            // Save fetched data with metadata to standard location for offline persistence
+            const cachePayload = {
+                attendance_data: data,
+                year: fetchYear,
+                semester: fetchSemester,
+                savedAt: Date.now()
+            };
+            localStorage.setItem(storageKey, JSON.stringify(cachePayload));
+            setCachedSummary({
+                count: data.length,
+                year: fetchYear,
+                semester: fetchSemester,
+                savedAt: new Date().toLocaleDateString(),
+                data: data
+            });
             setYear(fetchYear);
             setSemester(fetchSemester);
         } catch (error) {
@@ -225,6 +457,13 @@ const AttendanceRegister = () => {
                 setShowDashboard(true); 
             }
             else {
+                // If offline or network drop occurred during fetch, try to fall back to cache
+                if (cachedSummary?.data) {
+                    setSubjects(cachedSummary.data);
+                    setShowDashboard(true);
+                    setIsOfflineMode(true);
+                    return;
+                }
                 setFetchError(error.message || 'Failed to fetch attendance. Please verify your login status.');
             }
         } finally { setLoading(false); }
@@ -235,12 +474,7 @@ const AttendanceRegister = () => {
         setSubjects([]);
         setDebugHtml(null);
         setFetchError(null);
-        setYear('');
-        setSemester('');
-        if (activeId) {
-            localStorage.removeItem(`kleData_${activeId}`);
-        }
-        localStorage.removeItem('kleData');
+        setIsOfflineMode(false);
     };
 
     const handleLogoutAction = async () => {
@@ -248,6 +482,9 @@ const AttendanceRegister = () => {
             await logout();
             localStorage.removeItem('erpDashboardHtml');
             localStorage.removeItem('kleData');
+            if (activeId) {
+                localStorage.removeItem(`kleData_${activeId}`);
+            }
             navigate('/login');
         } catch (e) { console.error(e); }
     };
@@ -255,24 +492,33 @@ const AttendanceRegister = () => {
     // ── DASHBOARD VIEW ──────────────────────────────────────────────
     if (showDashboard) {
         return (
-            <div className="min-h-screen bg-slate-50 pt-20 pb-6 px-4 sm:px-6 font-sans">
-                <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30" />
+            <div className="min-h-screen bg-slate-50 dark:bg-[#0b1120] pt-20 pb-6 px-4 sm:px-6 font-sans transition-colors duration-200">
+                <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 dark:from-[#0b1120] dark:via-[#0f172a] dark:to-[#0b1120]" />
 
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 max-w-7xl mx-auto">
                     <div>
-                        <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-                            Attendance <span className="text-indigo-600">Dashboard</span>
-                        </h1>
-                        <p className="text-slate-400 text-sm mt-0.5 font-medium">
+                        <div className="flex items-center gap-3">
+                            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                                Attendance <span className="text-indigo-600 dark:text-indigo-400">Dashboard</span>
+                            </h1>
+                            {isOfflineMode && (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                    <WifiOff className="w-3.5 h-3.5" />
+                                    <span>Offline Mode</span>
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-slate-400 dark:text-slate-400 text-sm mt-0.5 font-medium">
                             {year && semester ? `${year} · ${semester} Semester` : 'Current Session'}
+                            {isOfflineMode && ' · Cached Local Copy'}
                         </p>
                     </div>
                     <div className="flex gap-2 w-full sm:w-auto">
-                        <button onClick={handleBack} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl hover:bg-indigo-100 hover:text-indigo-800 transition-colors text-sm font-bold shadow-sm flex items-center justify-center gap-2">
+                        <button onClick={handleBack} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-50 dark:bg-slate-800 border border-indigo-100 dark:border-slate-700 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 dark:hover:bg-slate-700 transition-colors text-sm font-bold shadow-sm flex items-center justify-center gap-2 cursor-pointer">
                             <ArrowLeft className="w-4 h-4" /> Back to Selection
                         </button>
-                        <button onClick={handleLogoutAction} className="flex-1 sm:flex-none px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-100 text-sm font-bold">
+                        <button onClick={handleLogoutAction} className="flex-1 sm:flex-none px-4 py-2 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-rose-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/60 transition-all flex items-center justify-center gap-2 border border-red-100 dark:border-red-900/50 text-sm font-bold cursor-pointer">
                             <LogOut className="w-4 h-4" />Logout
                         </button>
                     </div>
@@ -280,9 +526,9 @@ const AttendanceRegister = () => {
 
                 {/* Debug view */}
                 {debugHtml && (
-                    <div className="max-w-7xl mx-auto mb-6 bg-white border border-red-200 rounded-2xl p-6 shadow-sm">
+                    <div className="max-w-7xl mx-auto mb-6 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900/50 rounded-2xl p-6 shadow-sm">
                         <h2 className="text-red-500 font-bold mb-4">Debug Output</h2>
-                        <textarea readOnly className="w-full h-64 bg-slate-50 text-slate-700 font-mono text-xs p-4 rounded-xl border border-slate-200" value={debugHtml} />
+                        <textarea readOnly className="w-full h-64 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-200 font-mono text-xs p-4 rounded-xl border border-slate-200 dark:border-slate-800" value={debugHtml} />
                     </div>
                 )}
 
@@ -292,6 +538,7 @@ const AttendanceRegister = () => {
                         {subjects.map((subject, index) => {
                             const pct = subject.percent;
                             const status = getStatusLabel(pct);
+                            const quickBunk = getQuickBunkBadge(subject);
 
                             return (
                                 <motion.div
@@ -299,17 +546,17 @@ const AttendanceRegister = () => {
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: index * 0.03 }}
-                                    className="bg-white border-2 border-slate-900 rounded-2xl overflow-hidden shadow hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+                                    className="bg-white dark:bg-[#1e293b] border-2 border-slate-900 dark:border-slate-700/60 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 hover:dark:border-indigo-500/50"
                                 >
                                     {/* Top color strip */}
                                     <div className={`h-1.5 w-full ${getBgStrip(pct)}`} />
 
                                     <div className="p-5">
                                         {/* Title row */}
-                                        <div className="flex justify-between items-start gap-4 mb-4">
+                                        <div className="flex justify-between items-start gap-4 mb-3">
                                             <div className="flex-1 min-w-0">
-                                                <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide leading-snug">{subject.title}</h3>
-                                                <p className="text-slate-400 text-[11px] mt-0.5 font-mono">{subject.code}</p>
+                                                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wide leading-snug">{subject.title}</h3>
+                                                <p className="text-slate-400 dark:text-slate-400 text-[11px] mt-0.5 font-mono">{subject.code}</p>
                                             </div>
                                             <div className="text-right shrink-0">
                                                 <div className={`text-3xl font-black tabular-nums leading-none ${getColor(pct)}`}>{pct}%</div>
@@ -319,34 +566,47 @@ const AttendanceRegister = () => {
                                             </div>
                                         </div>
 
-                                        <div className="border-t border-slate-100 mb-4" />
+                                        {/* 🎯 "Safe Bunk" Quick Badge on the Dashboard */}
+                                        {quickBunk && (
+                                            <div className="mb-4 flex flex-wrap items-center gap-2">
+                                                <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black tracking-wide ${quickBunk.cls}`}>
+                                                    <span className={`w-2 h-2 rounded-full ${quickBunk.dotColor} animate-pulse`} />
+                                                    <span>{quickBunk.badgeText}</span>
+                                                </div>
+                                                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-400">
+                                                    {quickBunk.subText}
+                                                </span>
+                                            </div>
+                                        )}
+
+                                        <div className="border-t border-slate-100 dark:border-slate-700/60 mb-4" />
 
                                         <div className="flex flex-col gap-5">
                                             {/* Components */}
                                             <div>
-                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.12em] mb-2.5">Components</p>
+                                                <p className="text-[9px] font-black text-slate-400 dark:text-slate-400 uppercase tracking-[0.12em] mb-2.5">Components</p>
                                                 <div className="space-y-1.5">
                                                     {subject.components && Object.entries(subject.components).map(([compName, compData]) => (
                                                         <div key={compName} className="flex justify-between items-center gap-2">
-                                                            <span className="text-slate-600 text-xs font-medium">
+                                                            <span className="text-slate-600 dark:text-slate-300 text-xs font-medium">
                                                                 {compName === 'L' ? 'Lecture' : compName === 'P' ? 'Practical' : compName === 'T' ? 'Tutorial' : compName === 'S' ? 'Skill' : compName}
                                                             </span>
                                                             <div className="flex items-center gap-1 shrink-0">
-                                                                <span className="text-slate-900 text-xs font-bold font-mono">{compData.attended}/{compData.conducted}</span>
+                                                                <span className="text-slate-900 dark:text-white text-xs font-bold font-mono">{compData.attended}/{compData.conducted}</span>
                                                                 <span className={`text-[10px] font-semibold ${getColor(compData.percent)}`}>({compData.percent}%)</span>
                                                             </div>
                                                         </div>
                                                     ))}
                                                     {(!subject.components || Object.keys(subject.components).length === 0) && (
                                                         <div className="flex justify-between items-center">
-                                                            <span className="text-slate-600 text-xs font-medium">Classes</span>
-                                                            <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended}</span>
+                                                            <span className="text-slate-600 dark:text-slate-300 text-xs font-medium">Classes</span>
+                                                            <span className="text-slate-900 dark:text-white text-xs font-bold font-mono">{subject.attended}</span>
                                                         </div>
                                                     )}
                                                     {subject.components && Object.keys(subject.components).length > 0 && (
-                                                        <div className="flex justify-between items-center pt-2 border-t border-slate-100 mt-1">
-                                                            <span className="text-slate-700 text-xs font-bold">Total (Raw)</span>
-                                                            <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended}</span>
+                                                        <div className="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700/60 mt-1">
+                                                            <span className="text-slate-700 dark:text-slate-300 text-xs font-bold">Total (Raw)</span>
+                                                            <span className="text-slate-900 dark:text-white text-xs font-bold font-mono">{subject.attended}</span>
                                                         </div>
                                                     )}
                                                 </div>
@@ -364,25 +624,25 @@ const AttendanceRegister = () => {
                     <motion.div 
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="max-w-2xl mx-auto bg-white border-2 border-slate-900 rounded-[2.5rem] p-12 text-center shadow-xl"
+                        className="max-w-2xl mx-auto bg-white dark:bg-[#1e293b] border-2 border-slate-900 dark:border-slate-700/60 rounded-[2.5rem] p-12 text-center shadow-xl"
                     >
-                        <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                            <BookOpen className="w-10 h-10 text-slate-300" />
+                        <div className="w-20 h-20 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                            <BookOpen className="w-10 h-10 text-slate-300 dark:text-slate-500" />
                         </div>
-                        <h2 className="text-2xl font-black text-slate-900 mb-2">No Courses Found for {year} ({semester} Sem)</h2>
-                        <p className="text-slate-500 font-medium max-w-md mx-auto mb-6">
+                        <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-2">No Courses Found for {year} ({semester} Sem)</h2>
+                        <p className="text-slate-500 dark:text-slate-400 font-medium max-w-md mx-auto mb-6">
                             We couldn&apos;t find any registered courses for {year} {semester} semester on KL ERP. Your registered courses may be under another academic year.
                         </p>
                         <div className="flex flex-wrap gap-3 justify-center">
                             <button
                                 onClick={() => handleSearch('2025-2026', 'Odd')}
-                                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all"
+                                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
                             >
                                 Try 2025-2026 Odd Sem
                             </button>
                             <button
                                 onClick={handleBack}
-                                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all"
+                                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition-all cursor-pointer"
                             >
                                 Change Selection
                             </button>
@@ -395,35 +655,61 @@ const AttendanceRegister = () => {
 
     // ── SELECTION FORM ───────────────────────────────────────────────
     return (
-        <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center py-16 px-4 font-sans relative selection:bg-indigo-500 selection:text-white">
+        <div className="min-h-screen bg-[#FAFAFA] dark:bg-[#0b1120] flex items-center justify-center py-16 px-4 font-sans relative selection:bg-indigo-500 selection:text-white transition-colors duration-200">
             <div className="fixed inset-0 pointer-events-none overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
-                <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }} transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
-                    className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 blur-[150px]" />
-                <motion.div animate={{ x: [0, 100, 0], opacity: [0.2, 0.4, 0.2] }} transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
-                    className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 blur-[150px]" />
+                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white dark:from-[#0b1120] dark:to-[#0f172a] opacity-80" />
+                <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }} transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
+                    className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-slate-900/30 blur-[150px]" />
+                <motion.div animate={{ x: [0, 100, 0], opacity: [0.15, 0.3, 0.15] }} transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
+                    className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 dark:from-blue-950/30 dark:via-indigo-950/30 dark:to-slate-900/30 blur-[150px]" />
             </div>
 
             <div className="w-full max-w-md relative z-10">
                 <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 200, damping: 25 }}
-                    className="bg-white/80 backdrop-blur-xl border-2 border-slate-900 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden">
+                    className="bg-white/80 dark:bg-[#1e293b]/95 backdrop-blur-xl border-2 border-slate-900 dark:border-slate-700/70 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden">
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500 rounded-t-[2.5rem]" />
 
-                    <div className="text-center mb-8 relative z-10">
+                    <div className="text-center mb-6 relative z-10">
                         <motion.div initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', stiffness: 200, damping: 20, delay: 0.1 }}
-                            className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200">
+                            className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 dark:shadow-indigo-950">
                             <BookOpen className="w-8 h-8 text-white" />
                         </motion.div>
-                        <h1 className="text-2xl font-black text-slate-900 tracking-tight">KL ERP Attendance</h1>
-                        <p className="text-slate-500 text-sm font-medium mt-1">Select your Academic Year and Semester</p>
+                        <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">KL ERP Attendance</h1>
+                        <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">Select your Academic Year and Semester</p>
                     </div>
+
+                    {/* 📱 0.1s Fast Offline Cache Card (Hidden on mobile) */}
+                    {cachedSummary && (
+                        <div className="hidden sm:flex mb-5 p-3.5 bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl items-center justify-between gap-3 shadow-xs">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="w-8 h-8 rounded-xl bg-emerald-600 dark:bg-emerald-500/20 text-white dark:text-emerald-400 flex items-center justify-center shrink-0">
+                                    <Zap className="w-4 h-4 animate-pulse" />
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-xs font-black text-slate-900 dark:text-white truncate">
+                                        Offline Cache Ready
+                                    </p>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                        {cachedSummary.year} · {cachedSummary.semester} ({cachedSummary.count} subjects)
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={loadFromCache}
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shrink-0 transition-all shadow-md active:scale-95 cursor-pointer"
+                            >
+                                Open 0.1s
+                            </button>
+                        </div>
+                    )}
 
                     <div className="space-y-5 relative z-10">
                         <div className="space-y-1.5">
-                            <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
+                            <label className="text-slate-600 dark:text-slate-300 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
                             <div className="relative">
                                 <select value={year} onChange={e => setYear(e.target.value)}
-                                    className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
+                                    className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 px-5 text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950 transition-all font-medium cursor-pointer">
                                     <option value="">Select Academic Year</option>
                                     <option value="2026-2027">2026-2027</option>
                                     <option value="2025-2026">2025-2026</option>
@@ -439,10 +725,10 @@ const AttendanceRegister = () => {
                         </div>
 
                         <div className="space-y-1.5">
-                            <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Semester</label>
+                            <label className="text-slate-600 dark:text-slate-300 text-xs font-bold uppercase tracking-widest ml-1">Semester</label>
                             <div className="relative">
                                 <select value={semester} onChange={e => setSemester(e.target.value)}
-                                    className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
+                                    className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 px-5 text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950 transition-all font-medium cursor-pointer">
                                     <option value="">Select Semester</option>
                                     <option value="Odd">Odd Sem</option>
                                     <option value="Even">Even Sem</option>
@@ -457,12 +743,12 @@ const AttendanceRegister = () => {
                             <motion.div 
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
-                                className="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-start gap-3"
+                                className="bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/60 rounded-2xl p-4 flex items-start gap-3"
                             >
-                                <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                                    <span className="text-red-600 text-xs font-black">!</span>
+                                <div className="w-5 h-5 bg-red-100 dark:bg-red-900/50 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                                    <span className="text-red-600 dark:text-rose-400 text-xs font-black">!</span>
                                 </div>
-                                <p className="text-xs font-bold text-red-700 leading-relaxed">
+                                <p className="text-xs font-bold text-red-700 dark:text-rose-300 leading-relaxed">
                                     {fetchError}
                                 </p>
                             </motion.div>
@@ -470,19 +756,19 @@ const AttendanceRegister = () => {
 
                         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                             onClick={() => handleSearch(year, semester)} disabled={loading}
-                            className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl shadow-xl shadow-slate-900/20 hover:bg-slate-800 transition-all mt-2 flex items-center justify-center gap-2">
+                            className="w-full bg-slate-900 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold py-4 rounded-2xl shadow-xl shadow-slate-900/20 dark:shadow-indigo-600/25 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer">
                             {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Get Attendance'}
                         </motion.button>
 
                         <div className="text-center pt-1">
-                            <button onClick={handleLogoutAction} className="text-slate-400 text-sm font-semibold hover:text-slate-700 transition-colors">
+                            <button onClick={handleLogoutAction} className="text-slate-400 dark:text-slate-400 text-sm font-semibold hover:text-slate-700 dark:hover:text-slate-300 transition-colors cursor-pointer">
                                 Back to Login
                             </button>
                         </div>
                     </div>
 
-                    <div className="mt-6 pt-4 border-t border-slate-100 relative z-10">
-                        <p className="text-slate-400 text-[10px] text-center font-medium leading-relaxed">
+                    <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-700/60 relative z-10">
+                        <p className="text-slate-400 dark:text-slate-400 text-[10px] text-center font-medium leading-relaxed">
                             This connects to the university ERP system. Your credentials are processed securely.
                         </p>
                     </div>

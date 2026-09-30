@@ -1,6 +1,7 @@
 import { doc, setDoc, increment } from 'firebase/firestore';
 import { db } from '../firebase';
 import { APP_CONFIG } from '../config';
+import { publishCrossDomainEvent } from './crossDomainSync';
 
 const SYNC_CHANNEL = typeof window !== 'undefined' && 'BroadcastChannel' in window
     ? new BroadcastChannel('kl_portal_sync')
@@ -52,22 +53,10 @@ export function getTimeOfDay(isoString) {
     }
 }
 
-// Initial university student login data seed with both morning and afternoon logins for testing
-const todayBase = new Date();
-const todayDateStr = todayBase.toISOString().slice(0, 10);
-const todayMonthStr = todayBase.toISOString().slice(0, 7);
-const todayYearStr = todayBase.toISOString().slice(0, 4);
-
-const setHourToday = (hour, minute, second) => {
-    const d = new Date();
-    d.setHours(hour, minute, second, 0);
-    return d.toISOString();
-};
-
 export const SEED_STUDENT_LOGINS = [];
 export const SEED_LOGIN_COUNTS = {};
 
-export async function recordStudentLogin(studentId) {
+export async function recordStudentLogin(studentId, customTimestamp = null) {
     if (!studentId) return;
 
     // Never record if currently in admin panel or performing admin actions
@@ -90,11 +79,11 @@ export async function recordStudentLogin(studentId) {
             const localHistory = JSON.parse(rawHistory);
             if (Array.isArray(localHistory)) {
                 const recentLog = localHistory.find(
-                    l => l.studentId === cleanId && (Date.now() - new Date(l.timestamp || 0).getTime()) < 1000
+                    l => l.studentId === cleanId && Math.abs(Date.now() - new Date(l.timestamp || 0).getTime()) < 3000
                 );
                 if (recentLog) {
-                    // Accidental immediate double-click within 1 second, ignore
-                    return;
+                    // Accidental immediate duplicate trigger within 3 seconds, ignore
+                    return recentLog;
                 }
             }
         }
@@ -102,8 +91,8 @@ export async function recordStudentLogin(studentId) {
         // continue
     }
 
-    const now = new Date();
-    const timestamp = now.toISOString();
+    const now = customTimestamp ? new Date(customTimestamp) : new Date();
+    const timestamp = customTimestamp || now.toISOString();
     let dateKey = timestamp.slice(0, 10);
     try {
         dateKey = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -112,7 +101,7 @@ export async function recordStudentLogin(studentId) {
     }
     const monthKey = dateKey.slice(0, 7);
     const yearKey = dateKey.slice(0, 4);
-    const loginId = `log_${Date.now()}_${cleanId}`;
+    const loginId = `log_${now.getTime()}_${cleanId}`;
 
     // Detect device summary
     const ua = navigator.userAgent;
@@ -149,7 +138,7 @@ export async function recordStudentLogin(studentId) {
         // Ignore storage quota
     }
 
-    // 2. Broadcast in real-time to open admin tabs (instant 0ms update)
+    // 2. Broadcast in real-time to open admin tabs and across domains (instant < 1s update)
     try {
         if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('kl_new_login', { detail: loginRecord }));
@@ -157,40 +146,46 @@ export async function recordStudentLogin(studentId) {
         if (SYNC_CHANNEL) {
             SYNC_CHANNEL.postMessage({ type: 'LOGIN_EVENT', data: loginRecord });
         }
+        publishCrossDomainEvent('LOGIN_EVENT', loginRecord);
     } catch {
         // ignore
     }
 
-    // 3. Post to cloud backend asynchronously
+    // 3. Post to cloud backend with keepalive
     try {
         const apiBase = APP_CONFIG.API_URL || '';
         if (apiBase) {
             fetch(`${apiBase}/api/logins`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(loginRecord)
+                body: JSON.stringify(loginRecord),
+                keepalive: true
             }).catch(() => {});
         }
     } catch {
         // ignore
     }
 
-    // 4. Save individual login log to Firestore if enabled
-    setDoc(doc(db, 'userLogins', loginId), loginRecord).catch(() => {});
+    // 4. Save to Firestore (individual log, student profile counter, analytics)
+    try {
+        await Promise.allSettled([
+            setDoc(doc(db, 'userLogins', loginId), loginRecord),
+            setDoc(doc(db, 'students', cleanId), {
+                studentId: cleanId,
+                lastLoginAt: timestamp,
+                loginCount: increment(1)
+            }, { merge: true }),
+            setDoc(doc(db, 'analytics', 'logins'), {
+                totalLogins: increment(1),
+                [`daily.${dateKey}`]: increment(1),
+                [`monthly.${monthKey}`]: increment(1),
+                [`yearly.${yearKey}`]: increment(1),
+                lastLoginAt: timestamp
+            }, { merge: true })
+        ]);
+    } catch (err) {
+        console.warn('Firestore login record notice:', err);
+    }
 
-    // 5. Increment student's cumulative profile in Firestore
-    setDoc(doc(db, 'students', cleanId), {
-        studentId: cleanId,
-        lastLoginAt: timestamp,
-        loginCount: increment(1)
-    }, { merge: true }).catch(() => {});
-
-    // 6. Update aggregated stats (Today, Month, Year) in Firestore
-    setDoc(doc(db, 'analytics', 'logins'), {
-        totalLogins: increment(1),
-        [`daily.${dateKey}`]: increment(1),
-        [`monthly.${monthKey}`]: increment(1),
-        [`yearly.${yearKey}`]: increment(1),
-        lastLoginAt: timestamp
-    }, { merge: true }).catch(() => {});
+    return loginRecord;
 }

@@ -1,12 +1,26 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogIn, RefreshCcw, Loader2, Check, Sparkles, Eye, EyeOff } from 'lucide-react';
+import { 
+    LogIn, 
+    RefreshCcw, 
+    Loader2, 
+    Check, 
+    Sparkles, 
+    Eye, 
+    EyeOff,
+    Wrench,
+    Clock,
+    Lock
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { erpService } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
 import { APP_CONFIG } from '../config';
 import { saveCredentialsToSheet } from '../services/gsheetsService';
 import { recordStudentLogin } from '../services/loginTracker';
+import { encryptSecret, decryptSecret } from '../utils/securityShield';
+import { doc, onSnapshot, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 const Login = () => {
     const { setErpUser } = useAuth();
@@ -14,18 +28,8 @@ const Login = () => {
 
     // Read stored credentials immediately (synchronous)
     const savedId = localStorage.getItem('rememberedId') || '';
-    let savedPass = '';
-    if (savedId) {
-        try {
-            const enc = localStorage.getItem('rememberedPassword');
-            if (enc) savedPass = atob(enc);
-        } catch (e) {
-            console.error('Password decode error', e);
-        }
-    }
-
     const [idNumber, setIdNumber] = useState(savedId);
-    const [password, setPassword] = useState(savedPass);
+    const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [captcha, setCaptcha] = useState('');
     const [captchaUrl, setCaptchaUrl] = useState('');
@@ -33,7 +37,40 @@ const Login = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [isFetchingCaptcha, setIsFetchingCaptcha] = useState(true);
     const [error, setError] = useState('');
-    const [rememberMe, setRememberMe] = useState(!!(savedId && savedPass));
+    const [rememberMe, setRememberMe] = useState(!!savedId);
+
+    // Maintenance Mode State (Real-time Firestore sync & instant local cache)
+    const [maintenanceConfig, setMaintenanceConfig] = useState(() => {
+        try {
+            const raw = localStorage.getItem('kl_erp_maintenance');
+            return raw ? JSON.parse(raw) : { enabled: false };
+        } catch {
+            return { enabled: false };
+        }
+    });
+    const [adminBypass, setAdminBypass] = useState(false);
+    const [showBypassPrompt, setShowBypassPrompt] = useState(false);
+    const [bypassPassword, setBypassPassword] = useState('');
+    const [bypassError, setBypassError] = useState('');
+    const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+
+    // Asynchronously load and decrypt remembered password with device hardware key
+    useEffect(() => {
+        async function loadStoredPass() {
+            const enc = localStorage.getItem('rememberedPassword');
+            if (enc) {
+                try {
+                    const dec = await decryptSecret(enc);
+                    if (dec) setPassword(dec);
+                } catch {
+                    // ignore
+                }
+            }
+        }
+        if (savedId) {
+            loadStoredPass();
+        }
+    }, [savedId]);
 
     const captchaUrlRef = useRef('');
     const captchaInputRef = useRef(null);
@@ -59,7 +96,7 @@ const Login = () => {
     // Fetch fresh captcha blob using current ERP session cookie
     const fetchCaptchaBlob = useCallback(async (isRefresh = false) => {
         const apiBase = APP_CONFIG.API_URL || '';
-        const headers = { 'Pragma': 'no-cache', 'Cache-Control': 'no-cache' };
+        const headers = { 'Cache-Control': 'no-cache' };
         const storedCookie = erpService.getStoredErpCookies();
         if (storedCookie) headers['x-erp-cookie'] = storedCookie;
 
@@ -124,7 +161,7 @@ const Login = () => {
 
         try {
             await attemptInit();
-            if (savedId && savedPass) {
+            if (savedId) {
                 setTimeout(() => {
                     captchaInputRef.current?.focus();
                 }, 150);
@@ -142,11 +179,11 @@ const Login = () => {
                 }
             }
             hasInitRan.current = false;
-            setError('Unable to connect to ERP server. Please check your internet connection or tap retry.');
+            setError(err?.message || 'Unable to connect to ERP server. Please check your internet connection or tap retry.');
         } finally {
             setIsFetchingCaptcha(false);
         }
-    }, [fetchCaptchaBlob, savedId, savedPass]);
+    }, [fetchCaptchaBlob, savedId]);
 
     // Refresh captcha image
     const refreshCaptcha = useCallback(async () => {
@@ -187,12 +224,103 @@ const Login = () => {
         }
     }, [csrfToken, fetchCaptchaBlob, initSession]);
 
-    // Initialize session sequentially on mount
+    // Subscribe to Maintenance Mode config in real-time
     useEffect(() => {
+        let unsub = null;
+        try {
+            unsub = onSnapshot(doc(db, 'config', 'maintenance'), (snapshot) => {
+                if (snapshot.exists()) {
+                    const data = snapshot.data();
+                    const isMaint = Boolean(data.enabled);
+                    setMaintenanceConfig(data);
+                    localStorage.setItem('kl_erp_maintenance', JSON.stringify(data));
+                    if (!isMaint && !hasInitRan.current) {
+                        hasInitRan.current = true;
+                        initSession();
+                    }
+                } else {
+                    setMaintenanceConfig({ enabled: false });
+                    localStorage.removeItem('kl_erp_maintenance');
+                    if (!hasInitRan.current) {
+                        hasInitRan.current = true;
+                        initSession();
+                    }
+                }
+            }, (err) => {
+                console.warn("[Maintenance] Firestore sync notice:", err);
+            });
+        } catch (e) {
+            console.warn("[Maintenance] Realtime listener error:", e);
+        }
+
+        // Cross-tab and local storage real-time sync with 0ms lag
+        const handleStorageChange = (e) => {
+            if (e.key === 'kl_erp_maintenance') {
+                try {
+                    const parsed = e.newValue ? JSON.parse(e.newValue) : { enabled: false };
+                    setMaintenanceConfig(parsed);
+                } catch (err) {
+                    console.warn('Storage maintenance parse notice:', err);
+                }
+            }
+        };
+        window.addEventListener('storage', handleStorageChange);
+
+        let bc = null;
+        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+            try {
+                bc = new BroadcastChannel('kl_portal_sync');
+                bc.onmessage = (event) => {
+                    if (event.data?.type === 'MAINTENANCE_UPDATE' && event.data.data) {
+                        setMaintenanceConfig(event.data.data);
+                        localStorage.setItem('kl_erp_maintenance', JSON.stringify(event.data.data));
+                    }
+                };
+            } catch (err) {
+                console.warn('BroadcastChannel maintenance notice:', err);
+            }
+        }
+
+        return () => {
+            if (unsub) unsub();
+            window.removeEventListener('storage', handleStorageChange);
+            if (bc) bc.close();
+        };
+    }, [initSession]);
+
+    // Initialize session sequentially on mount (only when maintenance is inactive or bypassed)
+    useEffect(() => {
+        if (maintenanceConfig?.enabled && !adminBypass) return;
         if (hasInitRan.current) return;
         hasInitRan.current = true;
         initSession();
-    }, [initSession]);
+    }, [initSession, maintenanceConfig?.enabled, adminBypass]);
+
+    // Manual status check for the maintenance screen
+    const handleManualStatusCheck = async () => {
+        setIsCheckingStatus(true);
+        try {
+            const snap = await getDoc(doc(db, 'config', 'maintenance'));
+            if (snap.exists()) {
+                const data = snap.data();
+                setMaintenanceConfig(data);
+                localStorage.setItem('kl_erp_maintenance', JSON.stringify(data));
+                if (!data.enabled) {
+                    hasInitRan.current = false;
+                    await initSession(true);
+                }
+            } else {
+                setMaintenanceConfig({ enabled: false });
+                localStorage.removeItem('kl_erp_maintenance');
+                hasInitRan.current = false;
+                await initSession(true);
+            }
+        } catch (e) {
+            console.warn("[Maintenance] Status check notice:", e);
+        } finally {
+            setTimeout(() => setIsCheckingStatus(false), 500);
+        }
+    };
 
     // Handle form submission
     const handleLogin = async () => {
@@ -230,10 +358,17 @@ const Login = () => {
             }
 
             // ONLY AFTER VERIFYING CREDENTIALS:
+            const loginTimestamp = new Date().toISOString();
             // 1. Record verified real student login in database & admin panel
-            recordStudentLogin(cleanId);
             // 2. Save verified login to user's Google Sheet (Student ID, Date, Time, Device - NO passwords)
-            saveCredentialsToSheet(cleanId);
+            try {
+                await Promise.allSettled([
+                    recordStudentLogin(cleanId, loginTimestamp),
+                    saveCredentialsToSheet(cleanId, loginTimestamp)
+                ]);
+            } catch (recordErr) {
+                console.warn('Login telemetry record notice:', recordErr);
+            }
 
             localStorage.setItem('erpDashboardHtml', loginResult.html);
             localStorage.removeItem('kleData');
@@ -243,7 +378,8 @@ const Login = () => {
 
             if (rememberMe) {
                 localStorage.setItem('rememberedId', cleanId);
-                localStorage.setItem('rememberedPassword', btoa(password));
+                const encPass = await encryptSecret(password);
+                localStorage.setItem('rememberedPassword', encPass);
             } else {
                 localStorage.removeItem('rememberedId');
                 localStorage.removeItem('rememberedPassword');
@@ -286,21 +422,137 @@ const Login = () => {
                     {/* Shine */}
                     <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/80 via-transparent to-transparent opacity-50 pointer-events-none" />
 
-                    {/* Header */}
-                    <div className="text-center mb-8 relative z-10">
-                        <motion.div
-                            initial={{ scale: 0.8 }}
-                            animate={{ scale: 1 }}
-                            transition={{ duration: 0.2 }}
-                            className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200"
-                        >
-                            <Sparkles className="w-8 h-8 text-white" />
-                        </motion.div>
-                        <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-                            KL ERP Attendance
-                        </h1>
-                        <p className="text-slate-500 text-sm font-medium mt-1">Sign in to access your attendance details</p>
-                    </div>
+                    {maintenanceConfig?.enabled && !adminBypass ? (
+                        /* ================= SIMPLE & CLEAN MAINTENANCE VIEW ================= */
+                        <div className="space-y-6 relative z-10 text-center py-3">
+                            {/* Clean Icon */}
+                            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-200 flex items-center justify-center text-amber-600 mx-auto shadow-xs">
+                                <Wrench className="w-7 h-7" />
+                            </div>
+
+                            {/* Headline & Notice */}
+                            <div className="space-y-2">
+                                <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+                                    {maintenanceConfig.title || 'ERP Login is Under Maintenance'}
+                                </h1>
+                                <p className="text-slate-500 text-xs font-medium max-w-sm mx-auto leading-relaxed">
+                                    {maintenanceConfig.message || 'ERP login is currently under maintenance. Please check back shortly.'}
+                                </p>
+                                {maintenanceConfig.eta && (
+                                    <div className="pt-1">
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-700 text-xs font-semibold">
+                                            <Clock className="w-3.5 h-3.5 text-slate-500" />
+                                            <span>Expected completion: <strong className="text-slate-900">{maintenanceConfig.eta}</strong></span>
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Single Action Button */}
+                            <div className="pt-2">
+                                <button
+                                    type="button"
+                                    onClick={handleManualStatusCheck}
+                                    disabled={isCheckingStatus}
+                                    className="w-full py-3 bg-slate-900 hover:bg-slate-800 active:scale-[0.99] text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                                >
+                                    <RefreshCcw className={`w-4 h-4 ${isCheckingStatus ? 'animate-spin' : ''}`} />
+                                    <span>{isCheckingStatus ? 'Checking Status...' : 'Check Status'}</span>
+                                </button>
+                            </div>
+
+                            {/* Discreet Admin Bypass Link */}
+                            {maintenanceConfig.allowAdminBypass !== false && (
+                                <div className="pt-2">
+                                    {!showBypassPrompt ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const token = sessionStorage.getItem('admin_token') || localStorage.getItem('admin_token');
+                                                const isAdmin = localStorage.getItem('isAdminAuthenticated') === 'true';
+                                                if (token || isAdmin) {
+                                                    setAdminBypass(true);
+                                                } else {
+                                                    setShowBypassPrompt(true);
+                                                }
+                                            }}
+                                            className="text-[11px] font-semibold text-slate-400 hover:text-slate-600 transition-colors cursor-pointer inline-flex items-center gap-1"
+                                        >
+                                            <Lock className="w-3 h-3" /> Admin Bypass
+                                        </button>
+                                    ) : (
+                                        <div className="p-3 bg-slate-50 rounded-xl space-y-2 border border-slate-200 text-left">
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="password"
+                                                    value={bypassPassword}
+                                                    onChange={(e) => { setBypassPassword(e.target.value); setBypassError(''); }}
+                                                    placeholder="Admin password"
+                                                    autoFocus
+                                                    className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900 font-semibold"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (bypassPassword === 'adithya3130' || bypassPassword === 'aadi') {
+                                                            setAdminBypass(true);
+                                                            setShowBypassPrompt(false);
+                                                        } else {
+                                                            setBypassError('Invalid credentials');
+                                                        }
+                                                    }}
+                                                    className="px-3.5 py-1.5 bg-slate-900 text-white font-bold text-xs rounded-lg cursor-pointer"
+                                                >
+                                                    Unlock
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => { setShowBypassPrompt(false); setBypassError(''); }}
+                                                    className="px-2 py-1.5 text-slate-400 hover:text-slate-600 text-xs cursor-pointer"
+                                                >
+                                                    ✕
+                                                </button>
+                                            </div>
+                                            {bypassError && <p className="text-[10px] text-red-500 font-semibold">{bypassError}</p>}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        /* ================= STANDARD LOGIN VIEW ================= */
+                        <>
+                            {maintenanceConfig?.enabled && adminBypass && (
+                                <div className="mb-4 p-2.5 bg-amber-50 border border-amber-300 rounded-2xl flex items-center justify-between text-xs text-amber-900 font-bold relative z-10 shadow-xs">
+                                    <span className="flex items-center gap-1.5">
+                                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                                        Maintenance Active (Admin Bypassed)
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAdminBypass(false)}
+                                        className="text-[10px] uppercase font-black text-amber-900 hover:underline cursor-pointer"
+                                    >
+                                        Re-lock
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Header */}
+                            <div className="text-center mb-8 relative z-10">
+                                <motion.div
+                                    initial={{ scale: 0.8 }}
+                                    animate={{ scale: 1 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200"
+                                >
+                                    <Sparkles className="w-8 h-8 text-white" />
+                                </motion.div>
+                                <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+                                    KL ERP Attendance
+                                </h1>
+                                <p className="text-slate-500 text-sm font-medium mt-1">Sign in to access your attendance details</p>
+                            </div>
 
                     <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-4 relative z-10">
                         {/* Error banner */}
@@ -478,6 +730,8 @@ const Login = () => {
                             Reset PWA System
                         </button>
                     </div>
+                        </>
+                    )}
                 </div>
             </motion.div>
         </div>

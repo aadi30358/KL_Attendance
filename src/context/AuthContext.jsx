@@ -5,7 +5,7 @@ import { AuthContext } from "./useAuth";
 import { erpService } from "../services/erpService";
 
 export function AuthProvider({ children }) {
-    const [currentUser, setCurrentUser] = useState(null);
+    const [currentUser, setCurrentUser] = useState(() => auth.currentUser || null);
     const [erpUser, setErpUser] = useState(() => {
         try {
             return localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || null;
@@ -13,7 +13,7 @@ export function AuthProvider({ children }) {
             return null;
         }
     });
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(() => !auth.currentUser);
 
     // Sign in with Google
     function signInWithGoogle() {
@@ -52,12 +52,6 @@ export function AuthProvider({ children }) {
     }
 
     useEffect(() => {
-        // Check immediate synchronous auth state if already cached
-        if (auth.currentUser) {
-            setCurrentUser(auth.currentUser);
-            setLoading(false);
-        }
-
         // Safety timer ensures instant UI display (50ms max)
         const timer = setTimeout(() => {
             setLoading(false);
