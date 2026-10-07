@@ -179,11 +179,41 @@ const AttendanceRegister = () => {
     const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
+    const getBatchDetails = useCallback((studentId) => {
+        const idStr = String(studentId || '').trim();
+        if (idStr.length >= 2) {
+            const prefix = idStr.substring(0, 2);
+            const num = parseInt(prefix, 10);
+            if (!isNaN(num) && num >= 15 && num <= 30) {
+                const joinYear = 2000 + num;
+                return {
+                    batchYear: joinYear,
+                    defaultYear: '2025-2026',
+                    activeSemesters: [
+                        { year: '2025-2026', sem: 'Odd', label: '2025-2026 Odd Sem' },
+                        { year: '2025-2026', sem: 'Even', label: '2025-2026 Even Sem' },
+                        { year: '2024-2025', sem: 'Even', label: '2024-2025 Even Sem' },
+                        { year: '2024-2025', sem: 'Odd', label: '2024-2025 Odd Sem' }
+                    ]
+                };
+            }
+        }
+        return {
+            batchYear: null,
+            defaultYear: '2025-2026',
+            activeSemesters: [
+                { year: '2025-2026', sem: 'Odd', label: '2025-2026 Odd Sem' },
+                { year: '2025-2026', sem: 'Even', label: '2025-2026 Even Sem' },
+                { year: '2024-2025', sem: 'Even', label: '2024-2025 Even Sem' },
+                { year: '2024-2025', sem: 'Odd', label: '2024-2025 Odd Sem' }
+            ]
+        };
+    }, []);
+
     const [year, setYear] = useState('2025-2026');
     const [semester, setSemester] = useState('Odd');
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [debugHtml, setDebugHtml] = useState(null);
     const [fetchError, setFetchError] = useState(null);
     const [showDashboard, setShowDashboard] = useState(false);
     const [, setCachedSummary] = useState(null);
@@ -255,14 +285,10 @@ const AttendanceRegister = () => {
         } catch (error) {
             console.warn('[Live Sync] Failed:', error);
             if (!silent) {
-                if (error.message?.startsWith('DEBUG_HTML:')) { 
-                    setDebugHtml(error.message.replace('DEBUG_HTML:', '')); 
-                    setShowDashboard(true); 
-                } else if (error.message?.startsWith('No table found')) { 
-                    setDebugHtml(error.message); 
-                    setShowDashboard(true); 
+                if (error.message?.includes('session has expired') || error.message?.includes('sign in again')) {
+                    setFetchError('Your ERP session has expired. Please sign in again.');
                 } else {
-                    setFetchError(error.message || 'Failed to fetch attendance. Please verify your login status.');
+                    setFetchError(error.message || 'Unable to connect to ERP server. Please try again.');
                 }
             }
         } finally {
@@ -286,14 +312,23 @@ const AttendanceRegister = () => {
             const raw = localStorage.getItem(storageKey) || localStorage.getItem('kleData');
             if (raw) {
                 const parsed = JSON.parse(raw);
-                if (parsed.year) {
+                const hasValidData = Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0;
+                if (parsed.year && (hasValidData || parsed.year !== '2026-2027')) {
                     setYear(parsed.year);
                     yearRef.current = parsed.year;
+                } else {
+                    const info = getBatchDetails(activeId);
+                    setYear(info.defaultYear);
+                    yearRef.current = info.defaultYear;
                 }
                 if (parsed.semester) {
                     setSemester(parsed.semester);
                     semesterRef.current = parsed.semester;
                 }
+            } else {
+                const info = getBatchDetails(activeId);
+                setYear(info.defaultYear);
+                yearRef.current = info.defaultYear;
             }
         } catch (e) {
             console.warn('[Cache] Could not parse local attendance cache:', e);
@@ -302,7 +337,25 @@ const AttendanceRegister = () => {
         // Always start on the Selection Screen after login
         setShowDashboard(false);
         sessionStorage.removeItem('manual_sem_reset');
-    }, [navigate, storageKey]);
+    }, [navigate, storageKey, activeId, getBatchDetails]);
+
+    // ── Instant Selection Screen Reset via Event ─────────────────────
+    useEffect(() => {
+        const handleResetSelection = () => {
+            setShowDashboard(false);
+            setFetchError(null);
+            setSubjects([]);
+            const info = getBatchDetails(activeId);
+            setYear(info.defaultYear);
+            yearRef.current = info.defaultYear;
+            setSemester('Odd');
+            semesterRef.current = 'Odd';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        window.addEventListener('kl_reset_selection', handleResetSelection);
+        return () => window.removeEventListener('kl_reset_selection', handleResetSelection);
+    }, [activeId, getBatchDetails]);
 
     // ── Tab Focus Auto-Sync (throttled to at most once per 60s to prevent lag) ──
     useEffect(() => {
@@ -368,7 +421,6 @@ const AttendanceRegister = () => {
             return; 
         }
         setLoading(true); 
-        setDebugHtml(null);
         setFetchError(null);
         setIsOfflineMode(false);
         setYear(fetchYear);
@@ -384,7 +436,6 @@ const AttendanceRegister = () => {
 
     const handleBack = () => {
         setShowDashboard(false);
-        setDebugHtml(null);
         setFetchError(null);
         setIsOfflineMode(false);
     };
@@ -479,13 +530,7 @@ const AttendanceRegister = () => {
                     </div>
                 </div>
 
-                {/* Debug view */}
-                {debugHtml && (
-                    <div className="max-w-7xl mx-auto mb-6 bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900/50 rounded-2xl p-6 shadow-sm">
-                        <h2 className="text-red-500 font-bold mb-4">Debug Output</h2>
-                        <textarea readOnly className="w-full h-64 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-200 font-mono text-xs p-4 rounded-xl border border-slate-200 dark:border-slate-800" value={debugHtml} />
-                    </div>
-                )}
+
 
                 {/* Cards Grid */}
                 {subjects.length > 0 ? (
@@ -563,29 +608,55 @@ const AttendanceRegister = () => {
                     </div>
                 ) : (
                     <motion.div 
-                        initial={{ opacity: 0, scale: 0.9 }}
+                        initial={{ opacity: 0, scale: 0.95 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="max-w-2xl mx-auto bg-white dark:bg-[#1e293b] border-2 border-slate-900 dark:border-slate-700/60 rounded-[2.5rem] p-12 text-center shadow-xl"
+                        className="max-w-2xl mx-auto bg-white dark:bg-[#1e293b] border-2 border-slate-900 dark:border-slate-700/60 rounded-[2.5rem] p-8 sm:p-12 text-center shadow-xl"
                     >
-                        <div className="w-20 h-20 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                            <BookOpen className="w-10 h-10 text-slate-300 dark:text-slate-500" />
+                        <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-950/60 rounded-2xl flex items-center justify-center mx-auto mb-5 text-indigo-600 dark:text-indigo-400">
+                            <BookOpen className="w-8 h-8" />
                         </div>
-                        <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-2">No Courses Found for {year} ({semester} Sem)</h2>
-                        <p className="text-slate-500 dark:text-slate-400 font-medium max-w-md mx-auto mb-6">
-                            We couldn&apos;t find any registered courses for {year} {semester} semester on KL ERP. Your registered courses may be under another academic year.
+                        <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mb-2">
+                            No Courses Found for {year} ({semester} Sem)
+                        </h2>
+                        <p className="text-slate-500 dark:text-slate-400 font-medium text-xs sm:text-sm max-w-md mx-auto mb-6 leading-relaxed">
+                            {activeId && activeId.startsWith('24')
+                                ? `Student ${activeId} is registered under the 2024 Batch. Try checking your enrolled courses in 2025-2026 or 2024-2025 below:`
+                                : `We couldn't find any registered courses for ${year} ${semester} semester on KL ERP. Try one of your active semesters below:`}
                         </p>
-                        <div className="flex flex-wrap gap-3 justify-center">
+                        <div className="flex flex-wrap gap-2.5 justify-center max-w-lg mx-auto">
                             <button
                                 onClick={() => handleSearch('2025-2026', 'Odd')}
-                                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer"
+                                disabled={loading}
+                                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5"
                             >
-                                Try 2025-2026 Odd Sem
+                                2025-2026 Odd Sem
+                            </button>
+                            <button
+                                onClick={() => handleSearch('2025-2026', 'Even')}
+                                disabled={loading}
+                                className="px-4 py-2.5 bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                            >
+                                2025-2026 Even Sem
+                            </button>
+                            <button
+                                onClick={() => handleSearch('2024-2025', 'Even')}
+                                disabled={loading}
+                                className="px-4 py-2.5 bg-indigo-50 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-xl border border-indigo-200 dark:border-slate-700 transition-all cursor-pointer flex items-center gap-1.5"
+                            >
+                                2024-2025 Even Sem
+                            </button>
+                            <button
+                                onClick={() => handleSearch('2024-2025', 'Odd')}
+                                disabled={loading}
+                                className="px-4 py-2.5 bg-indigo-50 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-xl border border-indigo-200 dark:border-slate-700 transition-all cursor-pointer flex items-center gap-1.5"
+                            >
+                                2024-2025 Odd Sem
                             </button>
                             <button
                                 onClick={handleBack}
-                                className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
                             >
-                                Change Selection
+                                <ArrowLeft className="w-3.5 h-3.5" /> Back to Selection
                             </button>
                         </div>
                     </motion.div>
@@ -628,11 +699,11 @@ const AttendanceRegister = () => {
                                 <select value={year} onChange={e => { setYear(e.target.value); yearRef.current = e.target.value; }}
                                     className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 px-5 text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950 transition-all font-medium cursor-pointer">
                                     <option value="">Select Academic Year</option>
-                                    <option value="2026-2027">2026-2027</option>
-                                    <option value="2025-2026">2025-2026</option>
+                                    <option value="2025-2026">2025-2026 (Current Academic Year)</option>
                                     <option value="2024-2025">2024-2025</option>
                                     <option value="2023-2024">2023-2024</option>
                                     <option value="2022-2023">2022-2023</option>
+                                    <option value="2026-2027">2026-2027 (Upcoming)</option>
                                     <option value="2021-2022">2021-2022</option>
                                     <option value="2020-2021">2020-2021</option>
                                     <option value="2019-2020">2019-2020</option>

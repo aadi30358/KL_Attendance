@@ -667,16 +667,25 @@ export const erpService = {
             });
             let response;
             try {
-                response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex&_t=${timestamp}`, {
+                // KLU ERP attendance form input route is searchgetinput
+                response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
                     method: 'GET',
                     credentials: 'include',
                     cache: 'no-store',
                     headers
                 });
+                if (!response.ok && response.status === 404) {
+                    response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex&_t=${timestamp}`, {
+                        method: 'GET',
+                        credentials: 'include',
+                        cache: 'no-store',
+                        headers
+                    });
+                }
             } catch (fetchErr) {
                 if (getErpBase() !== FALLBACK_ERP_BASE) {
                     switchToFallbackErpBase();
-                    response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex&_t=${timestamp}`, {
+                    response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
                         method: 'GET',
                         credentials: 'include',
                         cache: 'no-store',
@@ -951,13 +960,17 @@ export const erpService = {
             return fallbackSubjects;
         }
 
-        // Auto-extract registered subjects from user data / dashboard HTML
+        // Auto-extract registered subjects from user data / dashboard HTML if available
         if (isHtmlMatchingRequestedYear(dashboardHtml, year)) {
             console.log(`[ERP] Auto-extracting registered subjects for ${year} (${semester} Sem) from user data...`);
-            return this.extractRegisteredCoursesFromUserData(dashboardHtml, liveOptions?.html);
-        } else {
-            throw new Error(`No attendance data found for ${year} ${semester} Semester`);
+            const extracted = this.extractRegisteredCoursesFromUserData(dashboardHtml, liveOptions?.html);
+            if (extracted && extracted.length > 0) {
+                return extracted;
+            }
         }
+
+        // Return clean empty array so dashboard renders a friendly empty state instead of crashing
+        return [];
     },
     // Parse Subjects from Attendance Page
     parseSubjects(html) {
@@ -1144,8 +1157,8 @@ export const erpService = {
             return Array.from(subjectMap.values());
         }
 
-        // Output debug HTML if nothing worked
-        throw new Error(`DEBUG_HTML:` + (liveHtml || dashboardHtml || 'No HTML available to debug.'));
+        // Return empty array when no courses are found
+        return [];
     },
 
     async getCaptchaUrl() {

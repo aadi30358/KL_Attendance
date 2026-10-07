@@ -619,7 +619,7 @@ app.post('/api/fast-attendance', async (req, res) => {
             'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
             'host': 'newerp.kluniversity.in',
             'origin': 'https://newerp.kluniversity.in',
-            'referer': 'https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex'
+            'referer': 'https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput'
         };
 
         if (clientCookie) {

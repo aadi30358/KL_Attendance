@@ -47,10 +47,10 @@ const Navbar = () => {
             localStorage.removeItem(`kleData_${activeId}`);
         }
         localStorage.removeItem('kleData'); // Fallback
-        // Flag to prevent auto-fetch on the next load
         sessionStorage.setItem('manual_sem_reset', 'true');
+        window.dispatchEvent(new CustomEvent('kl_reset_selection'));
         navigate('/attendance-register');
-        window.location.reload(); 
+        setIsOpen(false);
     };
 
     // Real-time synchronization for Announcements and Maintenance across all domains (< 1 second)
