@@ -48,18 +48,16 @@ export const getCandidateYearIdsForYear = (academicYear, liveYearId, htmlYearId)
   if (firstYear < 100) firstYear += 2000;
 
   const strictYearMap = {
-    '2026': ['22', '23', '24', '25', '21', '20', '19', '18', '26', '2026-2027', '2026-27', '26-27', '2026'],
-    '2025': ['19', '18', '17', '2025-2026', '2025-26', '25-26', '25', '2025'],
-    '2024': ['16', '17', '18', '2024-2025', '2024-25', '24-25', '24', '2024'],
-    '2023': ['15', '2023-2024', '2023-24', '23-24', '23', '2023'],
-    '2022': ['14', '2022-2023', '2022-23', '22-23', '22', '2022'],
-    '2021': ['13', '2021-2022', '2021-22', '21-22', '21', '2021'],
-    '2020': ['10', '2020-2021', '2020-21', '20-21', '20', '2020']
+    '2026': ['22', '2026-2027'],
+    '2025': ['19', '2025-2026'],
+    '2024': ['16', '2024-2025'],
+    '2023': ['15', '2023-2024'],
+    '2022': ['14', '2022-2023'],
+    '2021': ['13', '2021-2022'],
+    '2020': ['10', '2020-2021']
   };
 
-  const rawYear = academicYear.trim();
-  const shortYear = `${firstYear.toString().slice(-2)}-${(firstYear + 1).toString().slice(-2)}`;
-  const knownCandidates = strictYearMap[firstYear] || [rawYear, shortYear];
+  const knownCandidates = strictYearMap[firstYear] || [academicYear.trim()];
 
   return Array.from(new Set([
     liveYearId,

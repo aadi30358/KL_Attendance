@@ -570,12 +570,11 @@ export const erpService = {
                     }
                     saveErpCookiesFromResponse(fastResp);
                     const subjects = this.parseSubjects(fastData.html);
-                    if (subjects && subjects.length > 0) {
-                        return { subjects, html: fastData.html };
-                    }
+                    return { subjects: subjects || [], html: fastData.html };
                 } else if (fastData.sessionExpired || (fastData.html && (fastData.html.includes('id="login-form"') || fastData.html.includes('loginFormUserNameID')))) {
                     throw new Error("Your session has expired. Please log out and sign in again.");
                 }
+                return { subjects: [], html: fastData.html || '' };
             }
         } catch (fastErr) {
             if (fastErr.message?.includes('session has expired')) {
@@ -584,7 +583,7 @@ export const erpService = {
             console.warn('[ERP] Fast-attendance endpoint notice, trying standard endpoint:', fastErr);
         }
 
-        // 2. Secondary Strategy: Standard proxy post to courselist
+        // 2. Secondary Strategy: Standard proxy post to courselist (fallback only)
         const formData = new URLSearchParams();
         formData.append('DynamicModel[academicyear]', String(yearId));
         formData.append('DynamicModel[semesterid]', String(semId));
@@ -656,32 +655,7 @@ export const erpService = {
         saveErpCookiesFromResponse(response);
         let subjects = this.parseSubjects(html);
 
-        // Fallback: If courselist yielded 0 subjects, attempt posting to index route
-        if (!subjects || subjects.length === 0) {
-            try {
-                const indexResp = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex`, {
-                    method: 'POST',
-                    headers,
-                    body: formData,
-                    credentials: 'include',
-                    cache: 'no-store'
-                });
-                if (indexResp.ok) {
-                    const indexHtml = await indexResp.text();
-                    if (!indexHtml.includes('login-form')) {
-                        saveErpCookiesFromResponse(indexResp);
-                        const indexSubjects = this.parseSubjects(indexHtml);
-                        if (indexSubjects && indexSubjects.length > 0) {
-                            return { subjects: indexSubjects, html: indexHtml };
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn("[ERP] Index POST fallback failed", e);
-            }
-        }
-
-        return { subjects, html };
+        return { subjects: subjects || [], html };
     },
 
     // Fetch live attendance index page to scrape real option values & CSRF token
@@ -928,46 +902,46 @@ export const erpService = {
             console.error("[ERP] No CSRF token available for request. Session likely wiped.");
         }
 
-        // Candidate year IDs strictly isolated for requested academic year
-        const candidateYearIds = getCandidateYearIdsForYear(year, liveYearId, htmlYearId);
+        // Build lean, prioritized candidate pairs (max 2-3 pairs, eliminating lag!)
+        const candidatePairs = [];
+        
+        // 1. Primary pair: primaryYearId + semId (e.g. '19' + '1' for 2025-2026 Odd)
+        candidatePairs.push({ yearId: primaryYearId, semId: semId });
 
-        // Candidate semester IDs (e.g. '1', 'Odd Sem', 'Odd')
-        const candidateSemIds = Array.from(new Set([
-            liveSemId,
-            semId,
-            semester,
-            semester === 'Odd' ? 'Odd Sem' : semester === 'Even' ? 'Even Sem' : semester
-        ])).filter(Boolean);
+        // 2. If liveSemId differs from semId, try it
+        if (liveSemId && liveSemId !== semId) {
+            candidatePairs.push({ yearId: primaryYearId, semId: liveSemId });
+        }
+
+        // 3. Known alternate year candidate (e.g. raw year string like '2025-2026')
+        const altYearIds = candidateYearIds.filter(id => id !== primaryYearId);
+        if (altYearIds.length > 0) {
+            candidatePairs.push({ yearId: altYearIds[0], semId: semId });
+        }
 
         let fallbackSubjects = null;
         let fallbackCandidate = null;
 
-        for (const candidateYearId of candidateYearIds) {
-            for (const candidateSemId of candidateSemIds) {
-                try {
-                    const { subjects, html } = await this._postFetchAttendance(candidateYearId, candidateSemId, csrfToken);
-                    const isLiveId = (candidateYearId === liveYearId);
-                    
-                    if (subjects && subjects.length > 0) {
-                        if (isLiveId || isHtmlMatchingRequestedYear(html, year)) {
-                            console.log(`[ERP] Successfully fetched ${subjects.length} subjects for requested year ${year} with yearId: ${candidateYearId}, semId: ${candidateSemId}`);
-                            // Memorize for future sub-second (< 1s) Fast-Path requests
-                            this._saveFastPath(year, semester, candidateYearId, candidateSemId, csrfToken);
-                            return subjects;
-                        } else {
-                            console.warn(`[ERP] Saving fallback subjects for yearId ${candidateYearId} despite HTML mismatch with requested year ${year}`);
-                            if (!fallbackSubjects) {
-                                fallbackSubjects = subjects;
-                                fallbackCandidate = { yearId: candidateYearId, semId: candidateSemId };
-                            }
-                        }
+        for (const { yearId: candidateYearId, semId: candidateSemId } of candidatePairs) {
+            try {
+                const { subjects, html } = await this._postFetchAttendance(candidateYearId, candidateSemId, csrfToken);
+                const isLiveId = (candidateYearId === liveYearId);
+                
+                if (subjects && subjects.length > 0) {
+                    if (isLiveId || isHtmlMatchingRequestedYear(html, year)) {
+                        console.log(`[ERP] Attendance retrieved rapidly for ${year} ${semester} (yearId: ${candidateYearId}, semId: ${candidateSemId})`);
+                        this._saveFastPath(year, semester, candidateYearId, candidateSemId, csrfToken);
+                        return subjects;
+                    } else if (!fallbackSubjects) {
+                        fallbackSubjects = subjects;
+                        fallbackCandidate = { yearId: candidateYearId, semId: candidateSemId };
                     }
-                } catch (err) {
-                    if (err.message?.includes('session has expired')) {
-                        throw err;
-                    }
-                    console.warn(`[ERP] Candidate yearId ${candidateYearId} / semId ${candidateSemId} failed:`, err);
                 }
+            } catch (err) {
+                if (err.message?.includes('session has expired')) {
+                    throw err;
+                }
+                console.warn(`[ERP] Candidate pair [${candidateYearId}, ${candidateSemId}] notice:`, err);
             }
         }
 

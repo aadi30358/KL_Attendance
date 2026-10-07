@@ -193,6 +193,8 @@ const AttendanceRegister = () => {
     // Ground truth ref for instantaneous live sync
     const prevSubjectsRef = useRef([]);
     const hasMountedRef = useRef(false);
+    const isSyncingRef = useRef(false);
+    const lastSyncTimeRef = useRef(0);
     const yearRef = useRef(year);
     const semesterRef = useRef(semester);
 
@@ -210,10 +212,15 @@ const AttendanceRegister = () => {
         const targetSem = fetchSemester || semesterRef.current;
         if (!targetYear || !targetSem) return;
 
+        // Prevent concurrent overlapping requests from creating lag
+        if (isSyncingRef.current) return;
+        isSyncingRef.current = true;
+
         const startTime = performance.now();
         try {
             const data = await erpService.fetchAttendance(targetYear, targetSem, { forceLive: true });
             const measuredLatency = data.__latencyMs || Math.round(performance.now() - startTime);
+            lastSyncTimeRef.current = Date.now();
             setIsOfflineMode(false);
             setFetchError(null);
 
@@ -258,6 +265,8 @@ const AttendanceRegister = () => {
                     setFetchError(error.message || 'Failed to fetch attendance. Please verify your login status.');
                 }
             }
+        } finally {
+            isSyncingRef.current = false;
         }
     }, [storageKey]);
 
@@ -295,11 +304,13 @@ const AttendanceRegister = () => {
         sessionStorage.removeItem('manual_sem_reset');
     }, [navigate, storageKey]);
 
-    // ── Tab Focus Auto-Sync (< 1s execution, only active while viewing dashboard) ──
+    // ── Tab Focus Auto-Sync (throttled to at most once per 60s to prevent lag) ──
     useEffect(() => {
         const handleFocusSync = () => {
             if (showDashboard && document.visibilityState === 'visible' && navigator.onLine) {
-                syncLiveAttendance(yearRef.current, semesterRef.current, { silent: true });
+                if (Date.now() - lastSyncTimeRef.current > 60000) {
+                    syncLiveAttendance(yearRef.current, semesterRef.current, { silent: true });
+                }
             }
         };
 
