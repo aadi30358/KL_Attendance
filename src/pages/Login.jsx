@@ -178,7 +178,7 @@ const Login = () => {
                     console.error('Session retry also failed:', retryErr);
                 }
             }
-            hasInitRan.current = false;
+            // Leave hasInitRan.current as true so the on-mount effect does not enter an infinite retry loop
             setError(err?.message || 'Unable to connect to ERP server. Please check your internet connection or tap retry.');
         } finally {
             setIsFetchingCaptcha(false);
@@ -419,8 +419,8 @@ const Login = () => {
             {/* Ambient Background */}
             <div className="fixed inset-0 pointer-events-none overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
-                <div className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 blur-[150px] opacity-40" />
-                <div className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 blur-[150px] opacity-30" />
+                <div className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 blur-3xl opacity-40 will-change-transform" />
+                <div className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 blur-3xl opacity-30 will-change-transform" />
                 <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.03] mix-blend-overlay" />
             </div>
 

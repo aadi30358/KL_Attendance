@@ -35,14 +35,15 @@ export function useDeploymentSync() {
         const handleIncomingVersion = (remoteVersion) => {
             if (!remoteVersion || isNaN(remoteVersion)) return;
             const current = Number(CURRENT_BUILD_TIME);
-            if (remoteVersion > current) {
+            // Require remoteVersion to be strictly newer by at least 1500ms to avoid build-jitter reloads
+            if (remoteVersion > current + 1500) {
                 const reloadKey = `kl_reloaded_${remoteVersion}`;
                 if (sessionStorage.getItem(reloadKey)) return;
                 sessionStorage.setItem(reloadKey, 'true');
 
-                console.log(`[DeploymentSync] Newer deployment detected (${remoteVersion} > ${current}). Refreshing application...`);
+                console.log(`[DeploymentSync] Newer deployment detected (${remoteVersion} > ${current}). Updating application...`);
 
-                // Purge all stale cache storages
+                // Purge all stale cache storages once
                 if ('caches' in window) {
                     caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).finally(() => {
                         window.location.reload();
@@ -53,11 +54,11 @@ export function useDeploymentSync() {
             }
         };
 
-        // 1. Initial check
+        // 1. Initial check on mount
         checkVersionJson();
 
-        // 2. Poll every 12 seconds
-        const intervalId = setInterval(checkVersionJson, 12000);
+        // 2. Fallback poll every 5 minutes (Firestore real-time listener handles sub-second instant push)
+        const intervalId = setInterval(checkVersionJson, 5 * 60 * 1000);
 
         // 3. Check immediately when tab becomes visible or focused
         const onVisibilityChange = () => {

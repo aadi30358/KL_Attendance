@@ -17,18 +17,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').then((reg) => {
-      // 1. Immediately check for latest service worker
+      // Check for latest service worker on startup
       reg.update().catch(() => {});
-
-      // 2. Poll for updates every 15 seconds to catch newly deployed builds immediately
-      setInterval(() => {
-        reg.update().catch(() => {});
-      }, 15000);
     }).catch(err => {
       console.log('SW registration note:', err);
     });
 
-    // 3. Check for SW updates when switching tabs or focusing window
+    // Check for SW updates when switching tabs or focusing window
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') {
         navigator.serviceWorker.getRegistration().then(reg => {
@@ -37,10 +32,12 @@ if ('serviceWorker' in navigator) {
       }
     });
 
-    // 4. Reload once when a new service worker takes control (instant deployment upgrade)
+    // Only reload on controllerchange if the page was ALREADY controlled by an older SW
+    // (Prevents initial load double-reloads)
+    const hadController = Boolean(navigator.serviceWorker.controller);
     let refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!refreshing) {
+      if (hadController && !refreshing) {
         refreshing = true;
         window.location.reload();
       }

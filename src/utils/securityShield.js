@@ -137,49 +137,9 @@ export function initSecurityShield() {
         document.documentElement.style.display = 'none';
     }
 
-    // 1b. Runtime DOM Anti-Tampering Observer: Intercept and neutralize unauthorized script/iframe injection
-    try {
-        const antiTamperObserver = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-                for (const node of mutation.addedNodes) {
-                    if (node.nodeType === 1) {
-                        const tag = node.tagName?.toUpperCase();
-                        // Block unauthorized external iframes or rogue inline scripts
-                        if (tag === 'IFRAME') {
-                            const src = node.getAttribute('src') || '';
-                            if (src && !src.startsWith('https://accounts.google.com') && !src.startsWith('https://firebase.google.com')) {
-                                node.remove();
-                                console.warn('[Security Shield] Blocked unauthorized iframe injection.');
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        antiTamperObserver.observe(document.documentElement, { childList: true, subtree: true });
-    } catch {
-        // ignore
-    }
+    // 1b. Runtime Frame Protection (Handled via HTTP CSP & X-Frame-Options headers)
 
     // 2. Prominent Console Self-XSS Warning Banner
-    try {
-        const warnTitle = '%c ⛔ STOP! DEVTOOLS SECURITY PROTOCOL ACTIVE ⛔ ';
-        const warnTitleStyle = 'color: #ffffff; background: #dc2626; font-size: 20px; font-weight: 900; padding: 6px 14px; border-radius: 6px;';
-        const warnBody = '%cThis browser console is intended exclusively for authorized administrators.\nDO NOT paste or execute scripts here. Doing so gives attackers access to your account and violates safety protocols.\n\n🛡️ Anti-Tamper Security Shield is actively monitoring memory and storage integrity.';
-        const warnBodyStyle = 'color: #f87171; font-size: 13px; font-weight: bold; line-height: 1.6; margin-top: 4px;';
-        console.log(warnTitle, warnTitleStyle);
-        console.log(warnBody, warnBodyStyle);
-    } catch {
-        // ignore
-    }
-
-    // 3. Prevent Common Prototype Pollution Attacks
-    try {
-        Object.seal(Object.prototype);
-        Object.seal(Array.prototype);
-    } catch {
-        // ignore
-    }
 
     // 4. Block malicious console overrides of key window objects
     try {

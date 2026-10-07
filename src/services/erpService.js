@@ -57,6 +57,19 @@ const buildErpHeaders = (extraHeaders = {}) => {
     return headers;
 };
 
+export const fetchWithTimeout = async (url, options = {}, timeoutMs = 7000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(id);
+        return response;
+    } catch (err) {
+        clearTimeout(id);
+        throw err;
+    }
+};
+
 export const erpService = {
     getErpBase,
     getStoredErpCookies,
@@ -69,9 +82,9 @@ export const erpService = {
         let apiBase = getErpBase();
         if (apiBase) {
             try {
-                const resp = await fetch(`${apiBase}/api/session-init`, {
+                const resp = await fetchWithTimeout(`${apiBase}/api/session-init`, {
                     headers: { 'Cache-Control': 'no-cache' }
-                });
+                }, 7000);
                 if (resp.ok) {
                     const data = await resp.json();
                     if (data.success && data.csrfToken && data.captchaUrl) {
@@ -91,9 +104,9 @@ export const erpService = {
                 if (apiBase !== FALLBACK_ERP_BASE) {
                     apiBase = switchToFallbackErpBase();
                     try {
-                        const fbResp = await fetch(`${FALLBACK_ERP_BASE}/api/session-init`, {
+                        const fbResp = await fetchWithTimeout(`${FALLBACK_ERP_BASE}/api/session-init`, {
                             headers: { 'Cache-Control': 'no-cache' }
-                        });
+                        }, 7000);
                         if (fbResp.ok) {
                             const data = await fbResp.json();
                             if (data.success && data.csrfToken && data.captchaUrl) {
@@ -129,7 +142,7 @@ export const erpService = {
         if (apiBase) {
             try {
                 const headers = buildErpHeaders({ 'Cache-Control': 'no-cache' });
-                const resp = await fetch(`${apiBase}/api/refresh-captcha`, { headers });
+                const resp = await fetchWithTimeout(`${apiBase}/api/refresh-captcha`, { headers }, 7000);
                 if (resp.ok) {
                     const data = await resp.json();
                     if (data.success && data.captchaUrl) {
@@ -147,7 +160,7 @@ export const erpService = {
                     switchToFallbackErpBase();
                     try {
                         const headers = buildErpHeaders({ 'Cache-Control': 'no-cache' });
-                        const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, { headers });
+                        const resp = await fetchWithTimeout(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, { headers }, 7000);
                         if (resp.ok) {
                             const data = await resp.json();
                             if (data.success && data.captchaUrl) {
@@ -178,19 +191,19 @@ export const erpService = {
         };
         let response;
         try {
-            response = await fetch(`${getErpBase()}/index.php?_t=${timestamp}`, { 
+            response = await fetchWithTimeout(`${getErpBase()}/index.php?_t=${timestamp}`, { 
                 credentials: 'include',
                 cache: 'no-store',
                 headers
-            });
+            }, 8000);
         } catch (fetchErr) {
             if (getErpBase() !== FALLBACK_ERP_BASE) {
                 switchToFallbackErpBase();
-                response = await fetch(`${FALLBACK_ERP_BASE}/index.php?_t=${timestamp}`, { 
+                response = await fetchWithTimeout(`${FALLBACK_ERP_BASE}/index.php?_t=${timestamp}`, { 
                     credentials: 'include',
                     cache: 'no-store',
                     headers
-                });
+                }, 8000);
             } else {
                 throw fetchErr;
             }
