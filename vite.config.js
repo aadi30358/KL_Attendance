@@ -59,7 +59,7 @@ export default defineConfig({
         }
       },
       '/api': {
-        target: 'https://api.klattendance.online',
+        target: 'https://kl-attendance-backend-newnode-env.onrender.com',
         changeOrigin: true,
         secure: false,
       },

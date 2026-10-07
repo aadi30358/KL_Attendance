@@ -153,10 +153,11 @@ const Navbar = () => {
     }, []);
 
     const hasErpSession = !!erpUser;
-    const rememberedId = localStorage.getItem('rememberedId');
-    const activeId = localStorage.getItem('activeErpUser') || rememberedId;
-    const isAuthPage = location.pathname === '/' || location.pathname === '/login';
-    const showLogout = (currentUser || hasErpSession) && !isAuthPage;
+    const rememberedId = typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : null;
+    const activeId = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || rememberedId) : null;
+    const isLoginPage = location.pathname === '/login';
+    const isLoggedIn = !!(currentUser || hasErpSession || activeId);
+    const showLogout = isLoggedIn && !isLoginPage;
 
     const navItems = [
         { name: 'HOME', path: '/' },
@@ -164,9 +165,9 @@ const Navbar = () => {
         { name: 'BUNK SIMULATOR', path: '/bunk-simulator' },
         { name: 'ATTENDANCE WHEN ABSENT', path: '/attendance' },
         { name: 'ACADEMIC CALENDAR', path: '/calendar' },
-        { name: 'ERP LOGIN', path: '/login', isErpHighlight: true },
+        ...(!isLoggedIn ? [{ name: 'ERP LOGIN', path: '/login', isErpHighlight: true }] : []),
         ...(currentUser?.email === 'yaswanthadithyareddy11@gmail.com' ? [{ name: 'ADMIN', path: '/admin' }] : []),
-        ...(hasErpSession && !isAuthPage ? [{ name: 'CHANGE SELECTION', path: '/attendance-register', isReset: true }] : [])
+        ...(isLoggedIn && !isLoginPage ? [{ name: 'CHANGE SELECTION', path: '/attendance-register', isReset: true }] : [])
     ];
 
     const isActive = (path) => location.pathname === path;
@@ -364,9 +365,16 @@ const Navbar = () => {
                                             <span className="text-[10px] text-slate-400 dark:text-slate-400 font-bold uppercase tracking-widest">Active Student</span>
                                             <span className="text-sm font-black text-slate-900 dark:text-indigo-300 font-mono tracking-tighter">{activeId}</span>
                                         </div>
-                                        <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-950/60 rounded-xl flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-                                            <Bell className="w-5 h-5 animate-pulse" />
-                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                setIsOpen(false);
+                                                handleLogout();
+                                            }}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-all"
+                                        >
+                                            <LogOut className="w-3.5 h-3.5" />
+                                            <span>Logout</span>
+                                        </button>
                                     </div>
                                 )}
                                 {navItems.filter(item => !item.hiddenOnMobile).map((item) => (

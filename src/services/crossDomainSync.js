@@ -61,6 +61,13 @@ export async function publishCrossDomainEvent(type, data = {}) {
 }
 
 /**
+ * Convenience helper to broadcast attendance changes instantly across tabs and devices.
+ */
+export async function broadcastAttendanceUpdate(attendancePayload) {
+    return publishCrossDomainEvent('ATTENDANCE_UPDATED', attendancePayload);
+}
+
+/**
  * Subscribe to cross-domain real-time synchronization events.
  * Triggers callback whenever any user or admin updates anything on ANY domain.
  */

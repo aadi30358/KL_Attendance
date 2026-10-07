@@ -1,9 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Calendar, LogOut, ArrowLeft, Zap, WifiOff } from 'lucide-react';
+import { BookOpen, Calendar, LogOut, ArrowLeft, WifiOff } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
+import { getRecommendedPollInterval } from '../services/attendanceAlerts';
+import { broadcastAttendanceUpdate, subscribeCrossDomainSync } from '../services/crossDomainSync';
 
 // Component weights matching the extension: L=100, T=100, P=50, S=25
 const WEIGHTS = { L: 100, T: 100, P: 50, S: 25 };
@@ -32,184 +34,7 @@ function getStatusLabel(pct) {
     return { text: '✗ Shortage', cls: 'bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-rose-400 ring-red-200 dark:ring-red-800' };
 }
 
-// ── 🎯 Instant Safe Bunk Badge Calculator (Component Aware: Lecture / Tutorial / Practical / Skill) ──
-function getQuickBunkBadge(subject) {
-    const pct = typeof subject.percent === 'number' ? subject.percent : parseFloat(subject.percent) || 0;
-    
-    let totalAttended = 0;
-    let totalConducted = 0;
-    const hasComponents = subject.components && Object.keys(subject.components).length > 0;
 
-    // Detect all components actually present in this subject
-    const activeComponents = [];
-    if (hasComponents) {
-        Object.entries(subject.components).forEach(([compName, data]) => {
-            const firstChar = compName ? compName.charAt(0).toUpperCase() : 'L';
-            const w = WEIGHTS[firstChar] || WEIGHTS[compName] || 100;
-            const label = COMPONENT_NAMES[firstChar] || (compName.charAt(0).toUpperCase() + compName.slice(1));
-            const cConducted = Number(data.conducted) || 0;
-            const cAttended = Number(data.attended) || 0;
-            totalAttended += cAttended * w;
-            totalConducted += cConducted * w;
-            if (!activeComponents.some(c => c.id === firstChar)) {
-                activeComponents.push({ id: firstChar, label, w });
-            }
-        });
-    }
-
-    if (totalConducted === 0) {
-        // Fallback to raw attended string e.g. "28/32"
-        if (typeof subject.attended === 'string' && subject.attended.includes('/')) {
-            const parts = subject.attended.split('/');
-            const att = parseInt(parts[0], 10) || 0;
-            const cond = parseInt(parts[1], 10) || 0;
-            totalAttended = att * 100;
-            totalConducted = cond * 100;
-        }
-    }
-
-    if (totalConducted === 0) {
-        return null;
-    }
-
-    if (activeComponents.length === 0) {
-        activeComponents.push({ id: 'L', label: 'Lecture', w: 100 });
-    }
-
-    // Helper to format component counts nicely (e.g., "2 Lectures" or "1 Skill")
-    const formatCompText = (count, label) => `${count} ${label}${count > 1 ? 's' : ''}`;
-
-    // 🟢 1. Safe Zone: >= 85%
-    if (pct >= 85) {
-        const buffer = totalAttended - 0.85 * totalConducted;
-        
-        // Calculate bunks for each available component
-        const compBunks = activeComponents.map(c => ({
-            ...c,
-            bunks: Math.floor(buffer / (0.85 * c.w))
-        }));
-
-        const maxBunk = Math.max(...compBunks.map(c => c.bunks));
-
-        if (maxBunk > 0) {
-            let badgeText = '';
-            let subText = 'Safe (>85%)';
-
-            if (compBunks.length === 1) {
-                badgeText = `Can bunk ${formatCompText(compBunks[0].bunks, compBunks[0].label)}`;
-            } else {
-                const mainComp = compBunks.find(c => c.id === 'L' || c.id === 'T') || compBunks[0];
-                const otherComps = compBunks.filter(c => c.id !== mainComp.id);
-
-                if (mainComp.bunks > 0) {
-                    if (otherComps.length === 1 && otherComps[0].bunks > 0) {
-                        badgeText = `Can bunk ${formatCompText(mainComp.bunks, mainComp.label)} or ${formatCompText(otherComps[0].bunks, otherComps[0].label)}`;
-                    } else {
-                        badgeText = `Can bunk ${formatCompText(mainComp.bunks, mainComp.label)}`;
-                        const altParts = otherComps.filter(c => c.bunks > 0).map(c => formatCompText(c.bunks, c.label));
-                        if (altParts.length > 0) {
-                            subText = `Safe (>85%) · or ${altParts.join(' / ')}`;
-                        }
-                    }
-                } else {
-                    const positiveComps = otherComps.filter(c => c.bunks > 0);
-                    if (positiveComps.length > 0) {
-                        badgeText = `Can bunk ${positiveComps.map(c => formatCompText(c.bunks, c.label)).join(' or ')}`;
-                        subText = `Safe (>85%) · 0 ${mainComp.label}s buffer`;
-                    } else {
-                        badgeText = 'On 85% border';
-                        subText = 'Attend next class to build buffer';
-                    }
-                }
-            }
-
-            return {
-                level: 'safe',
-                badgeText,
-                subText,
-                dotColor: 'bg-emerald-500',
-                cls: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/70'
-            };
-        } else {
-            return {
-                level: 'safe',
-                badgeText: 'On 85% border',
-                subText: 'Attend next class to build buffer',
-                dotColor: 'bg-emerald-500',
-                cls: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/70'
-            };
-        }
-    }
-
-    // 🟡 2. Warning Zone: 75% to 84.99%
-    if (pct >= 75) {
-        const deficit85 = 0.85 * totalConducted - totalAttended;
-        const buffer75 = totalAttended - 0.75 * totalConducted;
-
-        const compNeeds = activeComponents.map(c => ({
-            ...c,
-            need: Math.max(1, Math.ceil(deficit85 / (0.15 * c.w))),
-            canBunk75: Math.max(0, Math.floor(buffer75 / (0.75 * c.w)))
-        }));
-
-        let badgeText = '';
-        let subText = 'Warning (75%–85%)';
-
-        const mainComp = compNeeds.find(c => c.id === 'L' || c.id === 'T') || compNeeds[0];
-        const otherComps = compNeeds.filter(c => c.id !== mainComp.id);
-
-        if (compNeeds.length === 1) {
-            badgeText = `Must attend next ${formatCompText(mainComp.need, mainComp.label)}`;
-            if (mainComp.canBunk75 > 0) {
-                subText = `Can bunk ${formatCompText(mainComp.canBunk75, mainComp.label)} before <75%`;
-            }
-        } else {
-            if (otherComps.length === 1) {
-                badgeText = `Attend ${formatCompText(mainComp.need, mainComp.label)} or ${formatCompText(otherComps[0].need, otherComps[0].label)}`;
-            } else {
-                badgeText = `Must attend next ${formatCompText(mainComp.need, mainComp.label)}`;
-            }
-            if (mainComp.canBunk75 > 0) {
-                subText = `Can bunk ${formatCompText(mainComp.canBunk75, mainComp.label)} before <75%`;
-            }
-        }
-
-        return {
-            level: 'warning',
-            badgeText,
-            subText,
-            dotColor: 'bg-amber-500',
-            cls: 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/70'
-        };
-    }
-
-    // 🔴 3. Critical Shortage Zone: < 75%
-    const deficit75 = 0.75 * totalConducted - totalAttended;
-    const compNeeds75 = activeComponents.map(c => ({
-        ...c,
-        need: Math.max(1, Math.ceil(deficit75 / (0.25 * c.w)))
-    }));
-
-    const mainComp = compNeeds75.find(c => c.id === 'L' || c.id === 'T') || compNeeds75[0];
-    const otherComps = compNeeds75.filter(c => c.id !== mainComp.id);
-
-    let badgeText = '';
-    if (compNeeds75.length === 1) {
-        badgeText = `Attend next ${formatCompText(mainComp.need, mainComp.label)} to reach 75%`;
-    } else if (otherComps.length === 1) {
-        badgeText = `Attend ${formatCompText(mainComp.need, mainComp.label)} or ${formatCompText(otherComps[0].need, otherComps[0].label)} to reach 75%`;
-    } else {
-        badgeText = `Attend ${formatCompText(mainComp.need, mainComp.label)} to reach 75%`;
-    }
-
-    return {
-        level: 'critical',
-        badgeText,
-        subText: 'Shortage (<75%)',
-        dotColor: 'bg-rose-500',
-        cls: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/70'
-    };
-}
 
 // ── BunkSimulator sub-component ──────────────────────────────────────
 function BunkSimulator({ subject }) {
@@ -361,61 +186,173 @@ const AttendanceRegister = () => {
     const [debugHtml, setDebugHtml] = useState(null);
     const [fetchError, setFetchError] = useState(null);
     const [showDashboard, setShowDashboard] = useState(false);
-    const [cachedSummary, setCachedSummary] = useState(null);
+    const [, setCachedSummary] = useState(null);
     const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
     const navigate = useNavigate();
 
-    // Check for cached attendance data for instant 0.1s offline loading
+    // Ground truth ref for instantaneous live sync
+    const prevSubjectsRef = useRef([]);
+
+    // ── Live Sub-Second Sync Handler (< 1s execution) ────────────────
+    const syncLiveAttendance = useCallback(async (fetchYear = year, fetchSemester = semester, { silent = false } = {}) => {
+        if (!fetchYear || !fetchSemester) return;
+
+        const startTime = performance.now();
+        try {
+            const data = await erpService.fetchAttendance(fetchYear, fetchSemester, { forceLive: true });
+            const measuredLatency = data.__latencyMs || Math.round(performance.now() - startTime);
+            setIsOfflineMode(false);
+            setFetchError(null);
+
+            prevSubjectsRef.current = data;
+            setSubjects(data);
+
+            // Broadcast to other open tabs and devices in < 1s
+            broadcastAttendanceUpdate({
+                year: fetchYear,
+                semester: fetchSemester,
+                subjects: data,
+                timestamp: Date.now()
+            });
+
+            // Save fetched data with metadata to standard location for instant 0ms persistence
+            const cachePayload = {
+                attendance_data: data,
+                year: fetchYear,
+                semester: fetchSemester,
+                savedAt: Date.now(),
+                latencyMs: measuredLatency
+            };
+            localStorage.setItem(storageKey, JSON.stringify(cachePayload));
+            setCachedSummary({
+                count: data.length,
+                year: fetchYear,
+                semester: fetchSemester,
+                savedAt: new Date().toLocaleDateString(),
+                data: data
+            });
+            setShowDashboard(true);
+        } catch (error) {
+            console.warn('[Live Sync] Failed:', error);
+            if (!silent) {
+                if (error.message?.startsWith('DEBUG_HTML:')) { 
+                    setDebugHtml(error.message.replace('DEBUG_HTML:', '')); 
+                    setShowDashboard(true); 
+                } else if (error.message?.startsWith('No table found')) { 
+                    setDebugHtml(error.message); 
+                    setShowDashboard(true); 
+                } else {
+                    setFetchError(error.message || 'Failed to fetch attendance. Please verify your login status.');
+                }
+            }
+        }
+    }, [year, semester, storageKey]);
+
+    // ── Instant 0ms Optimistic Paint on Mount + Seamless Live Sync ───
     useEffect(() => {
         const html = localStorage.getItem('erpDashboardHtml');
-        
-        setShowDashboard(false);
-
         if (!html) {
             navigate('/login');
+            return;
         }
 
+        let initialYear = '2026-2027';
+        let initialSemester = 'Odd';
+
+        // 1. Instant 0ms Optimistic Paint from Cache
         try {
             const raw = localStorage.getItem(storageKey) || localStorage.getItem('kleData');
             if (raw) {
                 const parsed = JSON.parse(raw);
                 const list = parsed.attendance_data || (Array.isArray(parsed) ? parsed : null);
                 if (list && list.length > 0) {
+                    if (parsed.year) initialYear = parsed.year;
+                    if (parsed.semester) initialSemester = parsed.semester;
+
+                    prevSubjectsRef.current = list;
+                    setYear(initialYear);
+                    setSemester(initialSemester);
+                    setSubjects(list);
+                    setShowDashboard(true);
                     setCachedSummary({
                         count: list.length,
-                        year: parsed.year || '2026-2027',
-                        semester: parsed.semester || 'Odd',
+                        year: initialYear,
+                        semester: initialSemester,
                         savedAt: parsed.savedAt ? new Date(parsed.savedAt).toLocaleDateString() : null,
                         data: list
                     });
-
-                    // If student is currently offline, automatically load the cached data in 0.1s
-                    if (!navigator.onLine) {
-                        setSubjects(list);
-                        if (parsed.year) setYear(parsed.year);
-                        if (parsed.semester) setSemester(parsed.semester);
-                        setShowDashboard(true);
-                        setIsOfflineMode(true);
-                    }
                 }
             }
         } catch (e) {
             console.warn('[Cache] Could not parse local attendance cache:', e);
         }
 
-        // Cleanup any old flags
-        sessionStorage.removeItem('manual_sem_reset');
-    }, [navigate, storageKey]);
-
-    const loadFromCache = () => {
-        if (cachedSummary?.data) {
-            setSubjects(cachedSummary.data);
-            if (cachedSummary.year) setYear(cachedSummary.year);
-            if (cachedSummary.semester) setSemester(cachedSummary.semester);
-            setShowDashboard(true);
+        // 2. Seamless Live ERP Sync in < 1s
+        if (navigator.onLine) {
+            syncLiveAttendance(initialYear, initialSemester, { silent: true });
+        } else {
             setIsOfflineMode(true);
         }
-    };
+
+        sessionStorage.removeItem('manual_sem_reset');
+    }, [navigate, storageKey, syncLiveAttendance]);
+
+    // ── Tab Focus Auto-Sync (< 1s execution) ──────────────────────────
+    useEffect(() => {
+        const handleFocusSync = () => {
+            if (showDashboard && document.visibilityState === 'visible' && navigator.onLine) {
+                syncLiveAttendance(year, semester, { silent: true });
+            }
+        };
+
+        window.addEventListener('focus', handleFocusSync);
+        document.addEventListener('visibilitychange', handleFocusSync);
+
+        return () => {
+            window.removeEventListener('focus', handleFocusSync);
+            document.removeEventListener('visibilitychange', handleFocusSync);
+        };
+    }, [showDashboard, year, semester, syncLiveAttendance]);
+
+    // ── Timetable Period Completion Auto-Poller (5s near period end) ──
+    useEffect(() => {
+        if (!showDashboard || !navigator.onLine) return;
+
+        let timeoutId = null;
+        let isMounted = true;
+
+        const schedulePoll = () => {
+            const interval = getRecommendedPollInterval();
+            timeoutId = setTimeout(async () => {
+                if (!isMounted) return;
+                if (document.visibilityState === 'visible') {
+                    await syncLiveAttendance(year, semester, { silent: true });
+                }
+                if (isMounted) schedulePoll();
+            }, interval);
+        };
+
+        schedulePoll();
+
+        return () => {
+            isMounted = false;
+            if (timeoutId) clearTimeout(timeoutId);
+        };
+    }, [showDashboard, year, semester, syncLiveAttendance]);
+
+    // ── Cross-Domain & Cross-Tab Real-Time Sync Listener ──────────────
+    useEffect(() => {
+        const unsubscribe = subscribeCrossDomainSync((event) => {
+            if (event.type === 'ATTENDANCE_UPDATED' && event.data?.subjects) {
+                const incoming = event.data.subjects;
+                prevSubjectsRef.current = incoming;
+                setSubjects(incoming);
+                setShowDashboard(true);
+            }
+        });
+
+        return () => unsubscribe();
+    }, []);
 
     const handleSearch = async (fetchYear = year, fetchSemester = semester) => {
         if (!fetchYear || !fetchSemester) { 
@@ -426,47 +363,13 @@ const AttendanceRegister = () => {
         setDebugHtml(null);
         setFetchError(null);
         setIsOfflineMode(false);
+        setYear(fetchYear);
+        setSemester(fetchSemester);
         try {
-            const data = await erpService.fetchAttendance(fetchYear, fetchSemester);
-            setSubjects(data);
-            setShowDashboard(true);
-            // Save fetched data with metadata to standard location for offline persistence
-            const cachePayload = {
-                attendance_data: data,
-                year: fetchYear,
-                semester: fetchSemester,
-                savedAt: Date.now()
-            };
-            localStorage.setItem(storageKey, JSON.stringify(cachePayload));
-            setCachedSummary({
-                count: data.length,
-                year: fetchYear,
-                semester: fetchSemester,
-                savedAt: new Date().toLocaleDateString(),
-                data: data
-            });
-            setYear(fetchYear);
-            setSemester(fetchSemester);
-        } catch (error) {
-            if (error.message?.startsWith('DEBUG_HTML:')) { 
-                setDebugHtml(error.message.replace('DEBUG_HTML:', '')); 
-                setShowDashboard(true); 
-            }
-            else if (error.message?.startsWith('No table found')) { 
-                setDebugHtml(error.message); 
-                setShowDashboard(true); 
-            }
-            else {
-                // If offline or network drop occurred during fetch, try to fall back to cache
-                if (cachedSummary?.data) {
-                    setSubjects(cachedSummary.data);
-                    setShowDashboard(true);
-                    setIsOfflineMode(true);
-                    return;
-                }
-                setFetchError(error.message || 'Failed to fetch attendance. Please verify your login status.');
-            }
-        } finally { setLoading(false); }
+            await syncLiveAttendance(fetchYear, fetchSemester, { silent: false });
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleBack = () => {
@@ -492,16 +395,17 @@ const AttendanceRegister = () => {
     // ── DASHBOARD VIEW ──────────────────────────────────────────────
     if (showDashboard) {
         return (
-            <div className="min-h-screen bg-slate-50 dark:bg-[#0b1120] pt-20 pb-6 px-4 sm:px-6 font-sans transition-colors duration-200">
+            <div className="min-h-screen bg-slate-50 dark:bg-[#0b1120] pt-28 sm:pt-32 pb-12 px-4 sm:px-6 font-sans transition-colors duration-200">
                 <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 dark:from-[#0b1120] dark:via-[#0f172a] dark:to-[#0b1120]" />
 
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 max-w-7xl mx-auto">
                     <div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
                             <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
                                 Attendance <span className="text-indigo-600 dark:text-indigo-400">Dashboard</span>
                             </h1>
+
                             {isOfflineMode && (
                                 <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
                                     <WifiOff className="w-3.5 h-3.5" />
@@ -509,12 +413,13 @@ const AttendanceRegister = () => {
                                 </span>
                             )}
                         </div>
-                        <p className="text-slate-400 dark:text-slate-400 text-sm mt-0.5 font-medium">
-                            {year && semester ? `${year} · ${semester} Semester` : 'Current Session'}
+                        <p className="text-slate-400 dark:text-slate-400 text-sm mt-0.5 font-medium flex items-center gap-2">
+                            <span>{year && semester ? `${year} · ${semester} Semester` : 'Current Session'}</span>
                             {isOfflineMode && ' · Cached Local Copy'}
                         </p>
                     </div>
-                    <div className="flex gap-2 w-full sm:w-auto">
+
+                    <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                         <button onClick={handleBack} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-50 dark:bg-slate-800 border border-indigo-100 dark:border-slate-700 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 dark:hover:bg-slate-700 transition-colors text-sm font-bold shadow-sm flex items-center justify-center gap-2 cursor-pointer">
                             <ArrowLeft className="w-4 h-4" /> Back to Selection
                         </button>
@@ -538,7 +443,6 @@ const AttendanceRegister = () => {
                         {subjects.map((subject, index) => {
                             const pct = subject.percent;
                             const status = getStatusLabel(pct);
-                            const quickBunk = getQuickBunkBadge(subject);
 
                             return (
                                 <motion.div
@@ -546,7 +450,7 @@ const AttendanceRegister = () => {
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: index * 0.03 }}
-                                    className="bg-white dark:bg-[#1e293b] border-2 border-slate-900 dark:border-slate-700/60 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 hover:dark:border-indigo-500/50"
+                                    className="bg-white dark:bg-[#1e293b] border-2 border-slate-900 dark:border-slate-700/60 hover:dark:border-indigo-500/50 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 relative"
                                 >
                                     {/* Top color strip */}
                                     <div className={`h-1.5 w-full ${getBgStrip(pct)}`} />
@@ -554,7 +458,7 @@ const AttendanceRegister = () => {
                                     <div className="p-5">
                                         {/* Title row */}
                                         <div className="flex justify-between items-start gap-4 mb-3">
-                                            <div className="flex-1 min-w-0">
+                                            <div className="flex-1 min-w-0 pr-6">
                                                 <h3 className="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wide leading-snug">{subject.title}</h3>
                                                 <p className="text-slate-400 dark:text-slate-400 text-[11px] mt-0.5 font-mono">{subject.code}</p>
                                             </div>
@@ -565,19 +469,6 @@ const AttendanceRegister = () => {
                                                 </span>
                                             </div>
                                         </div>
-
-                                        {/* 🎯 "Safe Bunk" Quick Badge on the Dashboard */}
-                                        {quickBunk && (
-                                            <div className="mb-4 flex flex-wrap items-center gap-2">
-                                                <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black tracking-wide ${quickBunk.cls}`}>
-                                                    <span className={`w-2 h-2 rounded-full ${quickBunk.dotColor} animate-pulse`} />
-                                                    <span>{quickBunk.badgeText}</span>
-                                                </div>
-                                                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-400">
-                                                    {quickBunk.subText}
-                                                </span>
-                                            </div>
-                                        )}
 
                                         <div className="border-t border-slate-100 dark:border-slate-700/60 mb-4" />
 
@@ -655,7 +546,7 @@ const AttendanceRegister = () => {
 
     // ── SELECTION FORM ───────────────────────────────────────────────
     return (
-        <div className="min-h-screen bg-[#FAFAFA] dark:bg-[#0b1120] flex items-center justify-center py-16 px-4 font-sans relative selection:bg-indigo-500 selection:text-white transition-colors duration-200">
+        <div className="min-h-screen bg-[#FAFAFA] dark:bg-[#0b1120] flex items-center justify-center pt-28 sm:pt-36 pb-16 px-4 font-sans relative selection:bg-indigo-500 selection:text-white transition-colors duration-200">
             <div className="fixed inset-0 pointer-events-none overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white dark:from-[#0b1120] dark:to-[#0f172a] opacity-80" />
                 <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }} transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
@@ -678,31 +569,7 @@ const AttendanceRegister = () => {
                         <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">Select your Academic Year and Semester</p>
                     </div>
 
-                    {/* 📱 0.1s Fast Offline Cache Card (Hidden on mobile) */}
-                    {cachedSummary && (
-                        <div className="hidden sm:flex mb-5 p-3.5 bg-emerald-50/90 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-2xl items-center justify-between gap-3 shadow-xs">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                                <div className="w-8 h-8 rounded-xl bg-emerald-600 dark:bg-emerald-500/20 text-white dark:text-emerald-400 flex items-center justify-center shrink-0">
-                                    <Zap className="w-4 h-4 animate-pulse" />
-                                </div>
-                                <div className="min-w-0">
-                                    <p className="text-xs font-black text-slate-900 dark:text-white truncate">
-                                        Offline Cache Ready
-                                    </p>
-                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                                        {cachedSummary.year} · {cachedSummary.semester} ({cachedSummary.count} subjects)
-                                    </p>
-                                </div>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={loadFromCache}
-                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shrink-0 transition-all shadow-md active:scale-95 cursor-pointer"
-                            >
-                                Open 0.1s
-                            </button>
-                        </div>
-                    )}
+
 
                     <div className="space-y-5 relative z-10">
                         <div className="space-y-1.5">

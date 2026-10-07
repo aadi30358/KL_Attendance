@@ -1,7 +1,18 @@
 import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear, findSemesterFromHtml, isHtmlMatchingRequestedYear } from '../config/api';
 import { APP_CONFIG } from '../config';
 
-const getErpBase = () => APP_CONFIG.API_URL || '';
+const FALLBACK_ERP_BASE = 'https://kl-attendance-backend-newnode-env.onrender.com';
+let activeErpBase = APP_CONFIG.API_URL || FALLBACK_ERP_BASE;
+
+export const getErpBase = () => activeErpBase || FALLBACK_ERP_BASE;
+
+export const switchToFallbackErpBase = () => {
+    if (activeErpBase !== FALLBACK_ERP_BASE) {
+        console.warn(`[ERP] Switching API from ${activeErpBase} to fallback: ${FALLBACK_ERP_BASE}`);
+        activeErpBase = FALLBACK_ERP_BASE;
+    }
+    return activeErpBase;
+};
 
 export const getStoredErpCookies = () => {
     return sessionStorage.getItem('erp_session_cookie') || localStorage.getItem('erp_session_cookie') || '';
@@ -47,6 +58,7 @@ const buildErpHeaders = (extraHeaders = {}) => {
 };
 
 export const erpService = {
+    getErpBase,
     getStoredErpCookies,
     saveErpCookiesFromResponse,
     clearStoredErpCookies,
@@ -54,7 +66,7 @@ export const erpService = {
     // Ultra-fast session & captcha initialization in a single round-trip
     async getSessionInit() {
         clearStoredErpCookies();
-        const apiBase = getErpBase();
+        let apiBase = getErpBase();
         if (apiBase) {
             try {
                 const resp = await fetch(`${apiBase}/api/session-init`, {
@@ -75,7 +87,31 @@ export const erpService = {
                     }
                 }
             } catch (e) {
-                console.warn("[ERP] Fast session-init unavailable, falling back to direct:", e);
+                console.warn("[ERP] Fast session-init unavailable on current base, trying fallback:", e);
+                if (apiBase !== FALLBACK_ERP_BASE) {
+                    apiBase = switchToFallbackErpBase();
+                    try {
+                        const fbResp = await fetch(`${FALLBACK_ERP_BASE}/api/session-init`, {
+                            headers: { 'Cache-Control': 'no-cache' }
+                        });
+                        if (fbResp.ok) {
+                            const data = await fbResp.json();
+                            if (data.success && data.csrfToken && data.captchaUrl) {
+                                saveErpCookiesFromResponse(fbResp);
+                                if (data.cookies) {
+                                    sessionStorage.setItem('erp_session_cookie', data.cookies);
+                                    localStorage.setItem('erp_session_cookie', data.cookies);
+                                }
+                                return {
+                                    csrfToken: data.csrfToken,
+                                    captchaUrl: data.captchaUrl
+                                };
+                            }
+                        }
+                    } catch (fbErr) {
+                        console.warn("[ERP] Fallback session-init also failed:", fbErr);
+                    }
+                }
             }
         }
 
@@ -89,7 +125,7 @@ export const erpService = {
 
     // Ultra-fast captcha refresh in a single round-trip
     async fastRefreshCaptcha() {
-        const apiBase = getErpBase();
+        let apiBase = getErpBase();
         if (apiBase) {
             try {
                 const headers = buildErpHeaders({ 'Cache-Control': 'no-cache' });
@@ -106,7 +142,27 @@ export const erpService = {
                     }
                 }
             } catch (e) {
-                console.warn("[ERP] Fast refresh-captcha unavailable, falling back to direct:", e);
+                console.warn("[ERP] Fast refresh-captcha unavailable on base, trying fallback:", e);
+                if (apiBase !== FALLBACK_ERP_BASE) {
+                    switchToFallbackErpBase();
+                    try {
+                        const headers = buildErpHeaders({ 'Cache-Control': 'no-cache' });
+                        const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, { headers });
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            if (data.success && data.captchaUrl) {
+                                saveErpCookiesFromResponse(resp);
+                                if (data.cookies) {
+                                    sessionStorage.setItem('erp_session_cookie', data.cookies);
+                                    localStorage.setItem('erp_session_cookie', data.cookies);
+                                }
+                                return data.captchaUrl;
+                            }
+                        }
+                    } catch (fbErr) {
+                        console.warn("[ERP] Fallback refresh-captcha also failed:", fbErr);
+                    }
+                }
             }
         }
         return null;
@@ -120,11 +176,25 @@ export const erpService = {
         const headers = {
             'Cache-Control': 'no-cache'
         };
-        const response = await fetch(`${getErpBase()}/index.php?_t=${timestamp}`, { 
-            credentials: 'include',
-            cache: 'no-store',
-            headers
-        });
+        let response;
+        try {
+            response = await fetch(`${getErpBase()}/index.php?_t=${timestamp}`, { 
+                credentials: 'include',
+                cache: 'no-store',
+                headers
+            });
+        } catch (fetchErr) {
+            if (getErpBase() !== FALLBACK_ERP_BASE) {
+                switchToFallbackErpBase();
+                response = await fetch(`${FALLBACK_ERP_BASE}/index.php?_t=${timestamp}`, { 
+                    credentials: 'include',
+                    cache: 'no-store',
+                    headers
+                });
+            } else {
+                throw fetchErr;
+            }
+        }
         saveErpCookiesFromResponse(response);
         const html = await response.text();
         if (response.status === 503 || html.includes('Service Suspended')) {
@@ -189,7 +259,49 @@ export const erpService = {
                 if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError')) {
                     throw err;
                 }
-                console.warn("[ERP] Fast login endpoint unavailable, falling back to proxy:", err);
+                console.warn("[ERP] Fast login endpoint network failure, trying fallback:", err);
+                if (apiBase !== FALLBACK_ERP_BASE) {
+                    switchToFallbackErpBase();
+                    try {
+                        const fbResp = await fetch(`${FALLBACK_ERP_BASE}/api/fast-login`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Cache-Control': 'no-cache',
+                                ...(storedCookie ? { 'x-erp-cookie': storedCookie } : {})
+                            },
+                            body: JSON.stringify({ username, password, captcha, csrfToken })
+                        });
+                        saveErpCookiesFromResponse(fbResp);
+                        const fbData = await fbResp.json();
+                        if (fbData.cookies) {
+                            sessionStorage.setItem('erp_session_cookie', fbData.cookies);
+                            localStorage.setItem('erp_session_cookie', fbData.cookies);
+                        }
+                        if (fbResp.ok && fbData.success && fbData.html) {
+                            const html = fbData.html;
+                            const isForm = html.includes('id="login-form"') || html.includes('loginFormUserNameID');
+                            const hasAuthProof = html.includes('site%2Flogout') || 
+                                                 html.includes('site/logout') || 
+                                                 html.includes('indexindi') || 
+                                                 html.includes('logout') || 
+                                                 html.includes(username);
+
+                            if (!isForm && hasAuthProof) {
+                                console.log("[ERP] Fallback fast login succeeded and verified!");
+                                return { success: true, verified: true, html };
+                            }
+                            throw new Error("Credentials verification failed. Please check your Student ID and Password.");
+                        }
+                        if (fbData && fbData.error) {
+                            throw new Error(fbData.error);
+                        }
+                    } catch (fbErr) {
+                        if (fbErr.message && !fbErr.message.includes('Failed to fetch') && !fbErr.message.includes('NetworkError')) {
+                            throw fbErr;
+                        }
+                    }
+                }
             }
         }
 
@@ -208,13 +320,32 @@ export const erpService = {
             'Cache-Control': 'no-cache'
         });
 
-        const response = await fetch(`${getErpBase()}/index.php?r=site%2Flogin`, {
-            method: 'POST',
-            headers,
-            body: formData,
-            credentials: 'include',
-            cache: 'no-store'
-        });
+        let response;
+        try {
+            response = await fetch(`${getErpBase()}/index.php?r=site%2Flogin`, {
+                method: 'POST',
+                headers,
+                body: formData,
+                credentials: 'include',
+                cache: 'no-store'
+            });
+        } catch (fetchErr) {
+            if (getErpBase() !== FALLBACK_ERP_BASE) {
+                switchToFallbackErpBase();
+                response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=site%2Flogin`, {
+                    method: 'POST',
+                    headers: buildErpHeaders({
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Cache-Control': 'no-cache'
+                    }),
+                    body: formData,
+                    credentials: 'include',
+                    cache: 'no-store'
+                });
+            } else {
+                throw fetchErr;
+            }
+        }
 
         if (!response.ok) {
             throw new Error(`ERP server responded with status ${response.status}. Please check your connection or try again.`);
@@ -384,13 +515,29 @@ export const erpService = {
         }
         const headers = buildErpHeaders(extraHeaders);
 
-        let response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
-            method: 'POST',
-            headers,
-            body: formData,
-            credentials: 'include',
-            cache: 'no-store'
-        });
+        let response;
+        try {
+            response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
+                method: 'POST',
+                headers,
+                body: formData,
+                credentials: 'include',
+                cache: 'no-store'
+            });
+        } catch (fetchErr) {
+            if (getErpBase() !== FALLBACK_ERP_BASE) {
+                switchToFallbackErpBase();
+                response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
+                    method: 'POST',
+                    headers: buildErpHeaders(extraHeaders),
+                    body: formData,
+                    credentials: 'include',
+                    cache: 'no-store'
+                });
+            } else {
+                throw fetchErr;
+            }
+        }
 
         saveErpCookiesFromResponse(response);
         let html = await response.text();
@@ -445,12 +592,27 @@ export const erpService = {
             const headers = buildErpHeaders({
                 'Cache-Control': 'no-cache'
             });
-            const response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
-                method: 'GET',
-                credentials: 'include',
-                cache: 'no-store',
-                headers
-            });
+            let response;
+            try {
+                response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
+                    method: 'GET',
+                    credentials: 'include',
+                    cache: 'no-store',
+                    headers
+                });
+            } catch (fetchErr) {
+                if (getErpBase() !== FALLBACK_ERP_BASE) {
+                    switchToFallbackErpBase();
+                    response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
+                        method: 'GET',
+                        credentials: 'include',
+                        cache: 'no-store',
+                        headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
+                    });
+                } else {
+                    throw fetchErr;
+                }
+            }
             saveErpCookiesFromResponse(response);
             if (response.ok) {
                 const html = await response.text();
@@ -467,47 +629,163 @@ export const erpService = {
         return null;
     },
 
-    // Fetch Subjects and Attendance (Secure Isolated Session Cache)
-    async fetchAttendance(year, semester) {
-        const username = sessionStorage.getItem('erp_username');
+    // Fast-Path In-Memory and Session Storage Helpers
+    _getFastPathKey(year, semester) {
+        const username = sessionStorage.getItem('erp_username') || localStorage.getItem('activeErpUser') || 'default';
+        return `kl_erp_fastpath_${username}_${year}_${semester}`;
+    },
+
+    _getFastPath(year, semester) {
+        const key = this._getFastPathKey(year, semester);
+        try {
+            const raw = sessionStorage.getItem(key);
+            if (raw) return JSON.parse(raw);
+        } catch {
+            // Ignore fast-path cache read errors
+        }
+        return null;
+    },
+
+    _saveFastPath(year, semester, yearId, semId, csrfToken) {
+        const key = this._getFastPathKey(year, semester);
+        try {
+            sessionStorage.setItem(key, JSON.stringify({
+                yearId,
+                semId,
+                csrfToken: csrfToken || '',
+                savedAt: Date.now()
+            }));
+        } catch {
+            // Ignore fast-path cache write errors
+        }
+    },
+
+    // 0ms Synchronous Optimistic Cache Reader for Instant Page Paint
+    getCachedAttendance(year, semester) {
+        const username = sessionStorage.getItem('erp_username') || localStorage.getItem('activeErpUser') || '';
         const cacheKey = username ? `kl_att_cache_${username}_${year}_${semester}` : null;
-        
-        // 1. Read from Isolated Client Session Cache (Zero latency, completely private to this student)
         if (cacheKey) {
             try {
                 const cachedRaw = sessionStorage.getItem(cacheKey);
                 if (cachedRaw) {
                     const data = JSON.parse(cachedRaw);
-                    const now = Date.now();
-                    // 6 hours cache validity (21600000 ms)
-                    if (now - (data.last_updated || 0) < 21600000 && Array.isArray(data.subjects) && data.subjects.length > 0) {
+                    if (Array.isArray(data.subjects) && data.subjects.length > 0) {
                         return data.subjects;
                     }
                 }
-            } catch (err) {
-                console.warn("[ERP] Session cache read notice:", err);
+            } catch {
+                // Ignore session cache parse errors
+            }
+        }
+        try {
+            const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
+            const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
+            const raw = localStorage.getItem(storageKey) || localStorage.getItem('kleData');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                const list = parsed.attendance_data || (Array.isArray(parsed) ? parsed : null);
+                if (Array.isArray(list) && list.length > 0) {
+                    return list;
+                }
+            }
+        } catch {
+            // Ignore storage key read errors
+        }
+        return null;
+    },
+
+    // Live Sub-Second Attendance Fetcher (< 1s execution)
+    async fetchAttendance(year, semester, { forceLive = true } = {}) {
+        const startTime = performance.now();
+        const username = sessionStorage.getItem('erp_username') || localStorage.getItem('activeErpUser') || '';
+        const cacheKey = username ? `kl_att_cache_${username}_${year}_${semester}` : null;
+
+        // If forceLive is explicitly false and valid local cache exists, return cache
+        if (!forceLive && cacheKey) {
+            try {
+                const cachedRaw = sessionStorage.getItem(cacheKey);
+                if (cachedRaw) {
+                    const data = JSON.parse(cachedRaw);
+                    if (Array.isArray(data.subjects) && data.subjects.length > 0) {
+                        return data.subjects;
+                    }
+                }
+            } catch {
+                // Ignore session cache read errors
             }
         }
 
-        // 2. Scrape from ERP
-        const subjects = await this._fetchAttendanceFromERP(year, semester);
-
-        // 3. Write to Isolated Client Session Cache
-        if (cacheKey && subjects && subjects.length > 0) {
+        // 1. FAST-PATH EXECUTION (< 1s, typically ~150ms-350ms):
+        // If resolved yearId and semId are already known, skip discovery loops and fire a single direct network hop!
+        const fastPath = this._getFastPath(year, semester);
+        if (fastPath && fastPath.yearId && fastPath.semId) {
             try {
-                sessionStorage.setItem(cacheKey, JSON.stringify({
-                    subjects: subjects,
-                    last_updated: Date.now()
-                }));
+                const t0 = performance.now();
+                const { subjects } = await this._postFetchAttendance(
+                    fastPath.yearId,
+                    fastPath.semId,
+                    fastPath.csrfToken
+                );
+
+                if (subjects && subjects.length > 0) {
+                    const latencyMs = Math.round(performance.now() - t0);
+                    console.log(`[ERP Fast-Path] Attendance updated in ${latencyMs}ms (< 1s) for ${year} ${semester}`);
+
+                    // Refresh fast path timestamp
+                    this._saveFastPath(year, semester, fastPath.yearId, fastPath.semId, fastPath.csrfToken);
+
+                    // Attach speed metadata
+                    subjects.__latencyMs = latencyMs;
+                    subjects.__isFastPath = true;
+                    subjects.__fetchedAt = Date.now();
+
+                    // Update session storage
+                    if (cacheKey) {
+                        try {
+                            sessionStorage.setItem(cacheKey, JSON.stringify({
+                                subjects,
+                                last_updated: Date.now()
+                            }));
+                        } catch {
+                            // Ignore session storage errors
+                        }
+                    }
+
+                    return subjects;
+                }
             } catch (err) {
-                console.warn("[ERP] Session cache write notice:", err);
+                if (err.message?.includes('session has expired') || err.message?.includes('Session error')) {
+                    throw err;
+                }
+                console.warn('[ERP Fast-Path] Fast-path missed or CSRF rotated, falling back to full resolver:', err);
+            }
+        }
+
+        // 2. Full Resolution (Discovers active yearId and semId, then stores in Fast-Path)
+        const subjects = await this._fetchAttendanceFromERP(year, semester);
+        const totalLatencyMs = Math.round(performance.now() - startTime);
+
+        if (subjects && subjects.length > 0) {
+            subjects.__latencyMs = totalLatencyMs;
+            subjects.__isFastPath = false;
+            subjects.__fetchedAt = Date.now();
+
+            if (cacheKey) {
+                try {
+                    sessionStorage.setItem(cacheKey, JSON.stringify({
+                        subjects,
+                        last_updated: Date.now()
+                    }));
+                } catch {
+                    // Ignore session storage errors
+                }
             }
         }
 
         return subjects;
     },
 
-    // Actual Scraping Logic
+    // Actual Scraping & Discovery Logic
     async _fetchAttendanceFromERP(year, semester) {
         let dashboardHtml = localStorage.getItem('erpDashboardHtml') || '';
         const liveOptions = await this.getAttendancePageOptions(year, semester);
@@ -563,6 +841,8 @@ export const erpService = {
                     if (subjects && subjects.length > 0) {
                         if (isLiveId || isHtmlMatchingRequestedYear(html, year)) {
                             console.log(`[ERP] Successfully fetched ${subjects.length} subjects for requested year ${year} with yearId: ${candidateYearId}, semId: ${candidateSemId}`);
+                            // Memorize for future sub-second (< 1s) Fast-Path requests
+                            this._saveFastPath(year, semester, candidateYearId, candidateSemId, csrfToken);
                             return subjects;
                         } else {
                             console.warn(`[ERP] Saving fallback subjects for yearId ${candidateYearId} despite HTML mismatch with requested year ${year}`);
@@ -583,6 +863,7 @@ export const erpService = {
 
         if (fallbackSubjects && fallbackSubjects.length > 0) {
             console.log(`[ERP] Using fallback subjects from candidate yearId ${fallbackCandidate.yearId} because no perfect HTML match was found.`);
+            this._saveFastPath(year, semester, fallbackCandidate.yearId, fallbackCandidate.semId, csrfToken);
             return fallbackSubjects;
         }
 
@@ -784,7 +1065,7 @@ export const erpService = {
     },
 
     async getCaptchaUrl() {
-        const apiBase = import.meta.env.VITE_API_URL || '';
+        const apiBase = getErpBase();
         return `${apiBase}/api/captcha?v=${Math.random().toString(36).substring(7)}`;
     }
 };

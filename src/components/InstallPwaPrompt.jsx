@@ -5,8 +5,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 export const InstallPwaPrompt = () => {
     const [deferredPrompt, setDeferredPrompt] = useState(null);
     const [showBanner, setShowBanner] = useState(false);
-    const [isIOS, setIsIOS] = useState(false);
-    const [isStandalone, setIsStandalone] = useState(false);
+    const [isIOS] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+    });
+    const [isStandalone] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        return (
+            window.matchMedia('(display-mode: standalone)').matches ||
+            window.navigator.standalone === true ||
+            document.referrer.includes('android-app://')
+        );
+    });
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
     const [showIosGuide, setShowIosGuide] = useState(false);
 
@@ -17,17 +27,7 @@ export const InstallPwaPrompt = () => {
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
 
-        // Detect if already installed as PWA (standalone)
-        const checkStandalone = 
-            window.matchMedia('(display-mode: standalone)').matches || 
-            window.navigator.standalone === true ||
-            document.referrer.includes('android-app://');
-        setIsStandalone(checkStandalone);
-
-        // Detect iOS
-        const userAgent = window.navigator.userAgent.toLowerCase();
-        const iOSDevice = /iphone|ipad|ipod/.test(userAgent);
-        setIsIOS(iOSDevice);
+        const checkStandalone = isStandalone;
 
         // Listen for beforeinstallprompt (Android / Chrome / Edge)
         const handleBeforeInstall = (e) => {
@@ -56,7 +56,7 @@ export const InstallPwaPrompt = () => {
             window.removeEventListener('offline', handleOffline);
             window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
         };
-    }, []);
+    }, [isStandalone]);
 
     const handleInstallClick = async () => {
         if (deferredPrompt) {

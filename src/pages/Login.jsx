@@ -95,7 +95,7 @@ const Login = () => {
 
     // Fetch fresh captcha blob using current ERP session cookie
     const fetchCaptchaBlob = useCallback(async (isRefresh = false) => {
-        const apiBase = APP_CONFIG.API_URL || '';
+        const apiBase = erpService.getErpBase ? erpService.getErpBase() : (APP_CONFIG.API_URL || 'https://kl-attendance-backend-newnode-env.onrender.com');
         const headers = { 'Cache-Control': 'no-cache' };
         const storedCookie = erpService.getStoredErpCookies();
         if (storedCookie) headers['x-erp-cookie'] = storedCookie;
@@ -342,7 +342,19 @@ const Login = () => {
         setError('');
 
         try {
-            const loginResult = await erpService.login(cleanId, password, cleanCaptcha, csrfToken);
+            let activeCsrf = csrfToken;
+            if (!activeCsrf) {
+                try {
+                    const initRes = await erpService.getSessionInit();
+                    if (initRes?.csrfToken) {
+                        activeCsrf = initRes.csrfToken;
+                        setCsrfToken(activeCsrf);
+                    }
+                } catch (csrfErr) {
+                    console.warn("[Login] Pre-login CSRF token fetch notice:", csrfErr);
+                }
+            }
+            const loginResult = await erpService.login(cleanId, password, cleanCaptcha, activeCsrf);
 
             // Strict credential verification check: Only proceed if authenticated by ERP
             const html = loginResult?.html || '';
@@ -375,6 +387,7 @@ const Login = () => {
             localStorage.setItem('userUniversity', 'klu');
             setErpUser(cleanId);
             localStorage.setItem('activeErpUser', cleanId);
+            sessionStorage.setItem('erp_username', cleanId);
 
             if (rememberMe) {
                 localStorage.setItem('rememberedId', cleanId);
@@ -401,7 +414,7 @@ const Login = () => {
     };
 
     return (
-        <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center px-4 relative font-sans selection:bg-indigo-500 selection:text-white">
+        <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center pt-28 sm:pt-36 pb-16 px-4 relative font-sans selection:bg-indigo-500 selection:text-white">
 
             {/* Ambient Background */}
             <div className="fixed inset-0 pointer-events-none overflow-hidden">
@@ -415,7 +428,7 @@ const Login = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.25 }}
-                className="w-full max-w-md relative z-10"
+                className="w-full max-w-md relative z-10 my-auto"
             >
                 {/* Card */}
                 <div className="bg-white/80 backdrop-blur-xl border-[3px] border-slate-900 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden">

@@ -593,6 +593,93 @@ app.get('/api/refresh-captcha', async (req, res) => {
     }
 });
 
+// Low-Latency Fast Attendance Proxy (< 1s execution)
+app.post('/api/fast-attendance', async (req, res) => {
+    try {
+        const { yearId, semId, csrfToken } = req.body;
+        const clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
+
+        if (!yearId || !semId) {
+            return res.status(400).json({ success: false, error: 'Academic Year ID and Semester ID are required for fast attendance query.' });
+        }
+
+        const formData = new URLSearchParams();
+        formData.append('DynamicModel[academicyear]', yearId);
+        formData.append('DynamicModel[semesterid]', semId);
+        formData.append('academicyear', yearId);
+        formData.append('semesterid', semId);
+        if (csrfToken) {
+            formData.append('_csrf', csrfToken);
+        }
+
+        const cleanHeaders = {
+            'content-type': 'application/x-www-form-urlencoded',
+            'x-requested-with': 'XMLHttpRequest',
+            'cache-control': 'no-cache',
+            'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'host': 'newerp.kluniversity.in',
+            'origin': 'https://newerp.kluniversity.in',
+            'referer': 'https://newerp.kluniversity.in/'
+        };
+
+        if (clientCookie) {
+            cleanHeaders['cookie'] = clientCookie;
+        }
+        if (csrfToken) {
+            cleanHeaders['x-csrf-token'] = csrfToken;
+        }
+
+        const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '192.168.1.1';
+        cleanHeaders['x-forwarded-for'] = clientIp.split(',')[0].trim();
+
+        const tStart = Date.now();
+        const response = await fetch('https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist', {
+            method: 'POST',
+            headers: cleanHeaders,
+            body: formData.toString(),
+            cache: 'no-store'
+        });
+        const latencyMs = Date.now() - tStart;
+
+        let setCookies = [];
+        if (typeof response.headers.getSetCookie === 'function') {
+            setCookies = response.headers.getSetCookie();
+        } else if (typeof response.headers.raw === 'function') {
+            setCookies = response.headers.raw()['set-cookie'] || [response.headers.get('set-cookie')].filter(Boolean);
+        } else {
+            const val = response.headers.get('set-cookie');
+            if (val) setCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+        }
+
+        if (setCookies.length > 0) {
+            const cookiePairs = setCookies.map(c => c.split(';')[0].trim()).join('; ');
+            res.setHeader('x-set-erp-cookie', cookiePairs);
+            const rewrittenCookies = setCookies.map(cookie => {
+                let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');
+                newCookie = newCookie.replace(/SameSite=[^;]+;?/gi, '');
+                newCookie = newCookie.replace(/Secure;?/gi, '');
+                newCookie = newCookie.replace(/Partitioned;?/gi, '');
+                newCookie = newCookie.trim().replace(/;+$/, '');
+                newCookie += '; SameSite=None; Secure; Partitioned';
+                return newCookie.trim();
+            });
+            res.setHeader('Set-Cookie', rewrittenCookies);
+        }
+
+        const html = await response.text();
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        res.json({
+            success: response.ok,
+            status: response.status,
+            latencyMs,
+            html
+        });
+    } catch (e) {
+        console.error('[Fast-Attendance] Error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // In-memory buffer of recent verified student logins
 const recentStudentLogins = [];
 

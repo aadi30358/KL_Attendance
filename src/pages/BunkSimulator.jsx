@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
     Flame,
@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import SEO from '../components/SEO';
 import { useAttendance } from '../context/useAttendance';
+import { subscribeCrossDomainSync } from '../services/crossDomainSync';
 
 // KLU Official Weights
 const KLU_WEIGHTS = {
@@ -41,7 +42,7 @@ const BunkSimulator = () => {
     const [mode, setMode] = useState('ltps'); // 'ltps' or 'quick'
 
     // ERP subjects if available
-    const [savedSubjects] = useState(() => {
+    const [savedSubjects, setSavedSubjects] = useState(() => {
         try {
             const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
             const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
@@ -58,6 +59,17 @@ const BunkSimulator = () => {
         }
         return [];
     });
+
+    // Real-Time Cross-Domain & Tab Synchronization (< 1s)
+    useEffect(() => {
+        const unsubscribe = subscribeCrossDomainSync((event) => {
+            if (event.type === 'ATTENDANCE_UPDATED' && Array.isArray(event.data?.subjects) && event.data.subjects.length > 0) {
+                setSavedSubjects(event.data.subjects);
+            }
+        });
+        return () => unsubscribe();
+    }, []);
+
     const [selectedCourseCode, setSelectedCourseCode] = useState('');
 
     // --- L-T-P-S State ---

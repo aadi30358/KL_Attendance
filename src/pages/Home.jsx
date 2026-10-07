@@ -846,7 +846,6 @@ export default function Home() {
                         </ThreeDParallaxCard>
                     </div>
 
-
                 </div>
 
                 <ExamCountdownSection />

@@ -134,6 +134,16 @@ const AppWithAuth = () => {
     return () => clearTimeout(t);
   }, [isAdminPage]);
 
+  // Ensure root html has no residual dark mode class
+  useEffect(() => {
+    try {
+      document.documentElement.classList.remove('dark');
+      localStorage.removeItem('kl_theme');
+    } catch {
+      // ignore
+    }
+  }, []);
+
   if (isAdminPage) {
     return (
       <main className="min-h-screen font-sans">
@@ -145,16 +155,6 @@ const AppWithAuth = () => {
       </main>
     );
   }
-
-  // Ensure root html has no residual dark mode class
-  useEffect(() => {
-    try {
-      document.documentElement.classList.remove('dark');
-      localStorage.removeItem('kl_theme');
-    } catch {
-      // ignore
-    }
-  }, []);
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-900">
