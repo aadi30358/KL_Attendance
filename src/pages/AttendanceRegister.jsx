@@ -261,7 +261,7 @@ const AttendanceRegister = () => {
         }
     }, [storageKey]);
 
-    // ── Instant 0ms Optimistic Paint on Mount + Seamless Live Sync ───
+    // ── On Mount: Ensure Selection Screen is shown first after login ───
     useEffect(() => {
         if (hasMountedRef.current) return;
         hasMountedRef.current = true;
@@ -272,48 +272,30 @@ const AttendanceRegister = () => {
             return;
         }
 
-        let initialYear = '2026-2027';
-        let initialSemester = 'Odd';
-
-        // 1. Instant 0ms Optimistic Paint from Cache
+        // Pre-fill selection dropdowns with previously used year/sem if available
         try {
             const raw = localStorage.getItem(storageKey) || localStorage.getItem('kleData');
             if (raw) {
                 const parsed = JSON.parse(raw);
-                const list = parsed.attendance_data || (Array.isArray(parsed) ? parsed : null);
-                if (list && list.length > 0) {
-                    if (parsed.year) initialYear = parsed.year;
-                    if (parsed.semester) initialSemester = parsed.semester;
-
-                    prevSubjectsRef.current = list;
-                    setYear(initialYear);
-                    setSemester(initialSemester);
-                    setSubjects(list);
-                    setShowDashboard(true);
-                    setCachedSummary({
-                        count: list.length,
-                        year: initialYear,
-                        semester: initialSemester,
-                        savedAt: parsed.savedAt ? new Date(parsed.savedAt).toLocaleDateString() : null,
-                        data: list
-                    });
+                if (parsed.year) {
+                    setYear(parsed.year);
+                    yearRef.current = parsed.year;
+                }
+                if (parsed.semester) {
+                    setSemester(parsed.semester);
+                    semesterRef.current = parsed.semester;
                 }
             }
         } catch (e) {
             console.warn('[Cache] Could not parse local attendance cache:', e);
         }
 
-        // 2. Seamless Live ERP Sync in < 1s
-        if (navigator.onLine) {
-            syncLiveAttendance(initialYear, initialSemester, { silent: true });
-        } else {
-            setIsOfflineMode(true);
-        }
-
+        // Always start on the Selection Screen after login
+        setShowDashboard(false);
         sessionStorage.removeItem('manual_sem_reset');
-    }, [navigate, storageKey, syncLiveAttendance]);
+    }, [navigate, storageKey]);
 
-    // ── Tab Focus Auto-Sync (< 1s execution) ──────────────────────────
+    // ── Tab Focus Auto-Sync (< 1s execution, only active while viewing dashboard) ──
     useEffect(() => {
         const handleFocusSync = () => {
             if (showDashboard && document.visibilityState === 'visible' && navigator.onLine) {
@@ -330,7 +312,7 @@ const AttendanceRegister = () => {
         };
     }, [showDashboard, syncLiveAttendance]);
 
-    // ── Timetable Period Completion Auto-Poller (5s near period end) ──
+    // ── Timetable Period Completion Auto-Poller (only active while viewing dashboard) ──
     useEffect(() => {
         if (!showDashboard || !navigator.onLine) return;
 
@@ -363,7 +345,6 @@ const AttendanceRegister = () => {
                 const incoming = event.data.subjects;
                 prevSubjectsRef.current = incoming;
                 setSubjects(incoming);
-                setShowDashboard(true);
             }
         });
 
@@ -624,7 +605,7 @@ const AttendanceRegister = () => {
                         <div className="space-y-1.5">
                             <label className="text-slate-600 dark:text-slate-300 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
                             <div className="relative">
-                                <select value={year} onChange={e => setYear(e.target.value)}
+                                <select value={year} onChange={e => { setYear(e.target.value); yearRef.current = e.target.value; }}
                                     className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 px-5 text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950 transition-all font-medium cursor-pointer">
                                     <option value="">Select Academic Year</option>
                                     <option value="2026-2027">2026-2027</option>
@@ -643,7 +624,7 @@ const AttendanceRegister = () => {
                         <div className="space-y-1.5">
                             <label className="text-slate-600 dark:text-slate-300 text-xs font-bold uppercase tracking-widest ml-1">Semester</label>
                             <div className="relative">
-                                <select value={semester} onChange={e => setSemester(e.target.value)}
+                                <select value={semester} onChange={e => { setSemester(e.target.value); semesterRef.current = e.target.value; }}
                                     className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 px-5 text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950 transition-all font-medium cursor-pointer">
                                     <option value="">Select Semester</option>
                                     <option value="Odd">Odd Sem</option>
