@@ -619,7 +619,7 @@ app.post('/api/fast-attendance', async (req, res) => {
             'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
             'host': 'newerp.kluniversity.in',
             'origin': 'https://newerp.kluniversity.in',
-            'referer': 'https://newerp.kluniversity.in/'
+            'referer': 'https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex'
         };
 
         if (clientCookie) {
@@ -668,11 +668,16 @@ app.post('/api/fast-attendance', async (req, res) => {
 
         const html = await response.text();
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        const isSessionExpired = response.status === 302 || 
+                                 response.status === 401 || 
+                                 html.includes('id="login-form"') || 
+                                 html.includes('loginFormUserNameID');
         res.json({
-            success: response.ok,
+            success: response.ok && !isSessionExpired,
             status: response.status,
             latencyMs,
-            html
+            html,
+            sessionExpired: isSessionExpired
         });
     } catch (e) {
         console.error('[Fast-Attendance] Error:', e);

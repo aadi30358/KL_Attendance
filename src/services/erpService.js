@@ -18,9 +18,37 @@ export const getStoredErpCookies = () => {
     return sessionStorage.getItem('erp_session_cookie') || localStorage.getItem('erp_session_cookie') || '';
 };
 
+export const getStoredCsrfToken = () => {
+    let token = sessionStorage.getItem('erp_csrf_token') || localStorage.getItem('erp_csrf_token');
+    if (!token) {
+        const dashboardHtml = localStorage.getItem('erpDashboardHtml');
+        if (dashboardHtml) {
+            try {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(dashboardHtml, 'text/html');
+                token = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || null;
+                if (token) {
+                    sessionStorage.setItem('erp_csrf_token', token);
+                    localStorage.setItem('erp_csrf_token', token);
+                }
+            } catch {
+                // Ignore parse errors
+            }
+        }
+    }
+    return token;
+};
+
 export const saveErpCookiesFromResponse = (response) => {
     try {
-        const newCookies = response.headers.get('x-set-erp-cookie');
+        if (!response) return;
+        // Do NOT save cookies from error responses (400, 401, 403, 500)
+        // because error pages frequently issue guest sessions that poison authenticated cookies
+        if (response.status && response.status >= 400) {
+            return;
+        }
+
+        const newCookies = response.headers?.get?.('x-set-erp-cookie');
         if (newCookies) {
             const existing = getStoredErpCookies();
             const cookieMap = new Map();
@@ -46,6 +74,8 @@ export const saveErpCookiesFromResponse = (response) => {
 export const clearStoredErpCookies = () => {
     sessionStorage.removeItem('erp_session_cookie');
     localStorage.removeItem('erp_session_cookie');
+    sessionStorage.removeItem('erp_csrf_token');
+    localStorage.removeItem('erp_csrf_token');
 };
 
 const buildErpHeaders = (extraHeaders = {}) => {
@@ -509,13 +539,53 @@ export const erpService = {
 
     // Single request helper
     async _postFetchAttendance(yearId, semId, csrfToken) {
+        const activeCsrf = csrfToken || getStoredCsrfToken();
+
+        // 1. Primary Strategy: Fast low-latency direct proxy (< 300ms)
+        try {
+            const fastResp = await fetch(`${getErpBase()}/api/fast-attendance`, {
+                method: 'POST',
+                headers: buildErpHeaders({
+                    'Content-Type': 'application/json'
+                }),
+                body: JSON.stringify({
+                    yearId: String(yearId),
+                    semId: String(semId),
+                    csrfToken: activeCsrf || ''
+                }),
+                cache: 'no-store'
+            });
+
+            if (fastResp.ok) {
+                const fastData = await fastResp.json();
+                if (fastData.success && fastData.html) {
+                    if (fastData.html.includes('id="login-form"') || fastData.html.includes('loginFormUserNameID')) {
+                        throw new Error("Your session has expired. Please log out and sign in again.");
+                    }
+                    saveErpCookiesFromResponse(fastResp);
+                    const subjects = this.parseSubjects(fastData.html);
+                    if (subjects && subjects.length > 0) {
+                        return { subjects, html: fastData.html };
+                    }
+                } else if (fastData.sessionExpired || fastData.status === 302 || (fastData.html && fastData.html.includes('login-form'))) {
+                    throw new Error("Your session has expired. Please log out and sign in again.");
+                }
+            }
+        } catch (fastErr) {
+            if (fastErr.message?.includes('session has expired')) {
+                throw fastErr;
+            }
+            console.warn('[ERP] Fast-attendance endpoint notice, trying standard endpoint:', fastErr);
+        }
+
+        // 2. Secondary Strategy: Standard proxy post to courselist
         const formData = new URLSearchParams();
-        formData.append('DynamicModel[academicyear]', yearId);
-        formData.append('DynamicModel[semesterid]', semId);
-        formData.append('academicyear', yearId);
-        formData.append('semesterid', semId);
-        if (csrfToken) {
-            formData.append('_csrf', csrfToken);
+        formData.append('DynamicModel[academicyear]', String(yearId));
+        formData.append('DynamicModel[semesterid]', String(semId));
+        formData.append('academicyear', String(yearId));
+        formData.append('semesterid', String(semId));
+        if (activeCsrf) {
+            formData.append('_csrf', activeCsrf);
         }
 
         const extraHeaders = {
@@ -523,8 +593,8 @@ export const erpService = {
             'X-Requested-With': 'XMLHttpRequest',
             'Cache-Control': 'no-cache'
         };
-        if (csrfToken) {
-            extraHeaders['X-CSRF-Token'] = csrfToken;
+        if (activeCsrf) {
+            extraHeaders['X-CSRF-Token'] = activeCsrf;
         }
         const headers = buildErpHeaders(extraHeaders);
 
@@ -552,24 +622,24 @@ export const erpService = {
             }
         }
 
-        saveErpCookiesFromResponse(response);
-        let html = await response.text();
-
-        if (response.status === 400 && html.includes('Unable to verify your data submission')) {
-            throw new Error("Your session has expired. Please completely sign out and log in again.");
+        if (response.status === 400 || response.status === 401 || response.status === 302) {
+            throw new Error("Your session has expired. Please log out and sign in again.");
         }
 
         if (!response.ok) {
             console.error("ERP HTTP Error:", response.status, response.statusText);
-            throw new Error(`Session error (${response.status}). Please log out and sign in again.`);
+            throw new Error(`Unable to load attendance (HTTP ${response.status}). Please try again.`);
         }
+
+        let html = await response.text();
 
         const parser = new DOMParser();
         let doc = parser.parseFromString(html, 'text/html');
-        if (doc.getElementById('login-form')) {
+        if (doc.getElementById('login-form') || html.includes('loginFormUserNameID')) {
             throw new Error("Your session has expired. Please log out and sign in again.");
         }
 
+        saveErpCookiesFromResponse(response);
         let subjects = this.parseSubjects(html);
 
         // Fallback: If courselist yielded 0 subjects, attempt posting to index route
@@ -582,12 +652,14 @@ export const erpService = {
                     credentials: 'include',
                     cache: 'no-store'
                 });
-                saveErpCookiesFromResponse(indexResp);
                 if (indexResp.ok) {
                     const indexHtml = await indexResp.text();
-                    const indexSubjects = this.parseSubjects(indexHtml);
-                    if (indexSubjects && indexSubjects.length > 0) {
-                        return { subjects: indexSubjects, html: indexHtml };
+                    if (!indexHtml.includes('login-form')) {
+                        saveErpCookiesFromResponse(indexResp);
+                        const indexSubjects = this.parseSubjects(indexHtml);
+                        if (indexSubjects && indexSubjects.length > 0) {
+                            return { subjects: indexSubjects, html: indexHtml };
+                        }
                     }
                 }
             } catch (e) {
@@ -607,7 +679,7 @@ export const erpService = {
             });
             let response;
             try {
-                response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
+                response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex&_t=${timestamp}`, {
                     method: 'GET',
                     credentials: 'include',
                     cache: 'no-store',
@@ -616,7 +688,7 @@ export const erpService = {
             } catch (fetchErr) {
                 if (getErpBase() !== FALLBACK_ERP_BASE) {
                     switchToFallbackErpBase();
-                    response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
+                    response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex&_t=${timestamp}`, {
                         method: 'GET',
                         credentials: 'include',
                         cache: 'no-store',
@@ -626,12 +698,23 @@ export const erpService = {
                     throw fetchErr;
                 }
             }
-            saveErpCookiesFromResponse(response);
-            if (response.ok) {
+
+            if (response && response.ok) {
                 const html = await response.text();
+                // Never extract tokens or cookies from a redirected login page!
+                if (html.includes('id="login-form"') || html.includes('loginFormUserNameID')) {
+                    console.warn("[ERP] Attendance index returned login page; skipping option scraping.");
+                    return null;
+                }
+
+                saveErpCookiesFromResponse(response);
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, 'text/html');
                 const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+                if (csrfToken) {
+                    sessionStorage.setItem('erp_csrf_token', csrfToken);
+                    localStorage.setItem('erp_csrf_token', csrfToken);
+                }
                 const parsedYearId = findAcademicYearFromHtml(html, year);
                 const parsedSemId = findSemesterFromHtml(html, semester);
                 return { csrfToken, parsedYearId, parsedSemId, html };
@@ -767,7 +850,7 @@ export const erpService = {
                     return subjects;
                 }
             } catch (err) {
-                if (err.message?.includes('session has expired') || err.message?.includes('Session error')) {
+                if (err.message?.includes('session has expired')) {
                     throw err;
                 }
                 console.warn('[ERP Fast-Path] Fast-path missed or CSRF rotated, falling back to full resolver:', err);
@@ -803,7 +886,7 @@ export const erpService = {
         let dashboardHtml = localStorage.getItem('erpDashboardHtml') || '';
         const liveOptions = await this.getAttendancePageOptions(year, semester);
 
-        let csrfToken = liveOptions?.csrfToken || null;
+        let csrfToken = liveOptions?.csrfToken || getStoredCsrfToken();
         if (!csrfToken && dashboardHtml) {
             try {
                 const parser = new DOMParser();
@@ -866,7 +949,7 @@ export const erpService = {
                         }
                     }
                 } catch (err) {
-                    if (err.message?.includes('session has expired') || err.message?.includes('Session error')) {
+                    if (err.message?.includes('session has expired')) {
                         throw err;
                     }
                     console.warn(`[ERP] Candidate yearId ${candidateYearId} / semId ${candidateSemId} failed:`, err);

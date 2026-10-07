@@ -389,6 +389,27 @@ const Login = () => {
             localStorage.setItem('activeErpUser', cleanId);
             sessionStorage.setItem('erp_username', cleanId);
 
+            // Persist verified post-login CSRF token directly from dashboard HTML
+            try {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(loginResult.html, 'text/html');
+                const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+                if (csrfToken) {
+                    sessionStorage.setItem('erp_csrf_token', csrfToken);
+                    localStorage.setItem('erp_csrf_token', csrfToken);
+                }
+            } catch (csrfErr) {
+                console.warn('[Login] CSRF parsing notice:', csrfErr);
+            }
+
+            // Flush prior cached attendance for this or other users to ensure fresh fetch
+            for (let i = sessionStorage.length - 1; i >= 0; i--) {
+                const k = sessionStorage.key(i);
+                if (k && (k.startsWith('kl_att_cache_') || k.startsWith('kl_erp_fastpath_'))) {
+                    sessionStorage.removeItem(k);
+                }
+            }
+
             if (rememberMe) {
                 localStorage.setItem('rememberedId', cleanId);
                 const encPass = await encryptSecret(password);

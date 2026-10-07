@@ -640,14 +640,25 @@ const AttendanceRegister = () => {
                             <motion.div 
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
-                                className="bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/60 rounded-2xl p-4 flex items-start gap-3"
+                                className="bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/60 rounded-2xl p-4 flex flex-col gap-2.5"
                             >
-                                <div className="w-5 h-5 bg-red-100 dark:bg-red-900/50 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                                    <span className="text-red-600 dark:text-rose-400 text-xs font-black">!</span>
+                                <div className="flex items-start gap-3">
+                                    <div className="w-5 h-5 bg-red-100 dark:bg-red-900/50 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                                        <span className="text-red-600 dark:text-rose-400 text-xs font-black">!</span>
+                                    </div>
+                                    <p className="text-xs font-bold text-red-700 dark:text-rose-300 leading-relaxed">
+                                        {fetchError}
+                                    </p>
                                 </div>
-                                <p className="text-xs font-bold text-red-700 dark:text-rose-300 leading-relaxed">
-                                    {fetchError}
-                                </p>
+                                {fetchError.toLowerCase().includes('sign in') && (
+                                    <button
+                                        type="button"
+                                        onClick={handleLogoutAction}
+                                        className="self-start ml-8 px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                                    >
+                                        Log In Again
+                                    </button>
+                                )}
                             </motion.div>
                         )}
 
