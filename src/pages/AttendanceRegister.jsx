@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Calendar, LogOut, ArrowLeft, WifiOff } from 'lucide-react';
+import { BookOpen, Calendar, LogOut, LogIn, ArrowLeft, WifiOff } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -179,7 +179,7 @@ const AttendanceRegister = () => {
     const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
-    const [year, setYear] = useState('2026-2027');
+    const [year, setYear] = useState('2025-2026');
     const [semester, setSemester] = useState('Odd');
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -384,6 +384,8 @@ const AttendanceRegister = () => {
             localStorage.removeItem('erpDashboardHtml');
             localStorage.removeItem('kleData');
             sessionStorage.removeItem('erp_username');
+            sessionStorage.removeItem('erp_csrf_token');
+            localStorage.removeItem('erp_csrf_token');
             if (activeId) {
                 localStorage.removeItem(`kleData_${activeId}`);
             }
@@ -393,7 +395,7 @@ const AttendanceRegister = () => {
         } catch (e) {
             console.error('[Logout] Notice:', e);
         } finally {
-            navigate('/login', { replace: true });
+            window.location.href = '/login';
         }
     };
 
@@ -657,23 +659,22 @@ const AttendanceRegister = () => {
                                         {fetchError}
                                     </p>
                                 </div>
-                                {fetchError.toLowerCase().includes('sign in') && (
-                                    <button
-                                        type="button"
-                                        onClick={handleLogoutAction}
-                                        className="self-start ml-8 px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors cursor-pointer"
-                                    >
-                                        Log In Again
-                                    </button>
-                                )}
                             </motion.div>
                         )}
 
-                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                            onClick={() => handleSearch(year, semester)} disabled={loading}
-                            className="w-full bg-slate-900 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold py-4 rounded-2xl shadow-xl shadow-slate-900/20 dark:shadow-indigo-600/25 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer">
-                            {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Get Attendance'}
-                        </motion.button>
+                        {fetchError && fetchError.toLowerCase().includes('sign in') ? (
+                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                onClick={handleLogoutAction}
+                                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-2xl shadow-xl shadow-red-600/25 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer">
+                                <LogIn className="w-5 h-5" /> Sign In Again to Get Attendance
+                            </motion.button>
+                        ) : (
+                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                onClick={() => handleSearch(year, semester)} disabled={loading}
+                                className="w-full bg-slate-900 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold py-4 rounded-2xl shadow-xl shadow-slate-900/20 dark:shadow-indigo-600/25 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer">
+                                {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Get Attendance'}
+                            </motion.button>
+                        )}
 
                         <div className="text-center pt-1">
                             <button onClick={handleLogoutAction} className="text-slate-400 dark:text-slate-400 text-sm font-semibold hover:text-slate-700 dark:hover:text-slate-300 transition-colors cursor-pointer">

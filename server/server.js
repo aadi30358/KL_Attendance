@@ -668,10 +668,10 @@ app.post('/api/fast-attendance', async (req, res) => {
 
         const html = await response.text();
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-        const isSessionExpired = response.status === 302 || 
-                                 response.status === 401 || 
-                                 html.includes('id="login-form"') || 
-                                 html.includes('loginFormUserNameID');
+        const loc = response.headers.get('location') || '';
+        const isRedirectToLogin = response.status === 302 && (loc.includes('site%2Flogin') || loc.includes('site/login') || loc.includes('login'));
+        const hasLoginForm = html.includes('id="login-form"') || html.includes('loginFormUserNameID');
+        const isSessionExpired = response.status === 401 || isRedirectToLogin || hasLoginForm;
         res.json({
             success: response.ok && !isSessionExpired,
             status: response.status,

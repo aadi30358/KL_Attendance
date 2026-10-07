@@ -573,7 +573,7 @@ export const erpService = {
                     if (subjects && subjects.length > 0) {
                         return { subjects, html: fastData.html };
                     }
-                } else if (fastData.sessionExpired || fastData.status === 302 || (fastData.html && fastData.html.includes('login-form'))) {
+                } else if (fastData.sessionExpired || (fastData.html && (fastData.html.includes('id="login-form"') || fastData.html.includes('loginFormUserNameID')))) {
                     throw new Error("Your session has expired. Please log out and sign in again.");
                 }
             }
@@ -628,8 +628,16 @@ export const erpService = {
             }
         }
 
-        if (response.status === 400 || response.status === 401 || response.status === 302) {
+        if (response.status === 401) {
             throw new Error("Your session has expired. Please log out and sign in again.");
+        }
+
+        if (response.status === 302) {
+            const loc = response.headers.get('Location') || response.headers.get('location') || '';
+            if (loc.includes('login')) {
+                throw new Error("Your session has expired. Please log out and sign in again.");
+            }
+            return { subjects: [], html: '' };
         }
 
         if (!response.ok) {
