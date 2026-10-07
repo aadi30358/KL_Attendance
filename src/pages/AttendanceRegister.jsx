@@ -192,14 +192,27 @@ const AttendanceRegister = () => {
 
     // Ground truth ref for instantaneous live sync
     const prevSubjectsRef = useRef([]);
+    const hasMountedRef = useRef(false);
+    const yearRef = useRef(year);
+    const semesterRef = useRef(semester);
+
+    useEffect(() => {
+        yearRef.current = year;
+    }, [year]);
+
+    useEffect(() => {
+        semesterRef.current = semester;
+    }, [semester]);
 
     // ── Live Sub-Second Sync Handler (< 1s execution) ────────────────
-    const syncLiveAttendance = useCallback(async (fetchYear = year, fetchSemester = semester, { silent = false } = {}) => {
-        if (!fetchYear || !fetchSemester) return;
+    const syncLiveAttendance = useCallback(async (fetchYear, fetchSemester, { silent = false } = {}) => {
+        const targetYear = fetchYear || yearRef.current;
+        const targetSem = fetchSemester || semesterRef.current;
+        if (!targetYear || !targetSem) return;
 
         const startTime = performance.now();
         try {
-            const data = await erpService.fetchAttendance(fetchYear, fetchSemester, { forceLive: true });
+            const data = await erpService.fetchAttendance(targetYear, targetSem, { forceLive: true });
             const measuredLatency = data.__latencyMs || Math.round(performance.now() - startTime);
             setIsOfflineMode(false);
             setFetchError(null);
@@ -209,8 +222,8 @@ const AttendanceRegister = () => {
 
             // Broadcast to other open tabs and devices in < 1s
             broadcastAttendanceUpdate({
-                year: fetchYear,
-                semester: fetchSemester,
+                year: targetYear,
+                semester: targetSem,
                 subjects: data,
                 timestamp: Date.now()
             });
@@ -218,16 +231,16 @@ const AttendanceRegister = () => {
             // Save fetched data with metadata to standard location for instant 0ms persistence
             const cachePayload = {
                 attendance_data: data,
-                year: fetchYear,
-                semester: fetchSemester,
+                year: targetYear,
+                semester: targetSem,
                 savedAt: Date.now(),
                 latencyMs: measuredLatency
             };
             localStorage.setItem(storageKey, JSON.stringify(cachePayload));
             setCachedSummary({
                 count: data.length,
-                year: fetchYear,
-                semester: fetchSemester,
+                year: targetYear,
+                semester: targetSem,
                 savedAt: new Date().toLocaleDateString(),
                 data: data
             });
@@ -246,10 +259,13 @@ const AttendanceRegister = () => {
                 }
             }
         }
-    }, [year, semester, storageKey]);
+    }, [storageKey]);
 
     // ── Instant 0ms Optimistic Paint on Mount + Seamless Live Sync ───
     useEffect(() => {
+        if (hasMountedRef.current) return;
+        hasMountedRef.current = true;
+
         const html = localStorage.getItem('erpDashboardHtml');
         if (!html) {
             navigate('/login');
@@ -301,7 +317,7 @@ const AttendanceRegister = () => {
     useEffect(() => {
         const handleFocusSync = () => {
             if (showDashboard && document.visibilityState === 'visible' && navigator.onLine) {
-                syncLiveAttendance(year, semester, { silent: true });
+                syncLiveAttendance(yearRef.current, semesterRef.current, { silent: true });
             }
         };
 
@@ -312,7 +328,7 @@ const AttendanceRegister = () => {
             window.removeEventListener('focus', handleFocusSync);
             document.removeEventListener('visibilitychange', handleFocusSync);
         };
-    }, [showDashboard, year, semester, syncLiveAttendance]);
+    }, [showDashboard, syncLiveAttendance]);
 
     // ── Timetable Period Completion Auto-Poller (5s near period end) ──
     useEffect(() => {
@@ -326,7 +342,7 @@ const AttendanceRegister = () => {
             timeoutId = setTimeout(async () => {
                 if (!isMounted) return;
                 if (document.visibilityState === 'visible') {
-                    await syncLiveAttendance(year, semester, { silent: true });
+                    await syncLiveAttendance(yearRef.current, semesterRef.current, { silent: true });
                 }
                 if (isMounted) schedulePoll();
             }, interval);
@@ -338,7 +354,7 @@ const AttendanceRegister = () => {
             isMounted = false;
             if (timeoutId) clearTimeout(timeoutId);
         };
-    }, [showDashboard, year, semester, syncLiveAttendance]);
+    }, [showDashboard, syncLiveAttendance]);
 
     // ── Cross-Domain & Cross-Tab Real-Time Sync Listener ──────────────
     useEffect(() => {
@@ -365,6 +381,8 @@ const AttendanceRegister = () => {
         setIsOfflineMode(false);
         setYear(fetchYear);
         setSemester(fetchSemester);
+        yearRef.current = fetchYear;
+        semesterRef.current = fetchSemester;
         try {
             await syncLiveAttendance(fetchYear, fetchSemester, { silent: false });
         } finally {
@@ -374,7 +392,6 @@ const AttendanceRegister = () => {
 
     const handleBack = () => {
         setShowDashboard(false);
-        setSubjects([]);
         setDebugHtml(null);
         setFetchError(null);
         setIsOfflineMode(false);
@@ -419,12 +436,44 @@ const AttendanceRegister = () => {
                         </p>
                     </div>
 
-                    <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                        <button onClick={handleBack} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-50 dark:bg-slate-800 border border-indigo-100 dark:border-slate-700 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 dark:hover:bg-slate-700 transition-colors text-sm font-bold shadow-sm flex items-center justify-center gap-2 cursor-pointer">
-                            <ArrowLeft className="w-4 h-4" /> Back to Selection
+                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                        {/* Quick Selection Dropdowns directly in Header */}
+                        <div className="flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1 shadow-xs">
+                            <select
+                                value={year}
+                                onChange={(e) => handleSearch(e.target.value, semester)}
+                                disabled={loading}
+                                className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 py-1 focus:outline-none cursor-pointer"
+                            >
+                                <option value="2026-2027">2026-2027</option>
+                                <option value="2025-2026">2025-2026</option>
+                                <option value="2024-2025">2024-2025</option>
+                                <option value="2023-2024">2023-2024</option>
+                                <option value="2022-2023">2022-2023</option>
+                                <option value="2021-2022">2021-2022</option>
+                            </select>
+                            <span className="text-slate-300 dark:text-slate-600">|</span>
+                            <select
+                                value={semester}
+                                onChange={(e) => handleSearch(year, e.target.value)}
+                                disabled={loading}
+                                className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 py-1 focus:outline-none cursor-pointer"
+                            >
+                                <option value="Odd">Odd Sem</option>
+                                <option value="Even">Even Sem</option>
+                                <option value="Summer">Summer</option>
+                                <option value="Term3">Term 3</option>
+                            </select>
+                            {loading && (
+                                <div className="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin ml-1" />
+                            )}
+                        </div>
+
+                        <button onClick={handleBack} className="px-3.5 py-2 bg-indigo-50 dark:bg-slate-800 border border-indigo-100 dark:border-slate-700 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 dark:hover:bg-slate-700 transition-colors text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer">
+                            <ArrowLeft className="w-3.5 h-3.5" /> Selection Page
                         </button>
-                        <button onClick={handleLogoutAction} className="flex-1 sm:flex-none px-4 py-2 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-rose-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/60 transition-all flex items-center justify-center gap-2 border border-red-100 dark:border-red-900/50 text-sm font-bold cursor-pointer">
-                            <LogOut className="w-4 h-4" />Logout
+                        <button onClick={handleLogoutAction} className="px-3.5 py-2 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-rose-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/60 transition-all flex items-center justify-center gap-1.5 border border-red-100 dark:border-red-900/50 text-xs font-bold cursor-pointer">
+                            <LogOut className="w-3.5 h-3.5" /> Logout
                         </button>
                     </div>
                 </div>
@@ -550,9 +599,9 @@ const AttendanceRegister = () => {
             <div className="fixed inset-0 pointer-events-none overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white dark:from-[#0b1120] dark:to-[#0f172a] opacity-80" />
                 <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }} transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
-                    className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-slate-900/30 blur-[150px]" />
+                    className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-slate-900/30 blur-3xl" />
                 <motion.div animate={{ x: [0, 100, 0], opacity: [0.15, 0.3, 0.15] }} transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
-                    className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 dark:from-blue-950/30 dark:via-indigo-950/30 dark:to-slate-900/30 blur-[150px]" />
+                    className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 dark:from-blue-950/30 dark:via-indigo-950/30 dark:to-slate-900/30 blur-3xl" />
             </div>
 
             <div className="w-full max-w-md relative z-10">

@@ -84,15 +84,15 @@ export const isHtmlMatchingRequestedYear = (html, requestedYear) => {
         console.warn(`[ERP] HTML contained year ${foundYears[0]} which does not match requested year ${requestedYear}`);
         return false;
       }
-      return hasMatch; // Only return true if it strictly matched
+      return hasMatch;
     }
     
-    // Strict mode: If no years found, and it's not the liveId, reject it.
-    return false;
+    // When no explicit year string is in the partial table, accept the results fetched for the requested year
+    return true;
   } catch (e) {
     console.warn("Error validating HTML matching year", e);
   }
-  return false;
+  return true;
 };
 
 export const findAcademicYearFromHtml = (html, year) => {
