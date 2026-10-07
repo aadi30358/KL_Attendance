@@ -39,7 +39,6 @@ export function AuthProvider({ children }) {
         localStorage.removeItem('userUniversity');
         localStorage.removeItem('userProfile');
         localStorage.removeItem('sessionCookie');
-        localStorage.removeItem('rememberedId');
         localStorage.removeItem('isAdminAuthenticated');
 
         setErpUser(null);

@@ -378,9 +378,8 @@ const AttendanceRegister = () => {
         setIsOfflineMode(false);
     };
 
-    const handleLogoutAction = async () => {
+    const handleLogoutAction = () => {
         try {
-            await logout();
             erpService.clearStoredErpCookies();
             localStorage.removeItem('erpDashboardHtml');
             localStorage.removeItem('kleData');
@@ -388,8 +387,14 @@ const AttendanceRegister = () => {
             if (activeId) {
                 localStorage.removeItem(`kleData_${activeId}`);
             }
-            navigate('/login');
-        } catch (e) { console.error(e); }
+            if (typeof logout === 'function') {
+                logout().catch(e => console.warn('[Auth] Background logout:', e));
+            }
+        } catch (e) {
+            console.error('[Logout] Notice:', e);
+        } finally {
+            navigate('/login', { replace: true });
+        }
     };
 
     // ── DASHBOARD VIEW ──────────────────────────────────────────────

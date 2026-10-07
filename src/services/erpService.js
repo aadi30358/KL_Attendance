@@ -297,6 +297,9 @@ export const erpService = {
                 if (fastData && fastData.error) {
                     throw new Error(fastData.error);
                 }
+                if (fastData && !fastData.success) {
+                    throw new Error(fastData.error || "Incorrect Student ID, Password, or Captcha code.");
+                }
             } catch (err) {
                 // If it's a real authentication error (e.g. wrong password/captcha), throw immediately
                 if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError')) {
@@ -338,6 +341,9 @@ export const erpService = {
                         }
                         if (fbData && fbData.error) {
                             throw new Error(fbData.error);
+                        }
+                        if (fbData && !fbData.success) {
+                            throw new Error(fbData.error || "Incorrect Student ID, Password, or Captcha code.");
                         }
                     } catch (fbErr) {
                         if (fbErr.message && !fbErr.message.includes('Failed to fetch') && !fbErr.message.includes('NetworkError')) {

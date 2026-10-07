@@ -899,16 +899,20 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
         const anyMatch = failHtml.match(/class="[^"]*has-error[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
         const alertMatch = failHtml.match(/class="[^"]*(?:alert-danger|error-summary)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
 
-        if (capMatch && capMatch[1].trim()) {
+        if (capMatch && capMatch[1]?.trim()) {
             errorMsg = capMatch[1].trim();
-        } else if (pwdMatch && pwdMatch[1].trim()) {
+        } else if (pwdMatch && pwdMatch[1]?.trim()) {
             errorMsg = pwdMatch[1].trim();
-        } else if (usrMatch && usrMatch[1].trim()) {
+        } else if (usrMatch && usrMatch[1]?.trim()) {
             errorMsg = usrMatch[1].trim();
-        } else if (anyMatch && anyMatch[1].trim()) {
+        } else if (anyMatch && anyMatch[1]?.trim()) {
             errorMsg = anyMatch[1].trim();
-        } else if (alertMatch && alertMatch[1].trim()) {
+        } else if (alertMatch && alertMatch[1]?.replace(/<[^>]+>/g, '')?.trim()) {
             errorMsg = alertMatch[1].replace(/<[^>]+>/g, '').trim();
+        }
+
+        if (!errorMsg || !errorMsg.trim()) {
+            errorMsg = 'Incorrect username or password. Please verify your credentials.';
         }
 
         return res.status(401).json({
