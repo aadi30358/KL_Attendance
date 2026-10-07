@@ -393,10 +393,10 @@ const Login = () => {
             try {
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(loginResult.html, 'text/html');
-                const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-                if (csrfToken) {
-                    sessionStorage.setItem('erp_csrf_token', csrfToken);
-                    localStorage.setItem('erp_csrf_token', csrfToken);
+                const postLoginCsrf = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+                if (postLoginCsrf) {
+                    sessionStorage.setItem('erp_csrf_token', postLoginCsrf);
+                    localStorage.setItem('erp_csrf_token', postLoginCsrf);
                 }
             } catch (csrfErr) {
                 console.warn('[Login] CSRF parsing notice:', csrfErr);

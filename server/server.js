@@ -807,37 +807,56 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
                 ? nextLoc.replace(/^http:/i, 'https:')
                 : 'https://newerp.kluniversity.in' + (nextLoc.startsWith('/') ? '' : '/') + nextLoc;
 
-            const cookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+            let finalResp = null;
+            // Follow up to 5 redirect hops to reach the authenticated dashboard
+            for (let redirectCount = 0; redirectCount < 5; redirectCount++) {
+                const cookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+                console.log(`[Fast Login] Redirect hop #${redirectCount + 1}: ${currentTarget}`);
 
-            // Fetch dashboard in 1 direct hop
-            const dashResp = await fetch(currentTarget, {
-                method: 'GET',
-                headers: {
-                    'cookie': cookieStr,
-                    'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                    'host': 'newerp.kluniversity.in',
-                    'referer': 'https://newerp.kluniversity.in/'
-                },
-                redirect: 'manual'
-            });
+                finalResp = await fetch(currentTarget, {
+                    method: 'GET',
+                    headers: {
+                        'cookie': cookieStr,
+                        'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                        'host': 'newerp.kluniversity.in',
+                        'referer': 'https://newerp.kluniversity.in/'
+                    },
+                    redirect: 'manual'
+                });
 
-            let dashSetCookies = [];
-            if (typeof dashResp.headers.getSetCookie === 'function') {
-                dashSetCookies = dashResp.headers.getSetCookie();
-            } else if (typeof dashResp.headers.raw === 'function') {
-                dashSetCookies = dashResp.headers.raw()['set-cookie'] || [dashResp.headers.get('set-cookie')].filter(Boolean);
-            } else {
-                const val = dashResp.headers.get('set-cookie');
-                if (val) dashSetCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+                let hopSetCookies = [];
+                if (typeof finalResp.headers.getSetCookie === 'function') {
+                    hopSetCookies = finalResp.headers.getSetCookie();
+                } else if (typeof finalResp.headers.raw === 'function') {
+                    hopSetCookies = finalResp.headers.raw()['set-cookie'] || [finalResp.headers.get('set-cookie')].filter(Boolean);
+                } else {
+                    const val = finalResp.headers.get('set-cookie');
+                    if (val) hopSetCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+                }
+
+                hopSetCookies.forEach(c => {
+                    const pair = c.split(';')[0];
+                    const [k, ...v] = pair.split('=');
+                    if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+                });
+
+                if (finalResp.status >= 300 && finalResp.status < 400) {
+                    const loc = finalResp.headers.get('location');
+                    if (!loc) break;
+                    if (loc.includes('site%2Flogin') || loc.includes('site/login')) {
+                        console.warn("[Fast Login] ERP redirected back to login; credentials rejected.");
+                        break;
+                    }
+                    currentTarget = loc.startsWith('http')
+                        ? loc.replace(/^http:/i, 'https:')
+                        : 'https://newerp.kluniversity.in' + (loc.startsWith('/') ? '' : '/') + loc;
+                } else {
+                    break;
+                }
             }
-            dashSetCookies.forEach(c => {
-                const pair = c.split(';')[0];
-                const [k, ...v] = pair.split('=');
-                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
-            });
 
             const allCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-            const dashHtml = await dashResp.text();
+            const dashHtml = finalResp ? await finalResp.text() : '';
 
             // Strict authentication check: Does dashHtml belong to a verified student session?
             const isLoginForm = dashHtml.includes('id="login-form"') || dashHtml.includes('LoginForm[');

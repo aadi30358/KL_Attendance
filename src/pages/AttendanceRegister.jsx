@@ -381,8 +381,10 @@ const AttendanceRegister = () => {
     const handleLogoutAction = async () => {
         try {
             await logout();
+            erpService.clearStoredErpCookies();
             localStorage.removeItem('erpDashboardHtml');
             localStorage.removeItem('kleData');
+            sessionStorage.removeItem('erp_username');
             if (activeId) {
                 localStorage.removeItem(`kleData_${activeId}`);
             }
