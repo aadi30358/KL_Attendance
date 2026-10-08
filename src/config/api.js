@@ -38,7 +38,10 @@ export const getAcademicYearCode = (academicYear) => {
   if (historicalMap[firstYear]) return historicalMap[firstYear];
   
   // Dynamic formula for 2027 and beyond
-  return (16 + (firstYear - 2024) * 3).toString();
+  if (firstYear >= 2027) {
+    return (16 + (firstYear - 2024) * 3).toString();
+  }
+  return null;
 };
 
 export const getCandidateYearIdsForYear = (academicYear, liveYearId, htmlYearId) => {

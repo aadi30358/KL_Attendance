@@ -174,6 +174,26 @@ function BunkSimulator({ subject }) {
     );
 }
 
+const ACADEMIC_YEARS = [
+    '2026-2027',
+    '2025-2026',
+    '2024-2025',
+    '2023-2024',
+    '2022-2023',
+    '2021-2022',
+    '2020-2021',
+    '2019-2020',
+    '2018-2019',
+    '2017-2018',
+    '2016-2017',
+    '2015-2016',
+    '2014-2015',
+    '2013-2014',
+    '2012-2013',
+    '2011-2012',
+    '2010-2011'
+];
+
 const AttendanceRegister = () => {
     const { logout } = useAuth();
     const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
@@ -188,29 +208,29 @@ const AttendanceRegister = () => {
                 const joinYear = 2000 + num;
                 return {
                     batchYear: joinYear,
-                    defaultYear: '2025-2026',
+                    defaultYear: '2026-2027',
                     activeSemesters: [
-                        { year: '2025-2026', sem: 'Odd', label: '2025-2026 Odd Sem' },
+                        { year: '2026-2027', sem: 'Odd', label: '2026-2027 Odd Sem' },
+                        { year: '2026-2027', sem: 'Even', label: '2026-2027 Even Sem' },
                         { year: '2025-2026', sem: 'Even', label: '2025-2026 Even Sem' },
-                        { year: '2024-2025', sem: 'Even', label: '2024-2025 Even Sem' },
-                        { year: '2024-2025', sem: 'Odd', label: '2024-2025 Odd Sem' }
+                        { year: '2025-2026', sem: 'Odd', label: '2025-2026 Odd Sem' }
                     ]
                 };
             }
         }
         return {
             batchYear: null,
-            defaultYear: '2025-2026',
+            defaultYear: '2026-2027',
             activeSemesters: [
-                { year: '2025-2026', sem: 'Odd', label: '2025-2026 Odd Sem' },
+                { year: '2026-2027', sem: 'Odd', label: '2026-2027 Odd Sem' },
+                { year: '2026-2027', sem: 'Even', label: '2026-2027 Even Sem' },
                 { year: '2025-2026', sem: 'Even', label: '2025-2026 Even Sem' },
-                { year: '2024-2025', sem: 'Even', label: '2024-2025 Even Sem' },
-                { year: '2024-2025', sem: 'Odd', label: '2024-2025 Odd Sem' }
+                { year: '2025-2026', sem: 'Odd', label: '2025-2026 Odd Sem' }
             ]
         };
     }, []);
 
-    const [year, setYear] = useState('2025-2026');
+    const [year, setYear] = useState('2026-2027');
     const [semester, setSemester] = useState('Odd');
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -502,12 +522,9 @@ const AttendanceRegister = () => {
                                 disabled={loading}
                                 className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 py-1 focus:outline-none cursor-pointer"
                             >
-                                <option value="2026-2027">2026-2027</option>
-                                <option value="2025-2026">2025-2026</option>
-                                <option value="2024-2025">2024-2025</option>
-                                <option value="2023-2024">2023-2024</option>
-                                <option value="2022-2023">2022-2023</option>
-                                <option value="2021-2022">2021-2022</option>
+                                {ACADEMIC_YEARS.map(y => (
+                                    <option key={y} value={y}>{y}</option>
+                                ))}
                             </select>
                             <span className="text-slate-300 dark:text-slate-600">|</span>
                             <select
@@ -691,7 +708,7 @@ const AttendanceRegister = () => {
                             className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 dark:shadow-indigo-950">
                             <BookOpen className="w-8 h-8 text-white" />
                         </motion.div>
-                        <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">KL ERP Attendance</h1>
+                        <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Attendance Register</h1>
                         <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">Select your Academic Year and Semester</p>
                     </div>
 
@@ -704,14 +721,9 @@ const AttendanceRegister = () => {
                                 <select value={year} onChange={e => { setYear(e.target.value); yearRef.current = e.target.value; }}
                                     className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 px-5 text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950 transition-all font-medium cursor-pointer">
                                     <option value="">Select Academic Year</option>
-                                    <option value="2025-2026">2025-2026 (Current Academic Year)</option>
-                                    <option value="2024-2025">2024-2025</option>
-                                    <option value="2023-2024">2023-2024</option>
-                                    <option value="2022-2023">2022-2023</option>
-                                    <option value="2026-2027">2026-2027 (Upcoming)</option>
-                                    <option value="2021-2022">2021-2022</option>
-                                    <option value="2020-2021">2020-2021</option>
-                                    <option value="2019-2020">2019-2020</option>
+                                    {ACADEMIC_YEARS.map(y => (
+                                        <option key={y} value={y}>{y}</option>
+                                    ))}
                                 </select>
                                 <Calendar className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                             </div>
