@@ -63,14 +63,10 @@ export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = false }
                 if (k && k.trim()) {
                     const key = k.trim();
                     const val = v.join('=').trim();
-                    // Guard against session cookie poisoning:
-                    // If the student is actively authenticated, never let unauthenticated/guest
-                    // endpoints overwrite PHPSESSID unless forceAuthUpdate is true (e.g. during explicit login).
-                    if (key === 'PHPSESSID' && cookieMap.has('PHPSESSID') && !forceAuthUpdate) {
-                        const activeUser = sessionStorage.getItem('erp_username') || localStorage.getItem('activeErpUser');
-                        if (activeUser) {
-                            return;
-                        }
+                    // Guard against session cookie poisoning ONLY when user is marked as authenticated on dashboard
+                    const isAuthenticated = sessionStorage.getItem('erp_authenticated') === 'true';
+                    if (key === 'PHPSESSID' && cookieMap.has('PHPSESSID') && isAuthenticated && !forceAuthUpdate) {
+                        return;
                     }
                     cookieMap.set(key, val);
                 }
@@ -122,6 +118,7 @@ export const erpService = {
     // Ultra-fast session & captcha initialization in a single round-trip
     async getSessionInit() {
         clearStoredErpCookies();
+        sessionStorage.removeItem('erp_authenticated');
         let apiBase = getErpBase();
         if (apiBase) {
             try {
@@ -135,6 +132,10 @@ export const erpService = {
                         if (data.cookies) {
                             sessionStorage.setItem('erp_session_cookie', data.cookies);
                             localStorage.setItem('erp_session_cookie', data.cookies);
+                        }
+                        if (data.csrfToken) {
+                            sessionStorage.setItem('erp_csrf_token', data.csrfToken);
+                            localStorage.setItem('erp_csrf_token', data.csrfToken);
                         }
                         return {
                             csrfToken: data.csrfToken,
@@ -306,6 +307,7 @@ export const erpService = {
 
                     if (!isForm && hasAuthProof) {
                         console.log("[ERP] Fast login succeeded and verified in single hop!");
+                        sessionStorage.setItem('erp_authenticated', 'true');
                         return { success: true, verified: true, html, csrfToken: fastData.csrfToken };
                     }
                     throw new Error("Credentials verification failed. Please check your Student ID and Password.");
@@ -356,6 +358,7 @@ export const erpService = {
 
                             if (!isForm && hasAuthProof) {
                                 console.log("[ERP] Fallback fast login succeeded and verified!");
+                                sessionStorage.setItem('erp_authenticated', 'true');
                                 return { success: true, verified: true, html, csrfToken: fbData.csrfToken };
                             }
                             throw new Error("Credentials verification failed. Please check your Student ID and Password.");
@@ -476,7 +479,7 @@ export const erpService = {
 
         if (!hasAnyFormError || hasDeviceId) {
             try {
-                const dashResp = await fetch(`${getErpBase()}/index.php?r=site%2Findexindi`, {
+                const dashResp = await fetch(`${getErpBase()}/index.php`, {
                     method: 'GET',
                     headers: buildErpHeaders({
                         'Cache-Control': 'no-cache'
@@ -485,17 +488,17 @@ export const erpService = {
                     cache: 'no-store'
                 });
                 if (dashResp.ok) {
-                    saveErpCookiesFromResponse(dashResp);
+                    saveErpCookiesFromResponse(dashResp, { forceAuthUpdate: true });
                     const dashHtml = await dashResp.text();
                     const dashDoc = parser.parseFromString(dashHtml, 'text/html');
                     const isForm = dashDoc.getElementById('login-form');
                     const hasAuth = dashHtml.includes('site%2Flogout') || 
                                     dashHtml.includes('site/logout') || 
-                                    dashHtml.includes('indexindi') || 
                                     dashHtml.includes('logout') || 
                                     dashHtml.includes(username);
                     if (!isForm && hasAuth) {
-                        console.log("[ERP] Successfully verified active session via indexindi fallback!");
+                        console.log("[ERP] Successfully verified active session via index fallback!");
+                        sessionStorage.setItem('erp_authenticated', 'true');
                         return { success: true, verified: true, html: dashHtml };
                     }
                 }
@@ -541,6 +544,7 @@ export const erpService = {
             console.error("Failed to notify ERP of logout", e);
         } finally {
             clearStoredErpCookies();
+            sessionStorage.removeItem('erp_authenticated');
         }
     },
 

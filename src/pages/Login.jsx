@@ -186,9 +186,9 @@ const Login = () => {
     }, [fetchCaptchaBlob, savedId]);
 
     // Refresh captcha image
-    const refreshCaptcha = useCallback(async () => {
+    const refreshCaptcha = useCallback(async (clearError = true) => {
         setCaptcha('');
-        setError('');
+        if (clearError) setError('');
         setIsFetchingCaptcha(true);
         try {
             const currentCsrf = csrfToken || erpService.getStoredCsrfToken();
@@ -426,8 +426,8 @@ const Login = () => {
             console.error("Login failed:", err);
             setError(err.message || 'Login failed. Please check your credentials and captcha.');
             setCaptcha('');
-            // Immediately load a fresh captcha for next attempt
-            await refreshCaptcha();
+            // Immediately load a fresh captcha for next attempt without wiping error message
+            await refreshCaptcha(false);
             setTimeout(() => {
                 captchaInputRef.current?.focus();
             }, 100);

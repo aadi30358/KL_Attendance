@@ -14,6 +14,7 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
+app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
 // Security Headers & Anti-Bot Middleware
@@ -139,11 +140,12 @@ const limiter = rateLimit({
     message: { error: "Too many requests from this IP, please try again after 15 minutes." }
 });
 
-// Dedicated rate limiting on student login & fast-login: 30 attempts per 15 minutes
+// Dedicated rate limiting on student login & fast-login: 120 attempts per 15 minutes per client IP
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 30,
-    message: { success: false, error: "Too many login attempts from this IP, please try again after 15 minutes." }
+    max: 120,
+    keyGenerator: (req) => req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip,
+    message: { success: false, error: "Too many login attempts from this network. Please try again after 15 minutes." }
 });
 
 // Strict rate limiting on admin authentication: 5 attempts per 15 minutes
@@ -329,13 +331,7 @@ app.all('/index.php', async (req, res) => {
         const isGetRedirect = req.method === 'GET' && response.status >= 300 && response.status < 400;
 
         if (isLoginPost || isGetRedirect) {
-            let nextLoc = response.headers.get('location') || response.headers.get('x-redirect') || '';
-            if (!nextLoc && isLoginPost) {
-                nextLoc = '/index.php?r=site%2Findexindi';
-            }
-            if (isLoginPost && !nextLoc.includes('indexindi') && (nextLoc.endsWith('/index.php') || nextLoc.endsWith('index.php') || nextLoc === '/')) {
-                nextLoc = '/index.php?r=site%2Findexindi';
-            }
+            let nextLoc = response.headers.get('location') || response.headers.get('x-redirect') || (isLoginPost ? '/index.php' : '');
 
             if (nextLoc) {
                 let currentTarget = nextLoc.startsWith('http') 
@@ -893,9 +889,9 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
 
         collectCookies(loginResp);
 
-        // If status is 302, authentication might have succeeded or redirected
+        // If status is 302, authentication succeeded or redirected
         if (loginResp.status === 302) {
-            let nextLoc = loginResp.headers.get('location') || loginResp.headers.get('x-redirect') || '/index.php?r=site%2Findexindi';
+            let nextLoc = loginResp.headers.get('location') || loginResp.headers.get('x-redirect') || '/index.php';
 
             // If redirect points back to login, fetch the redirected page to extract the precise error message!
             if (nextLoc.includes('site%2Flogin') || nextLoc.includes('site/login')) {
@@ -935,9 +931,6 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
                 });
             }
 
-            if (!nextLoc.includes('indexindi') && (nextLoc.endsWith('/index.php') || nextLoc.endsWith('index.php') || nextLoc === '/')) {
-                nextLoc = '/index.php?r=site%2Findexindi';
-            }
             let currentTarget = nextLoc.startsWith('http')
                 ? nextLoc.replace(/^http:/i, 'https:')
                 : 'https://newerp.kluniversity.in' + (nextLoc.startsWith('/') ? '' : '/') + nextLoc;
