@@ -255,7 +255,7 @@ export const erpService = {
         saveErpCookiesFromResponse(response);
         const html = await response.text();
         if (response.status === 503 || html.includes('Service Suspended')) {
-            throw new Error("ERP backend server is suspended on Render (503). Please resume the service in your Render dashboard.");
+            throw new Error("ERP backend service is temporarily unavailable (503). Please try again in a moment.");
         }
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');

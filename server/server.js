@@ -51,7 +51,8 @@ const allowedOrigins = [
     'https://www.klattendance.online',
     'http://klattendance.online',
     'http://www.klattendance.online',
-    'https://kl-attendance-backend-newnode-env.onrender.com', // Own backend
+    'https://api.klattendance.online',
+    'https://kl-attendance-api.yaswanthadithyareddy10.workers.dev',
     'http://localhost:5173', // Vite default dev port
     'http://127.0.0.1:5173',
     'http://localhost:4173', // Vite preview port
