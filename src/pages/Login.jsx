@@ -191,8 +191,9 @@ const Login = () => {
         setError('');
         setIsFetchingCaptcha(true);
         try {
+            const currentCsrf = csrfToken || erpService.getStoredCsrfToken();
             // If we don't have a valid session or csrfToken, perform full session initialization
-            if (!csrfToken) {
+            if (!currentCsrf) {
                 await initSession(true);
                 return;
             }
@@ -342,18 +343,14 @@ const Login = () => {
         setError('');
 
         try {
-            let activeCsrf = csrfToken;
+            let activeCsrf = csrfToken || erpService.getStoredCsrfToken();
             if (!activeCsrf) {
-                try {
-                    const initRes = await erpService.getSessionInit();
-                    if (initRes?.csrfToken) {
-                        activeCsrf = initRes.csrfToken;
-                        setCsrfToken(activeCsrf);
-                    }
-                } catch (csrfErr) {
-                    console.warn("[Login] Pre-login CSRF token fetch notice:", csrfErr);
-                }
+                setError("Session expired. Refreshing captcha, please enter the new code.");
+                await refreshCaptcha();
+                setIsLoading(false);
+                return;
             }
+
             const loginResult = await erpService.login(cleanId, password, cleanCaptcha, activeCsrf);
 
             // Strict credential verification check: Only proceed if authenticated by ERP
@@ -367,6 +364,11 @@ const Login = () => {
 
             if (!isVerified) {
                 throw new Error("Credentials verification failed. Please check your Student ID and Password.");
+            }
+
+            if (loginResult?.csrfToken) {
+                sessionStorage.setItem('erp_csrf_token', loginResult.csrfToken);
+                localStorage.setItem('erp_csrf_token', loginResult.csrfToken);
             }
 
             // ONLY AFTER VERIFYING CREDENTIALS:

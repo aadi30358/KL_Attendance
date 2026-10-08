@@ -39,7 +39,7 @@ export const getStoredCsrfToken = () => {
     return token;
 };
 
-export const saveErpCookiesFromResponse = (response) => {
+export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = false } = {}) => {
     try {
         if (!response) return;
         // Do NOT save cookies from error responses (400, 401, 403, 500)
@@ -60,7 +60,20 @@ export const saveErpCookiesFromResponse = (response) => {
             }
             newCookies.split(';').forEach(pair => {
                 const [k, ...v] = pair.split('=');
-                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+                if (k && k.trim()) {
+                    const key = k.trim();
+                    const val = v.join('=').trim();
+                    // Guard against session cookie poisoning:
+                    // If the student is actively authenticated, never let unauthenticated/guest
+                    // endpoints overwrite PHPSESSID unless forceAuthUpdate is true (e.g. during explicit login).
+                    if (key === 'PHPSESSID' && cookieMap.has('PHPSESSID') && !forceAuthUpdate) {
+                        const activeUser = sessionStorage.getItem('erp_username') || localStorage.getItem('activeErpUser');
+                        if (activeUser) {
+                            return;
+                        }
+                    }
+                    cookieMap.set(key, val);
+                }
             });
             const merged = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
             sessionStorage.setItem('erp_session_cookie', merged);
@@ -270,12 +283,16 @@ export const erpService = {
                     body: JSON.stringify({ username, password, captcha, csrfToken })
                 });
 
-                saveErpCookiesFromResponse(fastResp);
+                saveErpCookiesFromResponse(fastResp, { forceAuthUpdate: true });
                 const fastData = await fastResp.json();
 
                 if (fastData.cookies) {
                     sessionStorage.setItem('erp_session_cookie', fastData.cookies);
                     localStorage.setItem('erp_session_cookie', fastData.cookies);
+                }
+                if (fastData.csrfToken) {
+                    sessionStorage.setItem('erp_csrf_token', fastData.csrfToken);
+                    localStorage.setItem('erp_csrf_token', fastData.csrfToken);
                 }
 
                 if (fastResp.ok && fastData.success && fastData.html) {
@@ -289,7 +306,7 @@ export const erpService = {
 
                     if (!isForm && hasAuthProof) {
                         console.log("[ERP] Fast login succeeded and verified in single hop!");
-                        return { success: true, verified: true, html };
+                        return { success: true, verified: true, html, csrfToken: fastData.csrfToken };
                     }
                     throw new Error("Credentials verification failed. Please check your Student ID and Password.");
                 }
@@ -318,11 +335,15 @@ export const erpService = {
                             },
                             body: JSON.stringify({ username, password, captcha, csrfToken })
                         });
-                        saveErpCookiesFromResponse(fbResp);
+                        saveErpCookiesFromResponse(fbResp, { forceAuthUpdate: true });
                         const fbData = await fbResp.json();
                         if (fbData.cookies) {
                             sessionStorage.setItem('erp_session_cookie', fbData.cookies);
                             localStorage.setItem('erp_session_cookie', fbData.cookies);
+                        }
+                        if (fbData.csrfToken) {
+                            sessionStorage.setItem('erp_csrf_token', fbData.csrfToken);
+                            localStorage.setItem('erp_csrf_token', fbData.csrfToken);
                         }
                         if (fbResp.ok && fbData.success && fbData.html) {
                             const html = fbData.html;
@@ -335,7 +356,7 @@ export const erpService = {
 
                             if (!isForm && hasAuthProof) {
                                 console.log("[ERP] Fallback fast login succeeded and verified!");
-                                return { success: true, verified: true, html };
+                                return { success: true, verified: true, html, csrfToken: fbData.csrfToken };
                             }
                             throw new Error("Credentials verification failed. Please check your Student ID and Password.");
                         }
@@ -632,7 +653,7 @@ export const erpService = {
         }
 
         if (response.status === 302) {
-            const loc = response.headers.get('Location') || response.headers.get('location') || '';
+            const loc = response.headers.get('Location') || response.headers.get('location') || response.headers.get('X-Redirect') || response.headers.get('x-redirect') || '';
             if (loc.includes('login')) {
                 throw new Error("Your session has expired. Please log out and sign in again.");
             }
@@ -808,24 +829,28 @@ export const erpService = {
             }
         }
 
-        // 1. FAST-PATH EXECUTION (< 1s, typically ~150ms-350ms):
-        // If resolved yearId and semId are already known, skip discovery loops and fire a single direct network hop!
+        // 1. FAST-PATH & DETERMINISTIC DIRECT EXECUTION (< 1s, typically ~150ms-300ms):
+        // Query direct deterministic IDs (e.g. '19' for 2025-2026, '1' for Odd) in a single fast hop!
         const fastPath = this._getFastPath(year, semester);
-        if (fastPath && fastPath.yearId && fastPath.semId) {
+        const targetYearId = fastPath?.yearId || getAcademicYearCode(year);
+        const targetSemId = fastPath?.semId || SEMESTER_MAP[semester] || '1';
+        const activeCsrf = fastPath?.csrfToken || getStoredCsrfToken();
+
+        if (targetYearId && targetSemId) {
             try {
                 const t0 = performance.now();
                 const { subjects } = await this._postFetchAttendance(
-                    fastPath.yearId,
-                    fastPath.semId,
-                    fastPath.csrfToken
+                    targetYearId,
+                    targetSemId,
+                    activeCsrf
                 );
 
                 if (subjects && subjects.length > 0) {
                     const latencyMs = Math.round(performance.now() - t0);
-                    console.log(`[ERP Fast-Path] Attendance updated in ${latencyMs}ms (< 1s) for ${year} ${semester}`);
+                    console.log(`[ERP Direct-Path] Attendance updated in ${latencyMs}ms (< 1s) for ${year} ${semester}`);
 
-                    // Refresh fast path timestamp
-                    this._saveFastPath(year, semester, fastPath.yearId, fastPath.semId, fastPath.csrfToken);
+                    // Save verified fast path
+                    this._saveFastPath(year, semester, targetYearId, targetSemId, activeCsrf);
 
                     // Attach speed metadata
                     subjects.__latencyMs = latencyMs;
@@ -847,10 +872,10 @@ export const erpService = {
                     return subjects;
                 }
             } catch (err) {
-                if (err.message?.includes('session has expired')) {
+                if (err.message?.includes('session has expired') || err.message?.includes('sign in again')) {
                     throw err;
                 }
-                console.warn('[ERP Fast-Path] Fast-path missed or CSRF rotated, falling back to full resolver:', err);
+                console.warn('[ERP Direct-Path] Direct query notice, trying candidate resolver:', err);
             }
         }
 
@@ -878,12 +903,29 @@ export const erpService = {
         return subjects;
     },
 
-    // Actual Scraping & Discovery Logic
+    // Actual Scraping & Discovery Logic (Fallback only)
     async _fetchAttendanceFromERP(year, semester) {
         let dashboardHtml = localStorage.getItem('erpDashboardHtml') || '';
-        const liveOptions = await this.getAttendancePageOptions(year, semester);
+        let csrfToken = getStoredCsrfToken();
+        const htmlYearId = findAcademicYearFromHtml(dashboardHtml, year);
+        const calculatedYearId = getAcademicYearCode(year);
+        const semId = SEMESTER_MAP[semester] || '1';
 
-        let csrfToken = liveOptions?.csrfToken || getStoredCsrfToken();
+        // Try fast HTML-scraped candidate first before slow network options scraping
+        if (htmlYearId && htmlYearId !== calculatedYearId) {
+            try {
+                const { subjects } = await this._postFetchAttendance(htmlYearId, semId, csrfToken);
+                if (subjects && subjects.length > 0) {
+                    this._saveFastPath(year, semester, htmlYearId, semId, csrfToken);
+                    return subjects;
+                }
+            } catch (err) {
+                if (err.message?.includes('session has expired')) throw err;
+            }
+        }
+
+        const liveOptions = await this.getAttendancePageOptions(year, semester);
+        csrfToken = liveOptions?.csrfToken || csrfToken;
         if (!csrfToken && dashboardHtml) {
             try {
                 const parser = new DOMParser();
@@ -896,9 +938,7 @@ export const erpService = {
 
         const liveYearId = liveOptions?.parsedYearId;
         const liveSemId = liveOptions?.parsedSemId;
-        const htmlYearId = findAcademicYearFromHtml(dashboardHtml, year);
-        const calculatedYearId = getAcademicYearCode(year);
-        const semId = SEMESTER_MAP[semester] || '1';
+        const candidateYearIds = getCandidateYearIdsForYear(year, liveYearId, htmlYearId);
 
         const primaryYearId = liveYearId || htmlYearId || calculatedYearId;
         console.log(`[ERP] Fetch Attendance -> Year: ${year} (Primary ID: ${primaryYearId}, Live Year ID: ${liveYearId}), Sem: ${semester} (Live Sem ID: ${liveSemId}, Sem ID: ${semId})`);

@@ -254,8 +254,14 @@ const AttendanceRegister = () => {
             setIsOfflineMode(false);
             setFetchError(null);
 
-            prevSubjectsRef.current = data;
-            setSubjects(data);
+            if (Array.isArray(data) && data.length > 0) {
+                prevSubjectsRef.current = data;
+                setSubjects(data);
+                setShowDashboard(true);
+            } else if (!silent) {
+                setSubjects(data || []);
+                setShowDashboard(true);
+            }
 
             // Broadcast to other open tabs and devices in < 1s
             broadcastAttendanceUpdate({
@@ -281,7 +287,6 @@ const AttendanceRegister = () => {
                 savedAt: new Date().toLocaleDateString(),
                 data: data
             });
-            setShowDashboard(true);
         } catch (error) {
             console.warn('[Live Sync] Failed:', error);
             if (!silent) {
@@ -744,17 +749,17 @@ const AttendanceRegister = () => {
                             </motion.div>
                         )}
 
-                        {fetchError && fetchError.toLowerCase().includes('sign in') ? (
+                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                            onClick={() => handleSearch(year, semester)} disabled={loading}
+                            className="w-full bg-slate-900 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold py-4 rounded-2xl shadow-xl shadow-slate-900/20 dark:shadow-indigo-600/25 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer">
+                            {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Get Attendance'}
+                        </motion.button>
+
+                        {fetchError && fetchError.toLowerCase().includes('sign in') && (
                             <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                                 onClick={handleLogoutAction}
-                                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-2xl shadow-xl shadow-red-600/25 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer">
-                                <LogIn className="w-5 h-5" /> Sign In Again to Get Attendance
-                            </motion.button>
-                        ) : (
-                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                onClick={() => handleSearch(year, semester)} disabled={loading}
-                                className="w-full bg-slate-900 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold py-4 rounded-2xl shadow-xl shadow-slate-900/20 dark:shadow-indigo-600/25 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer">
-                                {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Get Attendance'}
+                                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-red-600/20 transition-all mt-1 flex items-center justify-center gap-2 cursor-pointer text-sm">
+                                <LogIn className="w-4 h-4" /> Sign In Again
                             </motion.button>
                         )}
 

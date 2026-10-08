@@ -48,7 +48,8 @@ export default async function handler(req, res) {
 
         const allowedHeaders = [
             'cookie', 'user-agent', 'accept', 'accept-language', 
-            'content-type', 'x-csrf-token', 'x-requested-with'
+            'content-type', 'x-csrf-token', 'x-requested-with',
+            'x-erp-cookie'
         ];
         
         const cleanHeaders = {};
@@ -56,6 +57,11 @@ export default async function handler(req, res) {
             if (allowedHeaders.includes(key.toLowerCase())) {
                 cleanHeaders[key.toLowerCase()] = value;
             }
+        }
+
+        const clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
+        if (clientCookie) {
+            cleanHeaders['cookie'] = clientCookie;
         }
 
         cleanHeaders['host'] = 'newerp.kluniversity.in';
@@ -82,39 +88,62 @@ export default async function handler(req, res) {
 
         res.status(response.status);
 
+        let setCookies = [];
+        if (typeof response.headers.getSetCookie === 'function') {
+            setCookies = response.headers.getSetCookie();
+        } else if (response.headers.raw && typeof response.headers.raw === 'function') {
+            setCookies = response.headers.raw()['set-cookie'] || [response.headers.get('set-cookie')].filter(Boolean);
+        } else {
+            const val = response.headers.get('set-cookie');
+            if (val) setCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+        }
+
+        const cookieMap = new Map();
+        if (clientCookie) {
+            clientCookie.split(';').forEach(pair => {
+                const [k, ...v] = pair.split('=');
+                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+            });
+        }
+        setCookies.forEach(c => {
+            const pair = c.split(';')[0];
+            const [k, ...v] = pair.split('=');
+            if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+        });
+
+        const allCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+        if (allCookies) {
+            res.setHeader('x-set-erp-cookie', allCookies);
+        }
+
         const headersArray = Array.from(response.headers.entries());
         for (const [key, value] of headersArray) {
             const lowerKey = key.toLowerCase();
-            if (lowerKey === 'content-encoding' || lowerKey === 'content-length') {
+            if (lowerKey === 'content-encoding' || lowerKey === 'content-length' || lowerKey === 'set-cookie') {
                 continue; // fetch already decompresses the body, let Vercel handle recompressing and length
             }
-            if (lowerKey === 'set-cookie') {
-                let setCookies = [];
-                if (typeof response.headers.getSetCookie === 'function') {
-                    setCookies = response.headers.getSetCookie();
-                } else if (response.headers.raw && typeof response.headers.raw === 'function') {
-                    setCookies = response.headers.raw()['set-cookie'] || [value];
-                } else {
-                    // Fallback to split if multiple cookies are joined by comma, ignoring commas inside Expires dates
-                    setCookies = value.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
-                }
-
-                const rewrittenCookies = setCookies.map(cookie => {
-                    let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');     
-                    // Force rigorous SameSite and Secure to bypass Chrome's strict privacy drops
-                    if (!newCookie.includes('SameSite')) newCookie += '; SameSite=None';
-                    if (!newCookie.includes('Secure')) newCookie += '; Secure'; 
-                    return newCookie.trim();
-                });
-                res.setHeader('Set-Cookie', rewrittenCookies);
-            } else if (lowerKey === 'location') {
+            if (lowerKey === 'location') {
                 // Prevent routing to http://newerp... by converting absolute ERP urls to relative paths
                 const rewrittenLocation = value.replace(/^https?:\/\/newerp\.kluniversity\.in/i, '');
                 res.setHeader('Location', rewrittenLocation.replace(/^http:/i, 'https:'));
+            } else if (lowerKey === 'x-redirect') {
+                const rewrittenRedirect = value.replace(/^https?:\/\/newerp\.kluniversity\.in/i, '');
+                res.setHeader('X-Redirect', rewrittenRedirect.replace(/^http:/i, 'https:'));
             } else {
                 const safeValue = typeof value === 'string' ? value.replace(/^http:/i, 'https:') : value;
                 res.setHeader(key, safeValue);
             }
+        }
+
+        if (setCookies.length > 0) {
+            const rewrittenCookies = setCookies.map(cookie => {
+                let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');     
+                // Force rigorous SameSite and Secure to bypass Chrome's strict privacy drops
+                if (!newCookie.includes('SameSite')) newCookie += '; SameSite=None';
+                if (!newCookie.includes('Secure')) newCookie += '; Secure'; 
+                return newCookie.trim();
+            });
+            res.setHeader('Set-Cookie', rewrittenCookies);
         }
 
         const arrayBuffer = await response.arrayBuffer();
