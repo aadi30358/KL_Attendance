@@ -83,8 +83,8 @@ const isOriginAllowed = (origin) => {
             return true;
         }
 
-        // Allow Render domains
-        if (host.endsWith('.onrender.com')) {
+        // Allow Cloudflare domains
+        if (host.endsWith('.workers.dev') || host.endsWith('.pages.dev') || host === 'api.klattendance.online') {
             return true;
         }
 
@@ -1111,7 +1111,7 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
 });
 
-// Root path for the Render deploy link so it doesn't show "Cannot GET /"
+// Root health path so it doesn't show "Cannot GET /"
 app.get('/', (req, res) => {
     res.send('KL Attendance Backend is Running successfully!');
 });
