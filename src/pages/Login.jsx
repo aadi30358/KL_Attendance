@@ -95,7 +95,7 @@ const Login = () => {
 
     // Fetch fresh captcha blob using current ERP session cookie
     const fetchCaptchaBlob = useCallback(async (isRefresh = false) => {
-        const apiBase = erpService.getErpBase ? erpService.getErpBase() : (APP_CONFIG.API_URL || 'https://kl-attendance-backend-newnode-env.onrender.com');
+        const apiBase = erpService.getErpBase ? erpService.getErpBase() : (APP_CONFIG.API_URL || 'https://kl-attendance-api.yaswanthadithyareddy10.workers.dev');
         const headers = { 'Cache-Control': 'no-cache' };
         const storedCookie = erpService.getStoredErpCookies();
         if (storedCookie) headers['x-erp-cookie'] = storedCookie;

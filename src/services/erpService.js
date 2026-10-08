@@ -1,7 +1,7 @@
 import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear, findSemesterFromHtml, isHtmlMatchingRequestedYear } from '../config/api';
 import { APP_CONFIG } from '../config';
 
-const FALLBACK_ERP_BASE = 'https://kl-attendance-backend-newnode-env.onrender.com';
+const FALLBACK_ERP_BASE = 'https://kl-attendance-api.yaswanthadithyareddy10.workers.dev';
 let activeErpBase = APP_CONFIG.API_URL || FALLBACK_ERP_BASE;
 
 export const getErpBase = () => activeErpBase || FALLBACK_ERP_BASE;

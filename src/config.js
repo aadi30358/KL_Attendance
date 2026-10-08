@@ -3,6 +3,6 @@ export const APP_CONFIG = Object.freeze({
     ANTHROPIC_API_KEY: import.meta.env.VITE_ANTHROPIC_API_KEY,
     UNIVERSITY_NAME: import.meta.env.VITE_UNIVERSITY_NAME || "KL University",
     ERP_URL: import.meta.env.VITE_ERP_URL || "https://newerp.kluniversity.in/index.php",
-    API_URL: import.meta.env.VITE_DEV_API_URL || import.meta.env.VITE_API_URL || "https://kl-attendance-backend-newnode-env.onrender.com",
-    BACKUP_API_URL: "https://kl-attendance-backend-newnode-env.onrender.com"
+    API_URL: import.meta.env.VITE_DEV_API_URL || import.meta.env.VITE_API_URL || "https://kl-attendance-api.yaswanthadithyareddy10.workers.dev",
+    BACKUP_API_URL: "https://api.klattendance.online"
 });
