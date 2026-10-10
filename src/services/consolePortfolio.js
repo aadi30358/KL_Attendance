@@ -1,7 +1,7 @@
 /**
  * Developer Console Portfolio & Social Links Easter Egg
  * Displays developer info, socials, and interactive helper commands in the browser console.
- * Handles F12 to directly launch the portfolio and ask for Instagram, LinkedIn, GitHub, or Telegram.
+ * Strictly prints once per session to keep console clean and fast.
  */
 
 const DEFAULT_PORTFOLIO = 'https://garlapatiyaswanthadithya.web.app/';
@@ -28,10 +28,16 @@ export const setPortfolioUrl = (url) => {
     }
 };
 
+// Singleton guard so developer info prints strictly once per session
+let hasPrintedConsole = false;
+
 /**
  * Prints the exact requested Developer Info banner in Console
  */
-export const printConsolePortfolio = () => {
+export const printConsolePortfolio = (force = false) => {
+    if (hasPrintedConsole && !force) return;
+    hasPrintedConsole = true;
+
     const portfolioUrl = getPortfolioUrl();
 
     const titleStyle = 'background: linear-gradient(90deg, #4f46e5, #7c3aed, #db2777); color: white; padding: 6px 14px; border-radius: 8px; font-weight: 900; font-size: 13px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);';
@@ -91,15 +97,12 @@ export const initConsolePortfolio = () => {
     };
 
     window.links = () => {
-        printConsolePortfolio();
+        printConsolePortfolio(true);
         return 'All developer links printed above!';
     };
 
-    // Print immediately and once more after DOM settling
-    printConsolePortfolio();
-    const timer = setTimeout(() => {
-        printConsolePortfolio();
-    }, 600);
+    // Print strictly once on mount
+    printConsolePortfolio(false);
 
     // F12 Keybinding Handler:
     // Opens portfolio directly in a new tab AND displays the selection modal for Instagram / LinkedIn / GitHub / Telegram
@@ -108,9 +111,6 @@ export const initConsolePortfolio = () => {
         const isInspect = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j');
 
         if (isF12 || isInspect) {
-            // Print fresh developer info banner in console
-            printConsolePortfolio();
-
             // Attempt to directly open Portfolio
             let openedDirectly = false;
             try {
@@ -132,27 +132,7 @@ export const initConsolePortfolio = () => {
 
     window.addEventListener('keydown', handleKeydown);
 
-    // Fallback detection when DevTools panel opens
-    let devtoolsOpen = false;
-    const checkDevTools = () => {
-        const threshold = 160;
-        const widthDiff = window.outerWidth - window.innerWidth > threshold;
-        const heightDiff = window.outerHeight - window.innerHeight > threshold;
-        if (widthDiff || heightDiff) {
-            if (!devtoolsOpen) {
-                devtoolsOpen = true;
-                printConsolePortfolio();
-            }
-        } else {
-            devtoolsOpen = false;
-        }
-    };
-
-    window.addEventListener('resize', checkDevTools, { passive: true });
-
     return () => {
-        clearTimeout(timer);
         window.removeEventListener('keydown', handleKeydown);
-        window.removeEventListener('resize', checkDevTools);
     };
 };

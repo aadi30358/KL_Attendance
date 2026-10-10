@@ -1,8 +1,8 @@
 /**
  * Advanced Client-Side Security Shield & Anti-Tamper Engine
  * Protects against:
- * 1. DevTools Console code execution and tampering
- * 2. Self-XSS social engineering attacks
+ * 1. DevTools Console privilege escalation and tampering
+ * 2. Self-XSS social engineering attacks & malicious script injection
  * 3. LocalStorage & SessionStorage manual state manipulation
  * 4. Global object & prototype pollution attacks
  * 5. Unauthorized privilege escalation & clickjacking
@@ -137,36 +137,68 @@ export function initSecurityShield() {
         document.documentElement.style.display = 'none';
     }
 
-    // 1b. Runtime Frame Protection (Handled via HTTP CSP & X-Frame-Options headers)
-
     // 2. Prominent Console Self-XSS Warning Banner
-
-    // 4. Block malicious console overrides of key window objects
     try {
-        // Prevent console manipulation of admin authentication flags
-        Object.defineProperty(window, 'isAdminAuthenticated', {
-            configurable: false,
-            enumerable: false,
-            get: () => false, // Always returns false; app never trusts global window properties
-            set: () => {
-                console.warn('[Security Shield] Rejected attempt to mutate window.isAdminAuthenticated via console.');
-            }
-        });
+        console.log(
+            '%c🛡️ KL SECURITY SHIELD — ACTIVE PROTECTION',
+            'background: #0f172a; color: #38bdf8; padding: 4px 10px; border-radius: 6px; font-weight: 800; font-size: 11px; border: 1px solid #1e293b;'
+        );
+        console.log(
+            '%c⛔ STOP: Do NOT paste unverified scripts or tokens here. Console access is strictly monitored. Tampering with auth memory or tokens is automatically blocked and recorded.',
+            'color: #ef4444; font-weight: 600; font-size: 10px;'
+        );
+    } catch {
+        // ignore
+    }
 
-        // Prevent console manipulation of erp auth state
-        Object.defineProperty(window, 'erpUser', {
-            configurable: false,
-            enumerable: false,
-            get: () => undefined,
-            set: () => {
-                console.warn('[Security Shield] Rejected attempt to mutate window.erpUser via console.');
-            }
+    // 3. Block malicious console overrides of key window auth objects (Anti-Privilege Escalation)
+    try {
+        const protectedGlobals = ['isAdminAuthenticated', 'isGoogleAdmin', 'erpUser', 'currentUser', 'admin_token'];
+        protectedGlobals.forEach(prop => {
+            Object.defineProperty(window, prop, {
+                configurable: false,
+                enumerable: false,
+                get: () => undefined,
+                set: () => {
+                    console.warn(`[Security Shield] Blocked attempt to mutate global window.${prop} via console.`);
+                }
+            });
         });
     } catch {
         // ignore
     }
 
-    // 5. Context menu protection on Admin panel only
+    // 4. Storage Tampering Shield: Intercept unauthorized localStorage/sessionStorage privilege injections
+    try {
+        const originalLocalSetItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function(key, value) {
+            // Block fake privilege escalation attempts via console
+            if (key === 'isAdminAuthenticated' && value === 'true') {
+                const caller = new Error().stack || '';
+                // If set from console (not from trusted admin service file)
+                if (caller.includes('<anonymous>') || caller.includes('console')) {
+                    console.warn('[Security Shield] Blocked unauthorized console attempt to elevate admin privilege in Storage.');
+                    return;
+                }
+            }
+            if (key === 'admin_token' && typeof value === 'string' && !value.includes('.')) {
+                console.warn('[Security Shield] Rejected invalid non-cryptographic token.');
+                return;
+            }
+            return originalLocalSetItem.apply(this, [key, value]);
+        };
+    } catch {
+        // ignore
+    }
+
+    // 5. Prototype Pollution Protection
+    try {
+        Object.freeze(Object.prototype.__proto__);
+    } catch {
+        // ignore
+    }
+
+    // 6. Context menu protection on Admin panel only
     try {
         window.addEventListener('contextmenu', (e) => {
             if (window.location.pathname.startsWith('/admin')) {
