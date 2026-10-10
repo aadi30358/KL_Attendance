@@ -113,8 +113,9 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
 // --- Responsive Animated Typewriter Text ---
 const TypewriterText = ({
     text,
+    duration = null,
     speed = 50,
-    delay = 150,
+    delay = 80,
     className = "",
     cursorClassName = "bg-indigo-600 dark:bg-indigo-400",
     hideCursorOnComplete = false,
@@ -123,37 +124,46 @@ const TypewriterText = ({
     const [showCursor, setShowCursor] = useState(true);
 
     useEffect(() => {
-        let intervalId = null;
+        let animFrameId = null;
+        let timeoutId = null;
         let cursorTimeoutId = null;
-        let currentIndex = 0;
 
         setDisplayedText("");
         setShowCursor(true);
 
-        const timeoutId = setTimeout(() => {
-            intervalId = setInterval(() => {
-                currentIndex++;
-                setDisplayedText(text.slice(0, currentIndex));
+        const totalDuration = duration !== null ? duration : (text.length * speed);
 
-                if (currentIndex >= text.length) {
-                    clearInterval(intervalId);
-                    intervalId = null;
+        timeoutId = setTimeout(() => {
+            const startTime = performance.now();
 
+            const tick = (currentTime) => {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(1, Math.max(0, elapsed / totalDuration));
+                const charCount = Math.floor(progress * text.length);
+
+                setDisplayedText(text.slice(0, charCount));
+
+                if (progress < 1) {
+                    animFrameId = requestAnimationFrame(tick);
+                } else {
+                    setDisplayedText(text);
                     if (hideCursorOnComplete) {
                         cursorTimeoutId = setTimeout(() => {
                             setShowCursor(false);
-                        }, 1200);
+                        }, 1000);
                     }
                 }
-            }, speed);
+            };
+
+            animFrameId = requestAnimationFrame(tick);
         }, delay);
 
         return () => {
             clearTimeout(timeoutId);
-            if (intervalId) clearInterval(intervalId);
+            if (animFrameId) cancelAnimationFrame(animFrameId);
             if (cursorTimeoutId) clearTimeout(cursorTimeoutId);
         };
-    }, [text, speed, delay, hideCursorOnComplete]);
+    }, [text, duration, speed, delay, hideCursorOnComplete]);
 
     return (
         <span className={`inline-block relative ${className}`}>
@@ -652,8 +662,8 @@ export default function Home() {
                         <div className="mb-1 sm:mb-2 min-h-[1.15em] flex items-center justify-center">
                             <TypewriterText
                                 text="Master Your"
-                                delay={150}
-                                speed={70}
+                                delay={80}
+                                duration={520}
                                 hideCursorOnComplete={true}
                                 className="text-slate-900 dark:text-white"
                                 cursorClassName="bg-slate-900 dark:bg-white"
@@ -663,7 +673,7 @@ export default function Home() {
                             <StaggeredText
                                 text="Academic Journey"
                                 className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 dark:from-indigo-400 dark:via-violet-400 dark:to-indigo-300 animate-gradient bg-300-percent"
-                                delay={0.8}
+                                delay={0.6}
                             />
                             <motion.div
                                 className="absolute -top-8 -right-2 sm:-top-12 sm:-right-4 text-4xl sm:text-6xl opacity-50 blur-[1px] pointer-events-none"
@@ -678,8 +688,8 @@ export default function Home() {
                     <div className="text-sm sm:text-xl text-slate-500 dark:text-slate-400 font-medium max-w-xl leading-relaxed mb-8 sm:mb-12 px-3 text-center min-h-[2.5rem] sm:min-h-[3.2rem] flex items-center justify-center">
                         <TypewriterText
                             text="The next-generation academic suite for KLU students."
-                            delay={950}
-                            speed={32}
+                            delay={80}
+                            duration={520}
                             className="text-slate-500 dark:text-slate-400"
                             cursorClassName="bg-indigo-600 dark:bg-indigo-400"
                         />
