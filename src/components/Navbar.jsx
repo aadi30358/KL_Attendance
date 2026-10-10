@@ -252,7 +252,7 @@ const Navbar = () => {
                                 item.isInstall ? (
                                     <button
                                         key="desktop-install-item"
-                                        onClick={() => openInstallModal(item.isInstalled ? 'already' : 'choose')}
+                                        onClick={() => openInstallModal()}
                                         title={item.isInstalled ? "KL Attendance is Installed" : "Install KL Attendance Web App"}
                                         className={cn(
                                             "px-3 py-2 text-[11px] lg:text-xs font-black tracking-wider uppercase rounded-xl transition-all duration-300 whitespace-nowrap lg:whitespace-normal text-center leading-tight max-w-[125px] flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95",
@@ -354,7 +354,7 @@ const Navbar = () => {
                         <div className="lg:hidden flex items-center gap-2">
                             {/* Quick Install Button on Mobile Header */}
                             <button
-                                onClick={() => openInstallModal(isAppInstalled ? 'already' : 'choose')}
+                                onClick={() => openInstallModal()}
                                 title={isAppInstalled ? "KL Attendance is Installed" : "Install KL Attendance"}
                                 className={cn(
                                     "flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all cursor-pointer shadow-xs active:scale-95",
@@ -429,7 +429,7 @@ const Navbar = () => {
                                             key="mobile-nav-install"
                                             onClick={() => {
                                                 setIsOpen(false);
-                                                openInstallModal(item.isInstalled ? 'already' : 'choose');
+                                                openInstallModal();
                                             }}
                                             className={cn(
                                                 "w-full text-left px-4 py-3 rounded-xl text-sm font-black tracking-widest uppercase transition-all flex items-center justify-between cursor-pointer active:scale-[0.99]",
