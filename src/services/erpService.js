@@ -88,9 +88,10 @@ export const erpService = {
     // Fetch the login page to scrape CSRF token and initial captcha atomically
     async getInitialState() {
         const apiBase = getErpBase();
-        
+        const isLocalHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
         // 1. In production (Firebase Hosting / custom domain), fast single-trip session initialization via Cloudflare edge
-        if (apiBase || (typeof window !== 'undefined' && (window.location.hostname.includes('.web.app') || window.location.hostname.includes('firebaseapp.com')))) {
+        if (!isLocalHost && (apiBase || (typeof window !== 'undefined' && (window.location.hostname.includes('.web.app') || window.location.hostname.includes('firebaseapp.com'))))) {
             try {
                 const target = apiBase || FALLBACK_ERP_BASE;
                 const resp = await fetch(`${target}/api/session-init`, {
@@ -133,7 +134,7 @@ export const erpService = {
 
         let html = await response.text();
         // If relative URL returned SPA index.html (Firebase static rewrite), fall back to Cloudflare edge
-        if (html.includes('<div id="root">') || html.includes('/vite.svg') || !html.includes('_csrf')) {
+        if (!isLocalHost && (html.includes('<div id="root">') || html.includes('/vite.svg') || !html.includes('_csrf'))) {
             const resp = await fetch(`${FALLBACK_ERP_BASE}/api/session-init`, {
                 cache: 'no-store',
                 headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
@@ -171,9 +172,10 @@ export const erpService = {
     // Refresh captcha directly via ERP endpoint
     async refreshCaptcha() {
         const apiBase = getErpBase();
-        
-        // 1. If using edge worker, call /api/refresh-captcha
-        if (apiBase && apiBase.includes('workers.dev')) {
+        const isLocalHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+        // 1. If using edge worker (production), call /api/refresh-captcha
+        if (!isLocalHost && apiBase && apiBase.includes('workers.dev')) {
             try {
                 const resp = await fetch(`${apiBase}/api/refresh-captcha`, {
                     headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
@@ -192,9 +194,9 @@ export const erpService = {
             }
         }
 
-        // 2. Fetch directly from /index.php?r=site%2Fcaptcha
+        // 2. Fetch directly from /index.php?r=site%2Fcaptcha (for localhost Vite proxy)
         try {
-            const url = `${apiBase}/index.php?r=site%2Fcaptcha&v=${Math.random()}`;
+            const url = `${apiBase || ''}/index.php?r=site%2Fcaptcha&v=${Math.random()}`;
             const headers = {
                 'Pragma': 'no-cache',
                 'Cache-Control': 'no-cache'
@@ -211,7 +213,7 @@ export const erpService = {
             });
 
             const contentType = imgResp.headers.get('content-type') || '';
-            if (contentType.includes('text/html') || !imgResp.ok) {
+            if (!isLocalHost && (contentType.includes('text/html') || !imgResp.ok)) {
                 // Firebase hosting SPA fallback detected! Switch to edge worker
                 const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
                     headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
@@ -227,7 +229,7 @@ export const erpService = {
 
             saveErpCookiesFromResponse(imgResp);
             const blob = await imgResp.blob();
-            if (blob.type && !blob.type.startsWith('image/')) {
+            if (!isLocalHost && blob.type && !blob.type.startsWith('image/')) {
                 const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
                     headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
                 });
@@ -239,13 +241,14 @@ export const erpService = {
             return { blob, url };
         } catch (e) {
             console.error('[ERP] refreshCaptcha error:', e);
-            // Fallback to edge worker
-            const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
-                headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
-            });
-            const data = await resp.json();
-            if (data && data.success && data.captchaUrl) {
-                return { dataUrl: data.captchaUrl };
+            if (!isLocalHost) {
+                const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
+                    headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
+                });
+                const data = await resp.json();
+                if (data && data.success && data.captchaUrl) {
+                    return { dataUrl: data.captchaUrl };
+                }
             }
             throw e;
         }
@@ -254,8 +257,16 @@ export const erpService = {
     // Login function
     async login(username, password, captcha, csrfToken) {
         const apiBase = getErpBase();
+        const isLocalHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+        let token = csrfToken || sessionStorage.getItem('erp_csrf_token') || localStorage.getItem('erp_csrf_token');
+        if (!token) {
+            const initRes = await this.getInitialState();
+            token = initRes?.csrfToken;
+        }
+
         const formData = new URLSearchParams();
-        formData.append('_csrf', csrfToken);
+        formData.append('_csrf', token || '');
         formData.append('LoginForm[username]', username);
         formData.append('LoginForm[password]', password);
         formData.append('LoginForm[rememberMe]', '0');
@@ -272,7 +283,7 @@ export const erpService = {
             if (cookie) headers['x-erp-cookie'] = cookie;
         }
 
-        let url = `${apiBase}/index.php?r=site%2Flogin`;
+        let url = `${apiBase || ''}/index.php?r=site%2Flogin`;
         let response = await fetch(url, {
             method: 'POST',
             headers,
@@ -282,8 +293,8 @@ export const erpService = {
         });
 
         let html = await response.text();
-        // ONLY fallback to edge worker if the response is the static SPA index.html (Firebase Hosting static catch-all)
-        if ((html.includes('<div id="root">') || html.includes('/vite.svg')) && apiBase !== FALLBACK_ERP_BASE) {
+        // Fallback to edge worker only if relative URL returned SPA index.html on Firebase static hosting
+        if (!isLocalHost && (html.includes('<div id="root">') || html.includes('/vite.svg')) && apiBase !== FALLBACK_ERP_BASE) {
             url = `${FALLBACK_ERP_BASE}/index.php?r=site%2Flogin`;
             const fbHeaders = { ...headers };
             const cookie = getStoredErpCookies();
@@ -300,18 +311,35 @@ export const erpService = {
 
         saveErpCookiesFromResponse(response, { forceAuthUpdate: true });
 
+        // HTTP error check (HTTP 400 Bad Request, 500, etc. are errors, not successes)
+        if (!response.ok || response.status >= 400) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const alertDanger = doc.querySelector('.alert-danger, .callout-danger, .site-error');
+            const alertText = alertDanger?.textContent?.trim();
+            if (alertText && !alertText.includes('The above error occurred')) {
+                throw new Error(alertText);
+            }
+            throw new Error(`Login session expired or rejected (HTTP ${response.status}). Please refresh captcha and try again.`);
+        }
+
+        // Check for Yii2 generic error page (site-error)
+        if (html.includes('site-error') || html.includes('The above error occurred while the Web server was processing your request')) {
+            throw new Error("Session expired or invalid data submission. Please refresh and try again.");
+        }
+
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
         // Check for specific field error blocks
-        const pwdError = doc.querySelector('.field-loginFormPasswordID .help-block, .field-loginform-password .help-block');
+        const pwdError = doc.querySelector('.field-loginFormPasswordID .help-block, .field-loginform-password .help-block, .field-loginFormUserNameID .help-block');
         if (pwdError && pwdError.textContent.trim()) {
             throw new Error(pwdError.textContent.trim());
         }
 
         const captchaError = doc.querySelector('.field-loginFormCaptcha .help-block, .field-loginform-captcha .help-block');
         if (captchaError && captchaError.textContent.trim()) {
-            throw new Error("Invalid Captcha");
+            throw new Error(captchaError.textContent.trim() || "Invalid Captcha");
         }
 
         const generalError = doc.querySelector('.text-danger:not(span)');
@@ -332,11 +360,12 @@ export const erpService = {
             }
         }
 
-        // Success detection: If we are redirected or land away from login-form
+        // Success detection: If we land away from login-form
         const loginForm = doc.getElementById('login-form');
         if (!loginForm) {
             sessionStorage.setItem('erp_authenticated', 'true');
-            const newCsrf = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            const newCsrf = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                            doc.querySelector('input[name="_csrf"]')?.getAttribute('value');
             if (newCsrf) {
                 sessionStorage.setItem('erp_csrf_token', newCsrf);
                 localStorage.setItem('erp_csrf_token', newCsrf);
@@ -347,7 +376,7 @@ export const erpService = {
             if (alertDanger && alertDanger.textContent.trim()) {
                 throw new Error(alertDanger.textContent.trim());
             }
-            throw new Error("Login failed. Please check your credentials.");
+            throw new Error("Incorrect Student ID, Password, or Captcha.");
         }
     },
 

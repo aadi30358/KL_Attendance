@@ -48,6 +48,7 @@ const Login = () => {
     const hasAutoLoggedIn = useRef(false);
     const navigate = useNavigate();
     const captchaUrlRef = useRef('');
+    const csrfTokenRef = useRef('');
     const isSubmittingRef = useRef(false);
 
     const refreshCaptcha = useCallback(async () => {
@@ -88,6 +89,7 @@ const Login = () => {
                 if (!isMounted) return;
                 if (res?.csrfToken) {
                     setCsrfToken(res.csrfToken);
+                    csrfTokenRef.current = res.csrfToken;
                 }
                 if (res?.captchaUrl) {
                     captchaUrlRef.current = res.captchaUrl;
@@ -129,7 +131,7 @@ const Login = () => {
         return () => {
             isMounted = false;
         };
-    }, []);
+    }, [refreshCaptcha]);
 
     const handleLogin = async () => {
         if (isSubmittingRef.current) return;
@@ -143,7 +145,8 @@ const Login = () => {
         setError('');
 
         try {
-            const loginResult = await erpService.login(idNumber, password, captcha, csrfToken);
+            const activeToken = csrfTokenRef.current || csrfToken || localStorage.getItem('erp_csrf_token') || '';
+            const loginResult = await erpService.login(idNumber, password, captcha, activeToken);
 
             if (loginResult.success) {
                 setSyncStatus("Finalizing Profile…");
@@ -169,7 +172,9 @@ const Login = () => {
                 navigate('/attendance-register');
             }
         } catch (err) {
+            console.error("Login attempt failed:", err);
             setError(err.message || "Login failed. Please check your credentials.");
+            setCaptcha('');
             refreshCaptcha();
         } finally {
             setIsLoading(false);
@@ -408,10 +413,6 @@ const Login = () => {
                                         <img 
                                             src={captchaUrl} 
                                             alt="Captcha" 
-                                            onError={() => {
-                                                console.warn("Captcha image failed to render, refreshing...");
-                                                refreshCaptcha();
-                                            }}
                                             className="h-10 object-contain mix-blend-multiply opacity-80" 
                                         />
                                     ) : (

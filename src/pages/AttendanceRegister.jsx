@@ -157,7 +157,9 @@ const AttendanceRegister = () => {
         // Always start on the selection form after login or refresh
         setShowDashboard(false);
 
-        if (!html) {
+        if (!html || html.includes('site-error') || html.includes('The above error occurred') || html.includes('id="login-form"')) {
+            localStorage.removeItem('erpDashboardHtml');
+            sessionStorage.removeItem('erp_authenticated');
             navigate('/login');
             return;
         }
