@@ -26,14 +26,14 @@ export const getStoredErpCookies = () => {
 
 const IGNORED_COOKIE_ATTRS = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned']);
 
-export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = false } = {}) => {
+export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true } = {}) => {
     try {
         if (!response) return;
         const newCookies = response.headers?.get?.('x-set-erp-cookie') || response.headers?.get?.('set-cookie');
         if (newCookies) {
             const existing = getStoredErpCookies();
             const cookieMap = new Map();
-            if (existing) {
+            if (existing && !forceAuthUpdate) {
                 existing.split(';').forEach(pair => {
                     const [k, ...v] = pair.split('=');
                     if (k && k.trim() && !IGNORED_COOKIE_ATTRS.has(k.trim().toLowerCase())) {
@@ -47,10 +47,6 @@ export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = false }
                     const key = k.trim();
                     if (IGNORED_COOKIE_ATTRS.has(key.toLowerCase())) return;
                     const val = v.join('=').trim();
-                    const isAuthenticated = sessionStorage.getItem('erp_authenticated') === 'true';
-                    if (key === 'PHPSESSID' && cookieMap.has('PHPSESSID') && isAuthenticated && !forceAuthUpdate) {
-                        return;
-                    }
                     cookieMap.set(key, val);
                 }
             });
@@ -94,6 +90,9 @@ export const erpService = {
     async getInitialState() {
         const apiBase = getErpBase();
 
+        // Clear any stale session cookies before initializing fresh session
+        clearStoredErpCookies();
+
         // 1. Fast single-trip session initialization via /api/session-init
         try {
             const resp = await fetch(`${apiBase || ''}/api/session-init`, {
@@ -103,7 +102,7 @@ export const erpService = {
             if (resp.ok) {
                 const data = await resp.json().catch(() => null);
                 if (data && data.success && data.csrfToken) {
-                    saveErpCookiesFromResponse(resp);
+                    saveErpCookiesFromResponse(resp, { forceAuthUpdate: true });
                     if (data.cookies) {
                         sessionStorage.setItem('erp_session_cookie', data.cookies);
                         localStorage.setItem('erp_session_cookie', data.cookies);
@@ -207,7 +206,7 @@ export const erpService = {
             if (resp.ok) {
                 const data = await resp.json().catch(() => null);
                 if (data && data.success && data.captchaUrl) {
-                    saveErpCookiesFromResponse(resp);
+                    saveErpCookiesFromResponse(resp, { forceAuthUpdate: true });
                     if (data.cookies) {
                         sessionStorage.setItem('erp_session_cookie', data.cookies);
                         localStorage.setItem('erp_session_cookie', data.cookies);
@@ -232,12 +231,16 @@ export const erpService = {
                 if (resp.ok) {
                     const data = await resp.json().catch(() => null);
                     if (data && data.success && data.captchaUrl) {
-                        saveErpCookiesFromResponse(resp);
+                        saveErpCookiesFromResponse(resp, { forceAuthUpdate: true });
                         if (data.cookies) {
                             sessionStorage.setItem('erp_session_cookie', data.cookies);
                             localStorage.setItem('erp_session_cookie', data.cookies);
                         }
-                        return { dataUrl: data.captchaUrl };
+                        if (data.csrfToken) {
+                            sessionStorage.setItem('erp_csrf_token', data.csrfToken);
+                            localStorage.setItem('erp_csrf_token', data.csrfToken);
+                        }
+                        return { dataUrl: data.captchaUrl, csrfToken: data.csrfToken };
                     }
                 }
             } catch (e) {

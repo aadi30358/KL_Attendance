@@ -89,8 +89,10 @@ export default {
         }
 
         // 1. /api/session-init - High-speed session boot with CSRF & Captcha extraction
+        // Always starts a clean, fresh session so previous user's cookies never bleed into new sessions
         if (url.pathname === '/api/session-init') {
             try {
+                const sessionMap = new Map();
                 const erpResp = await fetch(`${ERP_BASE}/index.php`, {
                     headers: {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
@@ -101,9 +103,8 @@ export default {
                 });
 
                 const scList = erpResp.headers.getSetCookie ? erpResp.headers.getSetCookie() : [erpResp.headers.get('set-cookie')].filter(Boolean);
-                const freshCookies = parseCookieHeader(scList);
-                freshCookies.forEach((v, k) => cookieMap.set(k, v));
-                const allCookies = serializeCookieMap(cookieMap);
+                parseCookieHeader(scList).forEach((v, k) => sessionMap.set(k, v));
+                let allCookies = serializeCookieMap(sessionMap);
 
                 const html = await erpResp.text();
                 const csrfMatch = html.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
@@ -127,6 +128,10 @@ export default {
                         },
                         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
                     });
+                    const capScList = capResp.headers.getSetCookie ? capResp.headers.getSetCookie() : [capResp.headers.get('set-cookie')].filter(Boolean);
+                    parseCookieHeader(capScList).forEach((v, k) => sessionMap.set(k, v));
+                    allCookies = serializeCookieMap(sessionMap);
+
                     if (capResp.ok) {
                         const capBuf = await capResp.arrayBuffer();
                         const base64 = arrayBufferToBase64(capBuf);
@@ -158,39 +163,103 @@ export default {
             }
         }
 
-        // 2. /api/refresh-captcha - Instant Captcha Renewal
+        // 2. /api/refresh-captcha - Instant Captcha Renewal with CSRF synchronization
         if (url.pathname === '/api/refresh-captcha') {
             try {
-                const currentCookies = serializeCookieMap(cookieMap);
-                const refResp = await fetch(`${ERP_BASE}/index.php?r=site%2Fcaptcha&refresh=1`, {
+                let currentCookies = serializeCookieMap(cookieMap);
+                let freshCsrf = '';
+                let targetImg = '';
+
+                // If client provided cookies, try refreshing within existing session
+                if (cookieMap.size > 0 && cookieMap.has('PHPSESSID')) {
+                    const refResp = await fetch(`${ERP_BASE}/index.php?r=site%2Fcaptcha&refresh=1`, {
+                        headers: {
+                            'Cookie': currentCookies,
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Referer': `${ERP_BASE}/index.php`
+                        },
+                        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                    });
+
+                    const scList = refResp.headers.getSetCookie ? refResp.headers.getSetCookie() : [refResp.headers.get('set-cookie')].filter(Boolean);
+                    parseCookieHeader(scList).forEach((v, k) => cookieMap.set(k, v));
+                    currentCookies = serializeCookieMap(cookieMap);
+
+                    const data = await refResp.json().catch(() => null);
+                    if (data && data.url) {
+                        targetImg = data.url;
+                    }
+
+                    // Scrape fresh CSRF token from index.php with the updated session cookie
+                    try {
+                        const pageResp = await fetch(`${ERP_BASE}/index.php`, {
+                            headers: {
+                                'Cookie': currentCookies,
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                'Referer': `${ERP_BASE}/index.php`
+                            },
+                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                        });
+                        const pageScList = pageResp.headers.getSetCookie ? pageResp.headers.getSetCookie() : [pageResp.headers.get('set-cookie')].filter(Boolean);
+                        parseCookieHeader(pageScList).forEach((v, k) => cookieMap.set(k, v));
+                        currentCookies = serializeCookieMap(cookieMap);
+
+                        const pageHtml = await pageResp.text();
+                        const cm = pageHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
+                                   pageHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                                   pageHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                                   pageHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+                        if (cm) freshCsrf = cm[1];
+
+                        if (!targetImg) {
+                            const im = pageHtml.match(/id="loginFormCaptcha-image"\s+src="([^"]+)"/i) ||
+                                       pageHtml.match(/src="([^"]+)"\s+id="loginFormCaptcha-image"/i);
+                            if (im) targetImg = im[1].replace(/&amp;/g, '&');
+                        }
+                    } catch (e) {
+                        console.warn("[Worker] Captcha page scrape notice:", e.message);
+                    }
+                }
+
+                // If session was invalid or freshCsrf could not be obtained, perform full session-init fallback
+                if (!targetImg || !freshCsrf) {
+                    cookieMap.clear();
+                    const initResp = await fetch(`${ERP_BASE}/index.php`, {
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                        },
+                        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                    });
+                    const initScList = initResp.headers.getSetCookie ? initResp.headers.getSetCookie() : [initResp.headers.get('set-cookie')].filter(Boolean);
+                    parseCookieHeader(initScList).forEach((v, k) => cookieMap.set(k, v));
+                    currentCookies = serializeCookieMap(cookieMap);
+
+                    const initHtml = await initResp.text();
+                    const cm = initHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
+                               initHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                               initHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                               initHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+                    if (cm) freshCsrf = cm[1];
+
+                    const im = initHtml.match(/id="loginFormCaptcha-image"\s+src="([^"]+)"/i) ||
+                               initHtml.match(/src="([^"]+)"\s+id="loginFormCaptcha-image"/i);
+                    targetImg = im ? im[1].replace(/&amp;/g, '&') : '/index.php?r=site%2Fcaptcha';
+                }
+
+                let imgUrl = targetImg.startsWith('http') ? targetImg : `${ERP_BASE}${targetImg.startsWith('/') ? '' : '/'}${targetImg}`;
+                const imgResp = await fetch(imgUrl, {
                     headers: {
                         'Cookie': currentCookies,
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                        'X-Requested-With': 'XMLHttpRequest',
                         'Referer': `${ERP_BASE}/index.php`
                     },
                     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
                 });
-
-                const scList = refResp.headers.getSetCookie ? refResp.headers.getSetCookie() : [refResp.headers.get('set-cookie')].filter(Boolean);
-                const freshCookies = parseCookieHeader(scList);
-                freshCookies.forEach((v, k) => cookieMap.set(k, v));
+                const imgScList = imgResp.headers.getSetCookie ? imgResp.headers.getSetCookie() : [imgResp.headers.get('set-cookie')].filter(Boolean);
+                parseCookieHeader(imgScList).forEach((v, k) => cookieMap.set(k, v));
                 const allCookies = serializeCookieMap(cookieMap);
-
-                const data = await refResp.json().catch(() => null);
-                let imgUrl = data?.url || `/index.php?r=site%2Fcaptcha&v=${Math.random()}`;
-                if (!imgUrl.startsWith('http')) {
-                    imgUrl = `${ERP_BASE}${imgUrl.startsWith('/') ? '' : '/'}${imgUrl}`;
-                }
-
-                const imgResp = await fetch(imgUrl, {
-                    headers: {
-                        'Cookie': allCookies,
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                        'Referer': `${ERP_BASE}/index.php`
-                    },
-                    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                });
 
                 let captchaDataUrl = '';
                 if (imgResp.ok) {
@@ -202,7 +271,8 @@ export default {
                 return new Response(JSON.stringify({
                     success: true,
                     captchaUrl: captchaDataUrl,
-                    cookies: allCookies
+                    cookies: allCookies,
+                    csrfToken: freshCsrf
                 }), {
                     headers: {
                         ...cors,
@@ -222,7 +292,7 @@ export default {
             }
         }
 
-        // 3. /api/fast-login - High-Speed Multi-Stage Authentication & Dashboard Load
+        // 3. /api/fast-login - High-Speed Authentication & Multi-Hop Redirect Follower
         if (url.pathname === '/api/fast-login') {
             try {
                 const body = await request.json().catch(() => ({}));
@@ -235,8 +305,36 @@ export default {
                     });
                 }
 
+                let effectiveCsrf = csrfToken;
+                let clientCookies = serializeCookieMap(cookieMap);
+
+                // If CSRF is missing, quickly grab it using current cookies
+                if (!effectiveCsrf && clientCookies) {
+                    try {
+                        const initResp = await fetch(`${ERP_BASE}/index.php`, {
+                            headers: {
+                                'Cookie': clientCookies,
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                'Referer': `${ERP_BASE}/`
+                            },
+                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                        });
+                        const scList = initResp.headers.getSetCookie ? initResp.headers.getSetCookie() : [initResp.headers.get('set-cookie')].filter(Boolean);
+                        parseCookieHeader(scList).forEach((v, k) => cookieMap.set(k, v));
+                        clientCookies = serializeCookieMap(cookieMap);
+                        const initHtml = await initResp.text();
+                        const m = initHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
+                                  initHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                                  initHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                                  initHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+                        if (m) effectiveCsrf = m[1];
+                    } catch (e) {
+                        console.warn("[Worker] Fast-login CSRF recovery:", e.message);
+                    }
+                }
+
                 const formData = new URLSearchParams();
-                if (csrfToken) formData.append('_csrf', csrfToken);
+                if (effectiveCsrf) formData.append('_csrf', effectiveCsrf);
                 formData.append('LoginForm[username]', String(username).trim());
                 formData.append('LoginForm[password]', String(password));
                 formData.append('LoginForm[rememberMe]', '0');
@@ -248,11 +346,11 @@ export default {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
-                        'Cookie': serializeCookieMap(cookieMap),
+                        'Cookie': clientCookies,
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                         'Origin': ERP_BASE,
                         'Referer': `${ERP_BASE}/index.php?r=site%2Flogin`,
-                        'x-csrf-token': csrfToken || ''
+                        'x-csrf-token': effectiveCsrf || ''
                     },
                     body: formData.toString(),
                     redirect: 'manual',
@@ -260,17 +358,103 @@ export default {
                 });
 
                 const scList = loginResp.headers.getSetCookie ? loginResp.headers.getSetCookie() : [loginResp.headers.get('set-cookie')].filter(Boolean);
-                const freshCookies = parseCookieHeader(scList);
-                freshCookies.forEach((v, k) => cookieMap.set(k, v));
-                const allCookies = serializeCookieMap(cookieMap);
+                parseCookieHeader(scList).forEach((v, k) => cookieMap.set(k, v));
+                let allCookies = serializeCookieMap(cookieMap);
 
                 // Authentication succeeded (ERP returns 302 redirect upon valid credentials)
                 if (loginResp.status === 302) {
-                    const loc = loginResp.headers.get('location') || '';
-                    if (loc.includes('site%2Flogin') || loc.includes('site/login')) {
+                    let nextLoc = loginResp.headers.get('location') || loginResp.headers.get('x-redirect') || '/index.php';
+
+                    // If redirect points back to login, parse the exact error and fresh CSRF
+                    if (nextLoc.includes('site%2Flogin') || nextLoc.includes('site/login')) {
+                        let errorMsg = 'Incorrect username or password. Please verify your credentials.';
+                        let freshFailCsrf = '';
+                        try {
+                            const failResp = await fetch(`${ERP_BASE}/index.php?r=site%2Flogin`, {
+                                headers: {
+                                    'Cookie': allCookies,
+                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                    'Referer': `${ERP_BASE}/`
+                                },
+                                signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                            });
+                            const failScList = failResp.headers.getSetCookie ? failResp.headers.getSetCookie() : [failResp.headers.get('set-cookie')].filter(Boolean);
+                            parseCookieHeader(failScList).forEach((v, k) => cookieMap.set(k, v));
+                            allCookies = serializeCookieMap(cookieMap);
+
+                            const failHtml = await failResp.text();
+                            const failCsrfMatch = failHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
+                                                  failHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                                                  failHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                                                  failHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+                            if (failCsrfMatch) freshFailCsrf = failCsrfMatch[1];
+
+                            const capMatch = failHtml.match(/class="[^"]*(?:field-loginFormCaptcha|field-loginform-captcha)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
+                            const pwdMatch = failHtml.match(/class="[^"]*(?:field-loginFormPasswordID|field-loginform-password)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
+                            const usrMatch = failHtml.match(/class="[^"]*(?:field-loginFormUserNameID|field-loginform-username)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
+                            const alertMatch = failHtml.match(/class="[^"]*(?:alert-danger|error-summary)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+                            const clean = m => m ? m.replace(/<[^>]+>/g, '').trim() : '';
+
+                            if (clean(capMatch?.[1])) errorMsg = clean(capMatch[1]);
+                            else if (clean(pwdMatch?.[1])) errorMsg = clean(pwdMatch[1]);
+                            else if (clean(usrMatch?.[1])) errorMsg = clean(usrMatch[1]);
+                            else if (clean(alertMatch?.[1])) errorMsg = clean(alertMatch[1]);
+                        } catch {
+                            // ignore
+                        }
+
                         return new Response(JSON.stringify({
                             success: false,
-                            error: 'Incorrect username, password, or captcha code.',
+                            error: errorMsg,
+                            cookies: allCookies,
+                            csrfToken: freshFailCsrf
+                        }), {
+                            status: 401,
+                            headers: { ...cors, 'Content-Type': 'application/json', 'x-set-erp-cookie': allCookies }
+                        });
+                    }
+
+                    // Follow up to 5 redirect hops manually with cookies attached to reach the authenticated dashboard
+                    let currentTarget = nextLoc.startsWith('http')
+                        ? nextLoc.replace(/^http:/i, 'https:')
+                        : `${ERP_BASE}${nextLoc.startsWith('/') ? '' : '/'}${nextLoc}`;
+
+                    let finalResp = null;
+                    for (let redirectCount = 0; redirectCount < 5; redirectCount++) {
+                        allCookies = serializeCookieMap(cookieMap);
+                        finalResp = await fetch(currentTarget, {
+                            method: 'GET',
+                            headers: {
+                                'Cookie': allCookies,
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                'Referer': `${ERP_BASE}/`
+                            },
+                            redirect: 'manual',
+                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                        });
+
+                        const hopScList = finalResp.headers.getSetCookie ? finalResp.headers.getSetCookie() : [finalResp.headers.get('set-cookie')].filter(Boolean);
+                        parseCookieHeader(hopScList).forEach((v, k) => cookieMap.set(k, v));
+
+                        if (finalResp.status >= 300 && finalResp.status < 400) {
+                            const loc = finalResp.headers.get('location') || finalResp.headers.get('x-redirect');
+                            if (!loc || loc.includes('site%2Flogin') || loc.includes('site/login')) break;
+                            currentTarget = loc.startsWith('http')
+                                ? loc.replace(/^http:/i, 'https:')
+                                : `${ERP_BASE}${loc.startsWith('/') ? '' : '/'}${loc}`;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    allCookies = serializeCookieMap(cookieMap);
+                    let dashHtml = finalResp ? await finalResp.text() : '';
+
+                    // Check if landed back on login form
+                    if (dashHtml.includes('id="login-form"') || dashHtml.includes('loginFormUserNameID')) {
+                        return new Response(JSON.stringify({
+                            success: false,
+                            error: 'Incorrect username or password. Please verify your credentials.',
                             cookies: allCookies
                         }), {
                             status: 401,
@@ -278,21 +462,44 @@ export default {
                         });
                     }
 
-                    // Fetch student homepage dashboard immediately at the edge
-                    const dashResp = await fetch(`${ERP_BASE}/index.php?r=student%2Findexindi`, {
-                        headers: {
-                            'Cookie': allCookies,
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                            'Referer': `${ERP_BASE}/index.php`
-                        },
-                        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                    });
-                    const dashHtml = dashResp.ok ? await dashResp.text() : '';
+                    // Ensure rich dashboard HTML is fetched from student/indexindi if needed
+                    if (!dashHtml || (!dashHtml.includes('logout') && !dashHtml.includes('student') && !dashHtml.includes('indexindi'))) {
+                        try {
+                            const indiResp = await fetch(`${ERP_BASE}/index.php?r=student%2Findexindi`, {
+                                headers: {
+                                    'Cookie': allCookies,
+                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                    'Referer': `${ERP_BASE}/index.php`
+                                },
+                                signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                            });
+                            const indiScList = indiResp.headers.getSetCookie ? indiResp.headers.getSetCookie() : [indiResp.headers.get('set-cookie')].filter(Boolean);
+                            parseCookieHeader(indiScList).forEach((v, k) => cookieMap.set(k, v));
+                            allCookies = serializeCookieMap(cookieMap);
+
+                            if (indiResp.ok) {
+                                const indiHtml = await indiResp.text();
+                                if (indiHtml && !indiHtml.includes('id="login-form"')) {
+                                    dashHtml = indiHtml;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn("[Worker] indexindi fetch notice:", e.message);
+                        }
+                    }
+
+                    // Extract post-login CSRF token directly from dashboard HTML
+                    const postCsrfMatch = dashHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
+                                          dashHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                                          dashHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i);
+                    const postLoginCsrf = postCsrfMatch ? postCsrfMatch[1] : (effectiveCsrf || '');
 
                     return new Response(JSON.stringify({
                         success: true,
+                        verified: true,
                         html: dashHtml,
-                        cookies: allCookies
+                        cookies: allCookies,
+                        csrfToken: postLoginCsrf
                     }), {
                         headers: {
                             ...cors,
@@ -303,22 +510,32 @@ export default {
                     });
                 }
 
-                // Authentication failed (Status 200 with validation error in HTML)
+                // Authentication failed (Status 200/400/401 with validation error in HTML)
                 const failHtml = await loginResp.text();
                 let errorMsg = 'Incorrect username, password, or captcha.';
                 const capErr = failHtml.match(/class="[^"]*(?:field-loginFormCaptcha|field-loginform-captcha)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
                 const pwdErr = failHtml.match(/class="[^"]*(?:field-loginFormPasswordID|field-loginform-password)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
+                const usrErr = failHtml.match(/class="[^"]*(?:field-loginFormUserNameID|field-loginform-username)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
                 const alertErr = failHtml.match(/class="[^"]*(?:alert-danger|error-summary)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
 
                 const clean = m => m ? m.replace(/<[^>]+>/g, '').trim() : '';
                 if (clean(capErr?.[1])) errorMsg = clean(capErr[1]);
                 else if (clean(pwdErr?.[1])) errorMsg = clean(pwdErr[1]);
+                else if (clean(usrErr?.[1])) errorMsg = clean(usrErr[1]);
                 else if (clean(alertErr?.[1])) errorMsg = clean(alertErr[1]);
+
+                // Extract fresh CSRF token from fail HTML for subsequent retry
+                const failCsrfMatch = failHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
+                                      failHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                                      failHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                                      failHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+                const freshFailCsrf = failCsrfMatch ? failCsrfMatch[1] : '';
 
                 return new Response(JSON.stringify({
                     success: false,
                     error: errorMsg,
-                    cookies: allCookies
+                    cookies: allCookies,
+                    csrfToken: freshFailCsrf
                 }), {
                     status: 401,
                     headers: { ...cors, 'Content-Type': 'application/json', 'x-set-erp-cookie': allCookies }

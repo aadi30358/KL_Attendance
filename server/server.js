@@ -141,13 +141,13 @@ const limiter = rateLimit({
     message: { error: "Too many requests from this IP, please try again after 15 minutes." }
 });
 
-// Dedicated rate limiting on student login & fast-login: 120 attempts per 15 minutes per client IP
+// Dedicated rate limiting on student login & fast-login: Allow rapid multiple logins without blocking (5000 attempts per 15 mins)
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 120,
+    max: 5000,
     validate: { keyGeneratorIpFallback: false },
     keyGenerator: (req) => req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip,
-    message: { success: false, error: "Too many login attempts from this network. Please try again after 15 minutes." }
+    message: { success: false, error: "Too many login attempts from this network. Please try again in a few moments." }
 });
 
 // Strict rate limiting on admin authentication: 5 attempts per 15 minutes
