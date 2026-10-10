@@ -5,6 +5,7 @@ import { APP_CONFIG } from './config';
 import { doc, setDoc, increment } from 'firebase/firestore';
 import { db } from './firebase';
 import { useDeploymentSync } from './services/useDeploymentSync';
+import { initConsolePortfolio } from './services/consolePortfolio';
 
 import { AuthProvider } from './context/AuthContext';
 import { AttendanceProvider } from './context/AttendanceContext';
@@ -53,7 +54,7 @@ const SOCIAL_LINKS = [
   },
   {
     name: 'Instagram',
-    href: 'https://www.instagram.com/_aadi7781_/',
+    href: 'https://www.instagram.com/adithyareddy.7/',
     icon: FaInstagram,
     hoverClass: 'hover:text-[#E4405F] hover:bg-pink-50',
   },
@@ -71,6 +72,14 @@ const AppWithAuth = () => {
 
   // Activate cross-domain instant deployment synchronization
   useDeploymentSync();
+
+  // Initialize developer console portfolio easter egg & console commands
+  useEffect(() => {
+    const cleanup = initConsolePortfolio();
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, []);
 
 
   // Keep backend warm — runs AFTER browser is idle so it never delays rendering

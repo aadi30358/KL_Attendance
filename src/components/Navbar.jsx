@@ -7,13 +7,14 @@ import { useAuth } from '../context/useAuth';
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { db } from '../firebase';
 import { cn } from '../lib/utils';
+import { subscribeCrossDomainSync } from '../services/crossDomainSync';
 
 const Navbar = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [scrolled, setScrolled] = useState(false);
     const [announcement, setAnnouncement] = useState(() => {
         try {
-            return sessionStorage.getItem('kl_announcement') || "";
+            return localStorage.getItem('kl_announcement') || sessionStorage.getItem('kl_announcement') || "";
         } catch {
             return "";
         }
@@ -21,28 +22,43 @@ const Navbar = () => {
     const [maintenanceConfig, setMaintenanceConfig] = useState(() => {
         try {
             const raw = localStorage.getItem('kl_erp_maintenance');
-            return raw ? JSON.parse(raw) : { enabled: true, title: 'ERP Login is Under Maintenance' };
+            return raw ? JSON.parse(raw) : { enabled: false, title: 'ERP Login is Under Maintenance' };
         } catch {
-            return { enabled: true, title: 'ERP Login is Under Maintenance' };
+            return { enabled: false, title: 'ERP Login is Under Maintenance' };
         }
     });
 
-    const { currentUser, erpUser, logout } = useAuth(); // Import erpUser here
+    const { currentUser, erpUser, setErpUser, logout } = useAuth(); // Import erpUser here
     const location = useLocation();
     const navigate = useNavigate();
 
     const handleLogout = async () => {
         try {
             await logout();
+            if (typeof setErpUser === 'function') {
+                setErpUser(null);
+            }
+            const currentActiveId = erpUser || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null);
+            if (currentActiveId) {
+                localStorage.removeItem(`kleData_${currentActiveId}`);
+            }
+            localStorage.removeItem('activeErpUser');
+            localStorage.removeItem('erpDashboardHtml');
+            localStorage.removeItem('kleData');
+            sessionStorage.removeItem('erp_authenticated');
+            sessionStorage.setItem('adminLoggedOut', 'true');
+            window.dispatchEvent(new Event('storage'));
+            setIsOpen(false);
             navigate('/login');
-            window.location.reload(); // Force full state reset 
         } catch (error) {
             console.error("Logout failed:", error);
+            setIsOpen(false);
+            navigate('/login');
         }
     };
 
     const handleResetSemester = () => {
-        const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
+        const activeId = erpUser || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null);
         if (activeId) {
             localStorage.removeItem(`kleData_${activeId}`);
         }
@@ -55,7 +71,14 @@ const Navbar = () => {
 
     // Real-time synchronization for Announcements and Maintenance across all domains (< 1 second)
     useEffect(() => {
-        const handleScroll = () => setScrolled(window.scrollY > 20);
+        let lastScrolled = window.scrollY > 20;
+        const handleScroll = () => {
+            const isScrolled = window.scrollY > 20;
+            if (isScrolled !== lastScrolled) {
+                lastScrolled = isScrolled;
+                setScrolled(isScrolled);
+            }
+        };
         window.addEventListener('scroll', handleScroll, { passive: true });
 
         // 1. Instant Real-time Announcement stream from Firestore
@@ -68,6 +91,7 @@ const Navbar = () => {
                     setAnnouncement(text);
                     try { 
                         sessionStorage.setItem('kl_announcement', text); 
+                        localStorage.setItem('kl_announcement', text);
                     } catch {
                         // ignore storage quota
                     }
@@ -89,7 +113,7 @@ const Navbar = () => {
             // ignore
         }
 
-        // 2. Real-time ERP Maintenance mode stream
+        // 2. Real-time ERP Maintenance mode stream from Firestore
         let unsubMaintenance = null;
         try {
             unsubMaintenance = onSnapshot(doc(db, 'config', 'maintenance'), (snapshot) => {
@@ -126,38 +150,42 @@ const Navbar = () => {
         };
         window.addEventListener('storage', handleStorage);
 
-        // 4. Cross-Domain and BroadcastChannel instant sync (0ms)
-        let bc = null;
-        if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-            try {
-                bc = new BroadcastChannel('kl_portal_sync');
-                bc.onmessage = (event) => {
-                    if (event.data?.type === 'MAINTENANCE_UPDATE' && event.data.data) {
-                        setMaintenanceConfig(event.data.data);
-                    } else if (event.data?.type === 'ANNOUNCEMENT_CHANGE' && event.data.data) {
-                        setAnnouncement(event.data.data.announcement || event.data.data.text || "");
-                    }
-                };
-            } catch (err) {
-                console.warn("[Navbar] BroadcastChannel error:", err);
+        // 4. Sub-second Cross-Domain, Window Event, and BroadcastChannel instant sync (0ms)
+        const unsubCrossSync = subscribeCrossDomainSync((event) => {
+            if (event.type === 'MAINTENANCE_UPDATE' && event.data) {
+                setMaintenanceConfig(event.data);
+                try {
+                    localStorage.setItem('kl_erp_maintenance', JSON.stringify(event.data));
+                } catch {
+                    // ignore
+                }
+            } else if (event.type === 'ANNOUNCEMENT_CHANGE' && event.data) {
+                const text = event.data.announcement || event.data.text || "";
+                setAnnouncement(text);
+                try {
+                    localStorage.setItem('kl_announcement', text);
+                    sessionStorage.setItem('kl_announcement', text);
+                } catch {
+                    // ignore
+                }
             }
-        }
+        });
 
         return () => {
             window.removeEventListener('scroll', handleScroll);
             window.removeEventListener('storage', handleStorage);
             if (unsubAnnounce) unsubAnnounce();
             if (unsubMaintenance) unsubMaintenance();
-            if (bc) bc.close();
+            if (unsubCrossSync) unsubCrossSync();
         };
     }, []);
 
-    const hasErpSession = !!erpUser;
-    const rememberedId = typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : null;
-    const activeId = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || rememberedId) : null;
+    const activeId = erpUser || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null);
+    const rawHtml = typeof window !== 'undefined' ? localStorage.getItem('erpDashboardHtml') : null;
+    const hasValidHtml = Boolean(rawHtml && !rawHtml.includes('site-error') && !rawHtml.includes('id="login-form"'));
+    const isErpLoggedIn = Boolean(activeId && hasValidHtml);
     const isLoginPage = location.pathname === '/login';
-    const isLoggedIn = !!(currentUser || hasErpSession || activeId);
-    const showLogout = isLoggedIn && !isLoginPage;
+    const showLogout = isErpLoggedIn && !isLoginPage;
 
     const navItems = [
         { name: 'HOME', path: '/' },
@@ -165,9 +193,14 @@ const Navbar = () => {
         { name: 'BUNK SIMULATOR', path: '/bunk-simulator' },
         { name: 'ATTENDANCE WHEN ABSENT', path: '/attendance' },
         { name: 'ACADEMIC CALENDAR', path: '/calendar' },
-        ...(!isLoggedIn ? [{ name: 'ERP LOGIN', path: '/login', isErpHighlight: true }] : []),
+        ...(!isErpLoggedIn ? [{
+            name: maintenanceConfig?.enabled ? 'ERP (MAINTENANCE)' : 'ERP LOGIN',
+            path: '/login',
+            isErpHighlight: true,
+            isMaintenance: Boolean(maintenanceConfig?.enabled)
+        }] : []),
         ...(currentUser?.email === 'yaswanthadithyareddy11@gmail.com' ? [{ name: 'ADMIN', path: '/admin' }] : []),
-        ...(isLoggedIn && !isLoginPage ? [{ name: 'CHANGE SELECTION', path: '/attendance-register', isReset: true }] : [])
+        ...(isErpLoggedIn && !isLoginPage ? [{ name: 'CHANGE SELECTION', path: '/attendance-register', isReset: true }] : [])
     ];
 
     const isActive = (path) => location.pathname === path;
@@ -219,6 +252,7 @@ const Navbar = () => {
                     <motion.div
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
                         className="bg-slate-900 text-white py-2 px-4 text-center text-xs font-bold tracking-widest uppercase overflow-hidden border-b-2 border-black dark:border-slate-800"
                     >
                         <div className="flex items-center justify-center gap-3 animate-pulse">
@@ -275,12 +309,16 @@ const Navbar = () => {
                                             scrolled
                                                 ? (isActive(item.path)
                                                     ? "text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-950/60 dark:border dark:border-indigo-500/40"
-                                                    : item.isErpHighlight
+                                                    : item.isMaintenance
+                                                        ? "text-amber-950 bg-amber-200 dark:bg-amber-950/80 border-2 border-amber-400 dark:border-amber-600 shadow-lg shadow-amber-200/50 dark:shadow-none animate-pulse ring-2 ring-amber-500/30"
+                                                        : item.isErpHighlight
                                                         ? "text-red-600 bg-red-50 dark:bg-red-950/40 border-2 border-red-200 dark:border-red-800 shadow-lg shadow-red-100 dark:shadow-none animate-pulse ring-2 ring-red-500/20"
                                                         : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800")
                                                 : (isActive(item.path)
                                                     ? "text-[#2196F3] dark:text-indigo-300 bg-white dark:bg-indigo-950/60 shadow-xl dark:border dark:border-indigo-500/40 transform scale-105"
-                                                    : item.isErpHighlight
+                                                    : item.isMaintenance
+                                                        ? "text-slate-950 bg-amber-400 shadow-xl shadow-amber-500/40 hover:bg-amber-300 border border-amber-300 animate-pulse ring-2 ring-white/50"
+                                                        : item.isErpHighlight
                                                         ? "text-white bg-red-600 shadow-xl shadow-red-500/40 hover:bg-red-700 border border-red-400 animate-pulse ring-2 ring-white/50"
                                                         : "text-white hover:bg-white/20 dark:text-slate-200 dark:hover:bg-slate-800")
                                         )}
@@ -398,11 +436,13 @@ const Navbar = () => {
                                             }}
                                             className={cn(
                                                 "block w-full text-left px-4 py-3 rounded-xl text-sm font-black tracking-widest uppercase transition-all flex flex-col cursor-pointer",
-                                                item.isErpHighlight
-                                                    ? "bg-red-600 text-white border-2 border-red-400 shadow-lg shadow-red-500/25 ring-2 ring-red-500/20 animate-pulse hover:bg-red-700 active:scale-[0.99]"
-                                                    : isActive(item.path)
-                                                        ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 font-black dark:border dark:border-indigo-500/40"
-                                                        : "text-slate-600 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                                item.isMaintenance
+                                                    ? "bg-amber-400 text-slate-950 border-2 border-amber-300 shadow-lg shadow-amber-500/25 ring-2 ring-amber-500/20 animate-pulse hover:bg-amber-300 active:scale-[0.99]"
+                                                    : item.isErpHighlight
+                                                        ? "bg-red-600 text-white border-2 border-red-400 shadow-lg shadow-red-500/25 ring-2 ring-red-500/20 animate-pulse hover:bg-red-700 active:scale-[0.99]"
+                                                        : isActive(item.path)
+                                                            ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 font-black dark:border dark:border-indigo-500/40"
+                                                            : "text-slate-600 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
                                             )}
                                         >
                                             <span>{item.name}</span>

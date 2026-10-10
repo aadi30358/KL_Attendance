@@ -138,7 +138,7 @@ function BunkSimulator({ subject }) {
 
 const AttendanceRegister = () => {
     const { logout } = useAuth();
-    const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
+    const activeId = localStorage.getItem('activeErpUser');
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
     const [year, setYear] = useState('18');
@@ -194,6 +194,7 @@ const AttendanceRegister = () => {
 
         if (!html || html.includes('site-error') || html.includes('The above error occurred') || html.includes('id="login-form"')) {
             localStorage.removeItem('erpDashboardHtml');
+            localStorage.removeItem('activeErpUser');
             sessionStorage.removeItem('erp_authenticated');
             navigate('/login');
             return;
@@ -281,10 +282,20 @@ const AttendanceRegister = () => {
     const handleLogoutAction = async () => {
         try {
             await logout();
+            if (activeId) {
+                localStorage.removeItem(`kleData_${activeId}`);
+            }
+            localStorage.removeItem('activeErpUser');
             localStorage.removeItem('erpDashboardHtml');
             localStorage.removeItem('kleData');
+            sessionStorage.removeItem('erp_authenticated');
+            sessionStorage.setItem('adminLoggedOut', 'true');
+            window.dispatchEvent(new Event('storage'));
             navigate('/login');
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+            navigate('/login');
+        }
     };
 
     // ── DASHBOARD VIEW ──────────────────────────────────────────────

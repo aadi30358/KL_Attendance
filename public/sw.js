@@ -1,7 +1,7 @@
 // KL Attendance - High-Speed Real-time Service Worker
 // Automatically versioned on build to guarantee zero-lag deployment updates
 
-const CACHE_NAME = 'kl-attendance-v1791632680134';
+const CACHE_NAME = 'kl-attendance-v1791640482474';
 const STATIC_EXTENSIONS = ['.js', '.css', '.woff2', '.woff', '.ttf', '.svg', '.png', '.webp', '.ico'];
 
 self.addEventListener('install', () => {

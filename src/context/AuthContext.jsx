@@ -8,7 +8,12 @@ export function AuthProvider({ children }) {
     const [currentUser, setCurrentUser] = useState(() => auth.currentUser || null);
     const [erpUser, setErpUser] = useState(() => {
         try {
-            return localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || null;
+            const active = localStorage.getItem('activeErpUser');
+            const html = localStorage.getItem('erpDashboardHtml');
+            if (active && html && !html.includes('site-error') && !html.includes('id="login-form"')) {
+                return active;
+            }
+            return null;
         } catch {
             return null;
         }
@@ -21,7 +26,7 @@ export function AuthProvider({ children }) {
         return signInWithPopup(auth, provider);
     }
 
-    // Fast non-blocking logout
+    // Comprehensive synchronous and async logout
     async function logout() {
         try {
             if (typeof erpService?.clearStoredErpCookies === 'function') {
@@ -33,6 +38,10 @@ export function AuthProvider({ children }) {
 
         // Aggressively clear all ERP session data synchronously
         sessionStorage.setItem('adminLoggedOut', 'true');
+        sessionStorage.removeItem('erp_authenticated');
+        sessionStorage.removeItem('admin_token');
+        sessionStorage.removeItem('manual_sem_reset');
+
         localStorage.removeItem('activeErpUser');
         localStorage.removeItem('erpDashboardHtml');
         localStorage.removeItem('kleData');
@@ -40,14 +49,27 @@ export function AuthProvider({ children }) {
         localStorage.removeItem('userProfile');
         localStorage.removeItem('sessionCookie');
         localStorage.removeItem('isAdminAuthenticated');
+        localStorage.removeItem('admin_token');
+
+        try {
+            Object.keys(localStorage).forEach(key => {
+                if (key.startsWith('kleData_') || key.startsWith('attendance_')) {
+                    localStorage.removeItem(key);
+                }
+            });
+        } catch {
+            // ignore
+        }
 
         setErpUser(null);
         setCurrentUser(null);
 
-        // Sign out in background without stalling UI navigation
-        signOut(auth).catch(err => {
-            console.warn("[Auth] SignOut background notice:", err);
-        });
+        // Sign out Firebase Auth cleanly
+        try {
+            await signOut(auth);
+        } catch (err) {
+            console.warn("[Auth] SignOut error notice:", err);
+        }
     }
 
     useEffect(() => {
