@@ -1,25 +1,17 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BookOpen, Calendar, LogOut, LogIn, ArrowLeft, WifiOff } from 'lucide-react';
+import { BookOpen, Calendar, LogOut, ArrowLeft } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
-import { getRecommendedPollInterval } from '../services/attendanceAlerts';
-import { broadcastAttendanceUpdate, subscribeCrossDomainSync } from '../services/crossDomainSync';
 
 // Component weights matching the extension: L=100, T=100, P=50, S=25
 const WEIGHTS = { L: 100, T: 100, P: 50, S: 25 };
-const COMPONENT_NAMES = {
-    L: 'Lecture',
-    T: 'Tutorial',
-    P: 'Practical',
-    S: 'Skill'
-};
 
 function getColor(pct) {
-    if (pct >= 85) return 'text-emerald-600 dark:text-emerald-400';
-    if (pct >= 75) return 'text-amber-500 dark:text-amber-400';
-    return 'text-red-500 dark:text-rose-400';
+    if (pct >= 85) return 'text-emerald-600';
+    if (pct >= 75) return 'text-amber-500';
+    return 'text-red-500';
 }
 
 function getBgStrip(pct) {
@@ -29,47 +21,32 @@ function getBgStrip(pct) {
 }
 
 function getStatusLabel(pct) {
-    if (pct >= 85) return { text: '✓ Safe (85%+)', cls: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 ring-emerald-200 dark:ring-emerald-800' };
-    if (pct >= 75) return { text: '⚠ OK (75–85%)', cls: 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 ring-amber-200 dark:ring-amber-800' };
-    return { text: '✗ Shortage', cls: 'bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-rose-400 ring-red-200 dark:ring-red-800' };
+    if (pct >= 85) return { text: '✓ Safe (85%+)', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-200' };
+    if (pct >= 75) return { text: '⚠ OK (75–85%)', cls: 'bg-amber-50 text-amber-700 ring-amber-200' };
+    return { text: '✗ Shortage', cls: 'bg-red-50 text-red-600 ring-red-200' };
 }
-
-
 
 // ── BunkSimulator sub-component ──────────────────────────────────────
 function BunkSimulator({ subject }) {
     const [bunkInput, setBunkInput] = useState('');
 
-    // Determine available components that this subject actually has
-    const components = useMemo(() => (subject.components ? Object.entries(subject.components) : []), [subject.components]);
+    // Always allow these 4 standard options
+    const ALL_COMPS = [
+        { id: 'L', label: 'Lecture' },
+        { id: 'T', label: 'Tutorial' },
+        { id: 'P', label: 'Practical' },
+        { id: 'S', label: 'Skill' }
+    ];
+
+    // Determine available components to see if we can default to one they actually have
+    const components = subject.components ? Object.entries(subject.components) : [];
     const hasComponents = components.length > 0;
 
-    const availableComps = useMemo(() => {
-        if (!hasComponents) {
-            return [
-                { id: 'L', label: 'Lecture' },
-                { id: 'T', label: 'Tutorial' },
-                { id: 'P', label: 'Practical' },
-                { id: 'S', label: 'Skill' }
-            ];
-        }
-        return components.map(([compName]) => {
-            const firstChar = compName ? compName.charAt(0).toUpperCase() : 'L';
-            return {
-                id: firstChar,
-                label: COMPONENT_NAMES[firstChar] || (compName.charAt(0).toUpperCase() + compName.slice(1))
-            };
-        });
-    }, [hasComponents, components]);
+    // Default to the first component if available, else Lecture
+    const [selectedComp, setSelectedComp] = useState(hasComponents ? components[0][0].charAt(0).toUpperCase() : 'L');
 
-    const [selectedCompRaw, setSelectedComp] = useState('');
-    const selectedComp = availableComps.some(c => c.id === selectedCompRaw)
-        ? selectedCompRaw
-        : availableComps[0]?.id || 'L';
-
-    const bunkCount = Math.max(0, parseInt(bunkInput, 10) || 0);
+    const bunkCount = parseInt(bunkInput) || 0;
     let projectedActual = null;
-    let projectedExact = null;
 
     if (bunkCount > 0) {
         if (hasComponents) {
@@ -81,10 +58,10 @@ function BunkSimulator({ subject }) {
                 const firstChar = compName ? compName.charAt(0).toUpperCase() : '';
                 const w = WEIGHTS[firstChar] || WEIGHTS[compName] || 1;
 
-                let cConducted = Number(data.conducted) || 0;
-                let cAttended = Number(data.attended) || 0;
+                let cConducted = data.conducted;
+                let cAttended = data.attended;
 
-                if (!selectedCompFound && (firstChar === selectedComp || compName.toUpperCase().startsWith(selectedComp))) {
+                if (firstChar === selectedComp || compName === selectedComp) {
                     cConducted += bunkCount;
                     selectedCompFound = true;
                 }
@@ -96,349 +73,131 @@ function BunkSimulator({ subject }) {
             if (!selectedCompFound) {
                 const w = WEIGHTS[selectedComp] || 1;
                 totalConductedW += bunkCount * w;
+                // attended doesn't increase since we bunked
             }
 
-            if (totalConductedW > 0) {
-                const rawPct = (totalAttendedW / totalConductedW) * 100;
-                projectedActual = Math.ceil(rawPct);
-                projectedExact = parseFloat(rawPct.toFixed(2));
-            }
+            projectedActual = totalConductedW > 0 ? Math.ceil((totalAttendedW / totalConductedW) * 100) : null;
         } else {
             // Fallback for subjects with completely broken component names
             const parts = (subject.attended || '0/0').split('/');
-            const attended = parseInt(parts[0], 10) || 0;
-            const total = parseInt(parts[1], 10) || 0;
-            const newTotal = total + bunkCount;
-            if (newTotal > 0) {
-                const rawPct = (attended / newTotal) * 100;
-                projectedActual = Math.ceil(rawPct);
-                projectedExact = parseFloat(rawPct.toFixed(2));
-            }
+            const attended = parseInt(parts[0]) || 0;
+            const total = parseInt(parts[1]) || 0;
+            projectedActual = parseFloat(((attended / (total + bunkCount)) * 100).toFixed(2));
         }
     }
 
-    const isSafe = projectedActual !== null && projectedActual >= 85;
+    const projColor = projectedActual !== null
+        ? (projectedActual >= 85 ? 'text-emerald-600' : projectedActual >= 75 ? 'text-amber-600' : 'text-red-600')
+        : '';
 
     return (
-        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700/60">
-            <p className="text-[9px] font-black text-slate-400 dark:text-slate-400 uppercase tracking-[0.12em] mb-2">Detailed Simulator</p>
+        <div className="mt-4 pt-4 border-t border-slate-100">
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.12em] mb-2">Bunk Simulator</p>
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                     <select
                         value={selectedComp}
                         onChange={(e) => setSelectedComp(e.target.value)}
-                        className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 dark:text-slate-200 font-semibold focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 cursor-pointer"
+                        className="bg-white border-2 border-indigo-300 text-slate-700 text-xs rounded-xl px-2 py-2 focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold w-[110px] shrink-0 shadow-sm transition-all cursor-pointer"
                     >
-                        {availableComps.map(c => (
-                            <option key={c.id} value={c.id}>{c.label}</option>
+                        {ALL_COMPS.map((comp) => (
+                            <option key={comp.id} value={comp.id}>{comp.label}</option>
                         ))}
                     </select>
                     <input
                         type="number"
-                        min="1"
-                        placeholder="Classes bunked..."
+                        min="0"
+                        placeholder="Classes to bunk"
                         value={bunkInput}
-                        onChange={(e) => setBunkInput(e.target.value)}
-                        className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200 font-semibold placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500"
+                        onChange={e => setBunkInput(e.target.value)}
+                        className="flex-1 min-w-0 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50"
                     />
+                    {projectedActual !== null && (
+                        <div className={`text-sm font-black tabular-nums shrink-0 ${projColor}`}>
+                            → {projectedActual}%
+                        </div>
+                    )}
                 </div>
                 {projectedActual !== null && (
-                    <div className="flex items-center gap-2 mt-1.5">
-                        <span className={`text-sm font-black tabular-nums ${isSafe ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-rose-400'}`}>
-                            {projectedActual}%
-                        </span>
-                        {projectedExact !== null && projectedExact !== projectedActual && (
-                            <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 font-mono">
-                                ({projectedExact}%)
-                            </span>
-                        )}
-                        <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ring-1 ${
-                                isSafe
-                                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 ring-emerald-200 dark:ring-emerald-800'
-                                    : 'bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-rose-400 ring-red-200 dark:ring-red-800'
-                            }`}
-                        >
-                            {isSafe ? 'Safe' : 'Danger'}
-                        </span>
-                    </div>
+                    <p className={`text-[11px] font-semibold mt-1.5 ${projColor}`}>
+                        {projectedActual >= 85
+                            ? <span className="text-emerald-700">Safe</span>
+                            : projectedActual >= 75
+                                ? <span className="text-amber-700">⚠️ Caution: Attendance below 85%, my friend — whatever the reason, too many skips ain’t cool. Reconsider before it’s a whole problem.</span>
+                                : <span className="text-red-700">⚠️ Attendance on thin ice, it’s giving detention vibes — don’t say I didn’t warn you.</span>}
+                    </p>
                 )}
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 italic font-medium mt-2">
-                    * Note: 1 = 50 mins, 2 = 1.50 (1 hr 50m). Enter 2 if skipping a double period / lab session.
-                </p>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 italic font-medium">
-                    * The percentage drops differently depending on component weight (e.g. Lecture drops more than Skill).
+                <p className="text-[10px] text-slate-400 italic font-medium mt-2">
+                    * Note: The percentage is your Total Average Attendance. It drops differently depending on the component&apos;s weight (e.g. Lecture dropping impacts more than Skill).
                 </p>
             </div>
         </div>
     );
 }
 
-const ACADEMIC_YEARS = [
-    '2026-2027',
-    '2025-2026',
-    '2024-2025',
-    '2023-2024',
-    '2022-2023',
-    '2021-2022',
-    '2020-2021',
-    '2019-2020',
-    '2018-2019',
-    '2017-2018',
-    '2016-2017',
-    '2015-2016',
-    '2014-2015',
-    '2013-2014',
-    '2012-2013',
-    '2011-2012',
-    '2010-2011'
-];
-
 const AttendanceRegister = () => {
     const { logout } = useAuth();
     const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
-    const getBatchDetails = useCallback((studentId) => {
-        const idStr = String(studentId || '').trim();
-        if (idStr.length >= 2) {
-            const prefix = idStr.substring(0, 2);
-            const num = parseInt(prefix, 10);
-            if (!isNaN(num) && num >= 15 && num <= 30) {
-                const joinYear = 2000 + num;
-                return {
-                    batchYear: joinYear,
-                    defaultYear: '2026-2027',
-                    activeSemesters: [
-                        { year: '2026-2027', sem: 'Odd', label: '2026-2027 Odd Sem' },
-                        { year: '2026-2027', sem: 'Even', label: '2026-2027 Even Sem' },
-                        { year: '2025-2026', sem: 'Even', label: '2025-2026 Even Sem' },
-                        { year: '2025-2026', sem: 'Odd', label: '2025-2026 Odd Sem' }
-                    ]
-                };
-            }
-        }
-        return {
-            batchYear: null,
-            defaultYear: '2026-2027',
-            activeSemesters: [
-                { year: '2026-2027', sem: 'Odd', label: '2026-2027 Odd Sem' },
-                { year: '2026-2027', sem: 'Even', label: '2026-2027 Even Sem' },
-                { year: '2025-2026', sem: 'Even', label: '2025-2026 Even Sem' },
-                { year: '2025-2026', sem: 'Odd', label: '2025-2026 Odd Sem' }
-            ]
-        };
-    }, []);
-
-    const [year, setYear] = useState('2026-2027');
-    const [semester, setSemester] = useState('Odd');
+    const [year, setYear] = useState('');
+    const [semester, setSemester] = useState('');
+    const [availableYears, setAvailableYears] = useState([]);
+    const [availableSemesters, setAvailableSemesters] = useState([]);
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [debugHtml, setDebugHtml] = useState(null);
     const [fetchError, setFetchError] = useState(null);
     const [showDashboard, setShowDashboard] = useState(false);
-    const [, setCachedSummary] = useState(null);
-    const [isOfflineMode, setIsOfflineMode] = useState(!navigator.onLine);
     const navigate = useNavigate();
 
-    // Ground truth ref for instantaneous live sync
-    const prevSubjectsRef = useRef([]);
-    const hasMountedRef = useRef(false);
-    const isSyncingRef = useRef(false);
-    const lastSyncTimeRef = useRef(0);
-    const yearRef = useRef(year);
-    const semesterRef = useRef(semester);
-
     useEffect(() => {
-        yearRef.current = year;
-    }, [year]);
-
-    useEffect(() => {
-        semesterRef.current = semester;
-    }, [semester]);
-
-    // ── Live Sub-Second Sync Handler (< 1s execution) ────────────────
-    const syncLiveAttendance = useCallback(async (fetchYear, fetchSemester, { silent = false } = {}) => {
-        const targetYear = fetchYear || yearRef.current;
-        const targetSem = fetchSemester || semesterRef.current;
-        if (!targetYear || !targetSem) return;
-
-        // Prevent concurrent overlapping requests from creating lag
-        if (isSyncingRef.current) return;
-        isSyncingRef.current = true;
-
-        const startTime = performance.now();
-        try {
-            const data = await erpService.fetchAttendance(targetYear, targetSem, { forceLive: true });
-            const measuredLatency = data.__latencyMs || Math.round(performance.now() - startTime);
-            lastSyncTimeRef.current = Date.now();
-            setIsOfflineMode(false);
-            setFetchError(null);
-
-            if (Array.isArray(data) && data.length > 0) {
-                prevSubjectsRef.current = data;
-                setSubjects(data);
-                setShowDashboard(true);
-            } else if (!silent) {
-                setSubjects(data || []);
-                setShowDashboard(true);
-            }
-
-            // Broadcast to other open tabs and devices in < 1s
-            broadcastAttendanceUpdate({
-                year: targetYear,
-                semester: targetSem,
-                subjects: data,
-                timestamp: Date.now()
-            });
-
-            // Save fetched data with metadata to standard location for instant 0ms persistence
-            const cachePayload = {
-                attendance_data: data,
-                year: targetYear,
-                semester: targetSem,
-                savedAt: Date.now(),
-                latencyMs: measuredLatency
-            };
-            localStorage.setItem(storageKey, JSON.stringify(cachePayload));
-            setCachedSummary({
-                count: data.length,
-                year: targetYear,
-                semester: targetSem,
-                savedAt: new Date().toLocaleDateString(),
-                data: data
-            });
-        } catch (error) {
-            console.warn('[Live Sync] Failed:', error);
-            if (!silent) {
-                if (error.message?.includes('session has expired') || error.message?.includes('sign in again')) {
-                    setFetchError('Your ERP session has expired. Please sign in again.');
-                } else {
-                    setFetchError(error.message || 'Unable to connect to ERP server. Please try again.');
-                }
-            }
-        } finally {
-            isSyncingRef.current = false;
-        }
-    }, [storageKey]);
-
-    // ── On Mount: Ensure Selection Screen is shown first after login ───
-    useEffect(() => {
-        if (hasMountedRef.current) return;
-        hasMountedRef.current = true;
-
         const html = localStorage.getItem('erpDashboardHtml');
+        
+        // Always start on the selection form after login or refresh
+        setShowDashboard(false);
+
         if (!html) {
             navigate('/login');
             return;
         }
 
-        // Pre-fill selection dropdowns with previously used year/sem if available
-        try {
-            const raw = localStorage.getItem(storageKey) || localStorage.getItem('kleData');
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                const hasValidData = Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0;
-                if (parsed.year && (hasValidData || parsed.year !== '2026-2027')) {
-                    setYear(parsed.year);
-                    yearRef.current = parsed.year;
-                } else {
-                    const info = getBatchDetails(activeId);
-                    setYear(info.defaultYear);
-                    yearRef.current = info.defaultYear;
-                }
-                if (parsed.semester) {
-                    setSemester(parsed.semester);
-                    semesterRef.current = parsed.semester;
-                }
-            } else {
-                const info = getBatchDetails(activeId);
-                setYear(info.defaultYear);
-                yearRef.current = info.defaultYear;
-            }
-        } catch (e) {
-            console.warn('[Cache] Could not parse local attendance cache:', e);
-        }
-
-        // Always start on the Selection Screen after login
-        setShowDashboard(false);
+        // Cleanup any old flags
         sessionStorage.removeItem('manual_sem_reset');
-    }, [navigate, storageKey, activeId, getBatchDetails]);
 
-    // ── Instant Selection Screen Reset via Event ─────────────────────
-    useEffect(() => {
-        const handleResetSelection = () => {
-            setShowDashboard(false);
-            setFetchError(null);
-            setSubjects([]);
-            const info = getBatchDetails(activeId);
-            setYear(info.defaultYear);
-            yearRef.current = info.defaultYear;
-            setSemester('Odd');
-            semesterRef.current = 'Odd';
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        };
-
-        window.addEventListener('kl_reset_selection', handleResetSelection);
-        return () => window.removeEventListener('kl_reset_selection', handleResetSelection);
-    }, [activeId, getBatchDetails]);
-
-    // ── Tab Focus Auto-Sync (throttled to at most once per 60s to prevent lag) ──
-    useEffect(() => {
-        const handleFocusSync = () => {
-            if (showDashboard && document.visibilityState === 'visible' && navigator.onLine) {
-                if (Date.now() - lastSyncTimeRef.current > 60000) {
-                    syncLiveAttendance(yearRef.current, semesterRef.current, { silent: true });
-                }
-            }
-        };
-
-        window.addEventListener('focus', handleFocusSync);
-        document.addEventListener('visibilitychange', handleFocusSync);
-
-        return () => {
-            window.removeEventListener('focus', handleFocusSync);
-            document.removeEventListener('visibilitychange', handleFocusSync);
-        };
-    }, [showDashboard, syncLiveAttendance]);
-
-    // ── Timetable Period Completion Auto-Poller (only active while viewing dashboard) ──
-    useEffect(() => {
-        if (!showDashboard || !navigator.onLine) return;
-
-        let timeoutId = null;
+        // Dynamically discover registered sessions from ERP
         let isMounted = true;
-
-        const schedulePoll = () => {
-            const interval = getRecommendedPollInterval();
-            timeoutId = setTimeout(async () => {
-                if (!isMounted) return;
-                if (document.visibilityState === 'visible') {
-                    await syncLiveAttendance(yearRef.current, semesterRef.current, { silent: true });
-                }
-                if (isMounted) schedulePoll();
-            }, interval);
-        };
-
-        schedulePoll();
-
-        return () => {
-            isMounted = false;
-            if (timeoutId) clearTimeout(timeoutId);
-        };
-    }, [showDashboard, syncLiveAttendance]);
-
-    // ── Cross-Domain & Cross-Tab Real-Time Sync Listener ──────────────
-    useEffect(() => {
-        const unsubscribe = subscribeCrossDomainSync((event) => {
-            if (event.type === 'ATTENDANCE_UPDATED' && event.data?.subjects) {
-                const incoming = event.data.subjects;
-                prevSubjectsRef.current = incoming;
-                setSubjects(incoming);
+        erpService.getAvailableSessions().then(sessionData => {
+            if (!isMounted || !sessionData) return;
+            if (sessionData.years && sessionData.years.length > 0) {
+                setAvailableYears(sessionData.years);
             }
+            if (sessionData.semesters && sessionData.semesters.length > 0) {
+                setAvailableSemesters(sessionData.semesters);
+            }
+            // Auto-select active year and semester if not manually chosen yet
+            if (sessionData.selectedYear) {
+                const yrVal = sessionData.selectedYear.text || sessionData.selectedYear.value;
+                setYear(prev => prev || yrVal);
+            } else {
+                setYear(prev => prev || '2026-2027');
+            }
+            if (sessionData.selectedSemester) {
+                const sText = sessionData.selectedSemester.text.toLowerCase();
+                const matched = sText.includes('even') ? 'Even'
+                    : sText.includes('summer') ? 'Summer'
+                    : sText.includes('term') ? 'Term3'
+                    : 'Odd';
+                setSemester(prev => prev || matched);
+            } else {
+                setSemester(prev => prev || 'Odd');
+            }
+        }).catch(err => {
+            console.warn('[AttendanceRegister] Could not preload sessions:', err);
         });
 
-        return () => unsubscribe();
-    }, []);
+        return () => { isMounted = false; };
+    }, [navigate, storageKey]);
 
     const handleSearch = async (fetchYear = year, fetchSemester = semester) => {
         if (!fetchYear || !fetchSemester) { 
@@ -446,113 +205,86 @@ const AttendanceRegister = () => {
             return; 
         }
         setLoading(true); 
+        setDebugHtml(null);
         setFetchError(null);
-        setIsOfflineMode(false);
-        setYear(fetchYear);
-        setSemester(fetchSemester);
-        yearRef.current = fetchYear;
-        semesterRef.current = fetchSemester;
         try {
-            await syncLiveAttendance(fetchYear, fetchSemester, { silent: false });
-        } finally {
-            setLoading(false);
-        }
+            const data = await erpService.fetchAttendance(fetchYear, fetchSemester);
+            setSubjects(data);
+            setShowDashboard(true);
+            // Save fetched data to standard location for persistence
+            localStorage.setItem(storageKey, JSON.stringify({ attendance_data: data }));
+            setYear(fetchYear);
+            setSemester(fetchSemester);
+        } catch (error) {
+            if (error.message?.startsWith('DEBUG_HTML:')) { 
+                setDebugHtml(error.message.replace('DEBUG_HTML:', '')); 
+                setShowDashboard(true); 
+            }
+            else if (error.message?.startsWith('No table found')) { 
+                setDebugHtml(error.message); 
+                setShowDashboard(true); 
+            }
+            else {
+                setFetchError(error.message || 'Failed to fetch attendance. Please verify your login status.');
+            }
+        } finally { setLoading(false); }
     };
 
     const handleBack = () => {
         setShowDashboard(false);
+        setSubjects([]);
+        setDebugHtml(null);
         setFetchError(null);
-        setIsOfflineMode(false);
+        setYear('');
+        setSemester('');
+        if (activeId) {
+            localStorage.removeItem(`kleData_${activeId}`);
+        }
+        localStorage.removeItem('kleData');
     };
 
-    const handleLogoutAction = () => {
+    const handleLogoutAction = async () => {
         try {
-            erpService.clearStoredErpCookies();
+            await logout();
             localStorage.removeItem('erpDashboardHtml');
             localStorage.removeItem('kleData');
-            sessionStorage.removeItem('erp_username');
-            sessionStorage.removeItem('erp_csrf_token');
-            localStorage.removeItem('erp_csrf_token');
-            if (activeId) {
-                localStorage.removeItem(`kleData_${activeId}`);
-            }
-            if (typeof logout === 'function') {
-                logout().catch(e => console.warn('[Auth] Background logout:', e));
-            }
-        } catch (e) {
-            console.error('[Logout] Notice:', e);
-        } finally {
-            window.location.href = '/login';
-        }
+            navigate('/login');
+        } catch (e) { console.error(e); }
     };
 
     // ── DASHBOARD VIEW ──────────────────────────────────────────────
     if (showDashboard) {
         return (
-            <div className="min-h-screen bg-slate-50 dark:bg-[#0b1120] pt-28 sm:pt-32 pb-12 px-4 sm:px-6 font-sans transition-colors duration-200">
-                <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 dark:from-[#0b1120] dark:via-[#0f172a] dark:to-[#0b1120]" />
+            <div className="min-h-screen bg-slate-50 pt-20 pb-6 px-4 sm:px-6 font-sans">
+                <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30" />
 
                 {/* Header */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 max-w-7xl mx-auto">
                     <div>
-                        <div className="flex flex-wrap items-center gap-3">
-                            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                                Attendance <span className="text-indigo-600 dark:text-indigo-400">Dashboard</span>
-                            </h1>
-
-                            {isOfflineMode && (
-                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                                    <WifiOff className="w-3.5 h-3.5" />
-                                    <span>Offline Mode</span>
-                                </span>
-                            )}
-                        </div>
-                        <p className="text-slate-400 dark:text-slate-400 text-sm mt-0.5 font-medium flex items-center gap-2">
-                            <span>{year && semester ? `${year} · ${semester} Semester` : 'Current Session'}</span>
-                            {isOfflineMode && ' · Cached Local Copy'}
+                        <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+                            Attendance <span className="text-indigo-600">Dashboard</span>
+                        </h1>
+                        <p className="text-slate-400 text-sm mt-0.5 font-medium">
+                            {year && semester ? `${year} · ${semester} Semester` : 'Current Session'}
                         </p>
                     </div>
-
-                    <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                        {/* Quick Selection Dropdowns directly in Header */}
-                        <div className="flex items-center gap-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1 shadow-xs">
-                            <select
-                                value={year}
-                                onChange={(e) => handleSearch(e.target.value, semester)}
-                                disabled={loading}
-                                className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 py-1 focus:outline-none cursor-pointer"
-                            >
-                                {ACADEMIC_YEARS.map(y => (
-                                    <option key={y} value={y}>{y}</option>
-                                ))}
-                            </select>
-                            <span className="text-slate-300 dark:text-slate-600">|</span>
-                            <select
-                                value={semester}
-                                onChange={(e) => handleSearch(year, e.target.value)}
-                                disabled={loading}
-                                className="bg-transparent text-xs font-bold text-slate-700 dark:text-slate-200 py-1 focus:outline-none cursor-pointer"
-                            >
-                                <option value="Odd">Odd Sem</option>
-                                <option value="Even">Even Sem</option>
-                                <option value="Summer">Summer</option>
-                                <option value="Term3">Term 3</option>
-                            </select>
-                            {loading && (
-                                <div className="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin ml-1" />
-                            )}
-                        </div>
-
-                        <button onClick={handleBack} className="px-3.5 py-2 bg-indigo-50 dark:bg-slate-800 border border-indigo-100 dark:border-slate-700 text-indigo-700 dark:text-indigo-300 rounded-xl hover:bg-indigo-100 dark:hover:bg-slate-700 transition-colors text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 cursor-pointer">
-                            <ArrowLeft className="w-3.5 h-3.5" /> Selection Page
+                    <div className="flex gap-2 w-full sm:w-auto">
+                        <button onClick={handleBack} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl hover:bg-indigo-100 hover:text-indigo-800 transition-colors text-sm font-bold shadow-sm flex items-center justify-center gap-2">
+                            <ArrowLeft className="w-4 h-4" /> Back to Selection
                         </button>
-                        <button onClick={handleLogoutAction} className="px-3.5 py-2 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-rose-400 rounded-xl hover:bg-red-100 dark:hover:bg-red-900/60 transition-all flex items-center justify-center gap-1.5 border border-red-100 dark:border-red-900/50 text-xs font-bold cursor-pointer">
-                            <LogOut className="w-3.5 h-3.5" /> Logout
+                        <button onClick={handleLogoutAction} className="flex-1 sm:flex-none px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-100 text-sm font-bold">
+                            <LogOut className="w-4 h-4" />Logout
                         </button>
                     </div>
                 </div>
 
-
+                {/* Debug view */}
+                {debugHtml && (
+                    <div className="max-w-7xl mx-auto mb-6 bg-white border border-red-200 rounded-2xl p-6 shadow-sm">
+                        <h2 className="text-red-500 font-bold mb-4">Debug Output</h2>
+                        <textarea readOnly className="w-full h-64 bg-slate-50 text-slate-700 font-mono text-xs p-4 rounded-xl border border-slate-200" value={debugHtml} />
+                    </div>
+                )}
 
                 {/* Cards Grid */}
                 {subjects.length > 0 ? (
@@ -567,17 +299,17 @@ const AttendanceRegister = () => {
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: index * 0.03 }}
-                                    className="bg-white dark:bg-[#1e293b] border-2 border-slate-900 dark:border-slate-700/60 hover:dark:border-indigo-500/50 rounded-2xl overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 relative"
+                                    className="bg-white border-2 border-slate-900 rounded-2xl overflow-hidden shadow hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
                                 >
                                     {/* Top color strip */}
                                     <div className={`h-1.5 w-full ${getBgStrip(pct)}`} />
 
                                     <div className="p-5">
                                         {/* Title row */}
-                                        <div className="flex justify-between items-start gap-4 mb-3">
-                                            <div className="flex-1 min-w-0 pr-6">
-                                                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wide leading-snug">{subject.title}</h3>
-                                                <p className="text-slate-400 dark:text-slate-400 text-[11px] mt-0.5 font-mono">{subject.code}</p>
+                                        <div className="flex justify-between items-start gap-4 mb-4">
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide leading-snug">{subject.title}</h3>
+                                                <p className="text-slate-400 text-[11px] mt-0.5 font-mono">{subject.code}</p>
                                             </div>
                                             <div className="text-right shrink-0">
                                                 <div className={`text-3xl font-black tabular-nums leading-none ${getColor(pct)}`}>{pct}%</div>
@@ -587,42 +319,42 @@ const AttendanceRegister = () => {
                                             </div>
                                         </div>
 
-                                        <div className="border-t border-slate-100 dark:border-slate-700/60 mb-4" />
+                                        <div className="border-t border-slate-100 mb-4" />
 
                                         <div className="flex flex-col gap-5">
                                             {/* Components */}
                                             <div>
-                                                <p className="text-[9px] font-black text-slate-400 dark:text-slate-400 uppercase tracking-[0.12em] mb-2.5">Components</p>
+                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.12em] mb-2.5">Components</p>
                                                 <div className="space-y-1.5">
                                                     {subject.components && Object.entries(subject.components).map(([compName, compData]) => (
                                                         <div key={compName} className="flex justify-between items-center gap-2">
-                                                            <span className="text-slate-600 dark:text-slate-300 text-xs font-medium">
+                                                            <span className="text-slate-600 text-xs font-medium">
                                                                 {compName === 'L' ? 'Lecture' : compName === 'P' ? 'Practical' : compName === 'T' ? 'Tutorial' : compName === 'S' ? 'Skill' : compName}
                                                             </span>
                                                             <div className="flex items-center gap-1 shrink-0">
-                                                                <span className="text-slate-900 dark:text-white text-xs font-bold font-mono">{compData.attended}/{compData.conducted}</span>
+                                                                <span className="text-slate-900 text-xs font-bold font-mono">{compData.attended}/{compData.conducted}</span>
                                                                 <span className={`text-[10px] font-semibold ${getColor(compData.percent)}`}>({compData.percent}%)</span>
                                                             </div>
                                                         </div>
                                                     ))}
                                                     {(!subject.components || Object.keys(subject.components).length === 0) && (
                                                         <div className="flex justify-between items-center">
-                                                            <span className="text-slate-600 dark:text-slate-300 text-xs font-medium">Classes</span>
-                                                            <span className="text-slate-900 dark:text-white text-xs font-bold font-mono">{subject.attended}</span>
+                                                            <span className="text-slate-600 text-xs font-medium">Classes</span>
+                                                            <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended}</span>
                                                         </div>
                                                     )}
                                                     {subject.components && Object.keys(subject.components).length > 0 && (
-                                                        <div className="flex justify-between items-center pt-2 border-t border-slate-100 dark:border-slate-700/60 mt-1">
-                                                            <span className="text-slate-700 dark:text-slate-300 text-xs font-bold">Total (Raw)</span>
-                                                            <span className="text-slate-900 dark:text-white text-xs font-bold font-mono">{subject.attended}</span>
+                                                        <div className="flex justify-between items-center pt-2 border-t border-slate-100 mt-1">
+                                                            <span className="text-slate-700 text-xs font-bold">Total (Raw)</span>
+                                                            <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended}</span>
                                                         </div>
                                                     )}
                                                 </div>
                                             </div>
-
-                                            {/* Bunk Simulator */}
-                                            <BunkSimulator subject={subject} />
                                         </div>
+
+                                        {/* Bunk Simulator */}
+                                        <BunkSimulator subject={subject} />
                                     </div>
                                 </motion.div>
                             );
@@ -630,57 +362,17 @@ const AttendanceRegister = () => {
                     </div>
                 ) : (
                     <motion.div 
-                        initial={{ opacity: 0, scale: 0.95 }}
+                        initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        className="max-w-2xl mx-auto bg-white dark:bg-[#1e293b] border-2 border-slate-900 dark:border-slate-700/60 rounded-[2.5rem] p-8 sm:p-12 text-center shadow-xl"
+                        className="max-w-2xl mx-auto bg-white border-2 border-slate-900 rounded-[2.5rem] p-12 text-center shadow-xl"
                     >
-                        <div className="w-16 h-16 bg-indigo-50 dark:bg-indigo-950/60 rounded-2xl flex items-center justify-center mx-auto mb-5 text-indigo-600 dark:text-indigo-400">
-                            <BookOpen className="w-8 h-8" />
+                        <div className="w-20 h-20 bg-slate-50 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                            <BookOpen className="w-10 h-10 text-slate-300" />
                         </div>
-                        <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mb-2">
-                            No Courses Found for {year} ({semester} Sem)
-                        </h2>
-                        <p className="text-slate-500 dark:text-slate-400 font-medium text-xs sm:text-sm max-w-md mx-auto mb-6 leading-relaxed">
-                            {activeId && activeId.startsWith('24')
-                                ? `Student ${activeId} is registered under the 2024 Batch. Try checking your enrolled courses in 2025-2026 or 2024-2025 below:`
-                                : `We couldn't find any registered courses for ${year} ${semester} semester on KL ERP. Try one of your active semesters below:`}
+                        <h2 className="text-2xl font-black text-slate-900 mb-2">No Courses Found</h2>
+                        <p className="text-slate-500 font-medium max-w-sm mx-auto">
+                            We couldn&apos;t find any registered courses for the selected semester. Please verify your selection or check back later.
                         </p>
-                        <div className="flex flex-wrap gap-2.5 justify-center max-w-lg mx-auto">
-                            <button
-                                onClick={() => handleSearch('2025-2026', 'Odd')}
-                                disabled={loading}
-                                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5"
-                            >
-                                2025-2026 Odd Sem
-                            </button>
-                            <button
-                                onClick={() => handleSearch('2025-2026', 'Even')}
-                                disabled={loading}
-                                className="px-4 py-2.5 bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer flex items-center gap-1.5"
-                            >
-                                2025-2026 Even Sem
-                            </button>
-                            <button
-                                onClick={() => handleSearch('2024-2025', 'Even')}
-                                disabled={loading}
-                                className="px-4 py-2.5 bg-indigo-50 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-xl border border-indigo-200 dark:border-slate-700 transition-all cursor-pointer flex items-center gap-1.5"
-                            >
-                                2024-2025 Even Sem
-                            </button>
-                            <button
-                                onClick={() => handleSearch('2024-2025', 'Odd')}
-                                disabled={loading}
-                                className="px-4 py-2.5 bg-indigo-50 dark:bg-slate-800 hover:bg-indigo-100 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 font-bold text-xs rounded-xl border border-indigo-200 dark:border-slate-700 transition-all cursor-pointer flex items-center gap-1.5"
-                            >
-                                2024-2025 Odd Sem
-                            </button>
-                            <button
-                                onClick={handleBack}
-                                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
-                            >
-                                <ArrowLeft className="w-3.5 h-3.5" /> Back to Selection
-                            </button>
-                        </div>
                     </motion.div>
                 )}
             </div>
@@ -689,56 +381,88 @@ const AttendanceRegister = () => {
 
     // ── SELECTION FORM ───────────────────────────────────────────────
     return (
-        <div className="min-h-screen bg-[#FAFAFA] dark:bg-[#0b1120] flex items-center justify-center pt-28 sm:pt-36 pb-16 px-4 font-sans relative selection:bg-indigo-500 selection:text-white transition-colors duration-200">
-            <div className="fixed inset-0 pointer-events-none overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white dark:from-[#0b1120] dark:to-[#0f172a] opacity-80" />
-                <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }} transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
-                    className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-slate-900/30 blur-3xl" />
-                <motion.div animate={{ x: [0, 100, 0], opacity: [0.15, 0.3, 0.15] }} transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
-                    className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 dark:from-blue-950/30 dark:via-indigo-950/30 dark:to-slate-900/30 blur-3xl" />
+        <div className="h-screen overflow-hidden bg-[#FAFAFA] flex items-center justify-center p-4 font-sans relative selection:bg-indigo-500 selection:text-white">
+            <div className="fixed inset-0 pointer-events-none">
+                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
+                <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }} transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
+                    className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 blur-[150px]" />
+                <motion.div animate={{ x: [0, 100, 0], opacity: [0.2, 0.4, 0.2] }} transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
+                    className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 blur-[150px]" />
             </div>
 
             <div className="w-full max-w-md relative z-10">
                 <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 200, damping: 25 }}
-                    className="bg-white/80 dark:bg-[#1e293b]/95 backdrop-blur-xl border-2 border-slate-900 dark:border-slate-700/70 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden">
+                    className="bg-white/80 backdrop-blur-xl border-2 border-slate-900 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden">
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500 rounded-t-[2.5rem]" />
 
-                    <div className="text-center mb-6 relative z-10">
+                    <div className="text-center mb-8 relative z-10">
                         <motion.div initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', stiffness: 200, damping: 20, delay: 0.1 }}
-                            className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 dark:shadow-indigo-950">
+                            className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200">
                             <BookOpen className="w-8 h-8 text-white" />
                         </motion.div>
-                        <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">Attendance Register</h1>
-                        <p className="text-slate-500 dark:text-slate-400 text-sm font-medium mt-1">Select your Academic Year and Semester</p>
+                        <h1 className="text-2xl font-black text-slate-900 tracking-tight">KL ERP Attendance</h1>
+                        <p className="text-slate-500 text-sm font-medium mt-1">Select your Academic Year and Semester</p>
                     </div>
-
-
 
                     <div className="space-y-5 relative z-10">
                         <div className="space-y-1.5">
-                            <label className="text-slate-600 dark:text-slate-300 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
+                            <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
                             <div className="relative">
-                                <select value={year} onChange={e => { setYear(e.target.value); yearRef.current = e.target.value; }}
-                                    className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 px-5 text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950 transition-all font-medium cursor-pointer">
+                                <select value={year} onChange={e => setYear(e.target.value)}
+                                    className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
                                     <option value="">Select Academic Year</option>
-                                    {ACADEMIC_YEARS.map(y => (
-                                        <option key={y} value={y}>{y}</option>
-                                    ))}
+                                    {availableYears.length > 0 ? (
+                                        (() => {
+                                            const list = [...availableYears];
+                                            if (!list.some(y => (y.text || '').includes('2026-2027') || (y.text || '').includes('26-27'))) {
+                                                list.unshift({ value: '18', text: '2026-2027 (26-27)' });
+                                            }
+                                            return list.map(y => (
+                                                <option key={y.value} value={y.text || y.value}>
+                                                    {y.text}
+                                                </option>
+                                            ));
+                                        })()
+                                    ) : (
+                                        <>
+                                            <option value="2026-2027">2026-2027 (26-27)</option>
+                                            <option value="2025-2026">2025-2026 (25-26)</option>
+                                            <option value="2024-2025">2024-2025 (24-25)</option>
+                                            <option value="2023-2024">2023-2024 (23-24)</option>
+                                        </>
+                                    )}
                                 </select>
                                 <Calendar className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                             </div>
                         </div>
 
                         <div className="space-y-1.5">
-                            <label className="text-slate-600 dark:text-slate-300 text-xs font-bold uppercase tracking-widest ml-1">Semester</label>
+                            <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Semester</label>
                             <div className="relative">
-                                <select value={semester} onChange={e => { setSemester(e.target.value); semesterRef.current = e.target.value; }}
-                                    className="w-full appearance-none bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl py-3.5 px-5 text-slate-700 dark:text-slate-200 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 dark:focus:ring-indigo-950 transition-all font-medium cursor-pointer">
+                                <select value={semester} onChange={e => setSemester(e.target.value)}
+                                    className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
                                     <option value="">Select Semester</option>
-                                    <option value="Odd">Odd Sem</option>
-                                    <option value="Even">Even Sem</option>
-                                    <option value="Summer">Summer Term</option>
-                                    <option value="Term3">Term 3</option>
+                                    {availableSemesters.length > 0 ? (
+                                        availableSemesters.map(s => {
+                                            const sLow = (s.text || '').toLowerCase();
+                                            const val = sLow.includes('even') ? 'Even'
+                                                : sLow.includes('summer') ? 'Summer'
+                                                : sLow.includes('term') ? 'Term3'
+                                                : 'Odd';
+                                            return (
+                                                <option key={s.value} value={val}>
+                                                    {s.text}
+                                                </option>
+                                            );
+                                        })
+                                    ) : (
+                                        <>
+                                            <option value="Odd">Odd Sem</option>
+                                            <option value="Even">Even Sem</option>
+                                            <option value="Summer">Summer Term</option>
+                                            <option value="Term3">Term 3</option>
+                                        </>
+                                    )}
                                 </select>
                                 <BookOpen className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                             </div>
@@ -748,42 +472,32 @@ const AttendanceRegister = () => {
                             <motion.div 
                                 initial={{ opacity: 0, height: 0 }}
                                 animate={{ opacity: 1, height: 'auto' }}
-                                className="bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/60 rounded-2xl p-4 flex flex-col gap-2.5"
+                                className="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-start gap-3"
                             >
-                                <div className="flex items-start gap-3">
-                                    <div className="w-5 h-5 bg-red-100 dark:bg-red-900/50 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                                        <span className="text-red-600 dark:text-rose-400 text-xs font-black">!</span>
-                                    </div>
-                                    <p className="text-xs font-bold text-red-700 dark:text-rose-300 leading-relaxed">
-                                        {fetchError}
-                                    </p>
+                                <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                                    <span className="text-red-600 text-xs font-black">!</span>
                                 </div>
+                                <p className="text-xs font-bold text-red-700 leading-relaxed">
+                                    {fetchError}
+                                </p>
                             </motion.div>
                         )}
 
                         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                             onClick={() => handleSearch(year, semester)} disabled={loading}
-                            className="w-full bg-slate-900 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold py-4 rounded-2xl shadow-xl shadow-slate-900/20 dark:shadow-indigo-600/25 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer">
+                            className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl shadow-xl shadow-slate-900/20 hover:bg-slate-800 transition-all mt-2 flex items-center justify-center gap-2">
                             {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Get Attendance'}
                         </motion.button>
 
-                        {fetchError && fetchError.toLowerCase().includes('sign in') && (
-                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                onClick={handleLogoutAction}
-                                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-red-600/20 transition-all mt-1 flex items-center justify-center gap-2 cursor-pointer text-sm">
-                                <LogIn className="w-4 h-4" /> Sign In Again
-                            </motion.button>
-                        )}
-
                         <div className="text-center pt-1">
-                            <button onClick={handleLogoutAction} className="text-slate-400 dark:text-slate-400 text-sm font-semibold hover:text-slate-700 dark:hover:text-slate-300 transition-colors cursor-pointer">
+                            <button onClick={handleLogoutAction} className="text-slate-400 text-sm font-semibold hover:text-slate-700 transition-colors">
                                 Back to Login
                             </button>
                         </div>
                     </div>
 
-                    <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-700/60 relative z-10">
-                        <p className="text-slate-400 dark:text-slate-400 text-[10px] text-center font-medium leading-relaxed">
+                    <div className="mt-6 pt-4 border-t border-slate-100 relative z-10">
+                        <p className="text-slate-400 text-[10px] text-center font-medium leading-relaxed">
                             This connects to the university ERP system. Your credentials are processed securely.
                         </p>
                     </div>

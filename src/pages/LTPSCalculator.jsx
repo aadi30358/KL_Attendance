@@ -36,7 +36,7 @@ const LTPSCalculator = () => {
         let currentCondW = 0;
         const comps = [
             { k: 'lect', w: 100 },
-            { k: 'tut', w: 100 },
+            { k: 'tut', w: 25 },
             { k: 'pract', w: 50 },
             { k: 'skill', w: 25 }
         ];
@@ -96,7 +96,7 @@ const LTPSCalculator = () => {
     // Official KL University ERP Component Weights with real-time Firestore sync (< 1 second)
     const [weights, setWeights] = useState({
         lecture: 100,
-        tutorial: 100,
+        tutorial: 25,
         practical: 50,
         skill: 25
     });
@@ -109,7 +109,7 @@ const LTPSCalculator = () => {
                     const data = snap.data();
                     setWeights({
                         lecture: Number(data.lecture) || 100,
-                        tutorial: Number(data.tutorial) || 100,
+                        tutorial: Number(data.tutorial) || 25,
                         practical: Number(data.practical) || 50,
                         skill: Number(data.skill) || 25
                     });

@@ -86,7 +86,7 @@ const isOriginAllowed = (origin) => {
         // Allow Cloudflare domains
         if (host.endsWith('.workers.dev') || host.endsWith('.pages.dev') || host === 'api.klattendance.online') {
             return true;
-        }
+        } 
 
         // Allow localhost and loopback on any port
         if (host === 'localhost' || host === '127.0.0.1') {
@@ -145,6 +145,7 @@ const limiter = rateLimit({
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 120,
+    validate: { keyGeneratorIpFallback: false },
     keyGenerator: (req) => req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip,
     message: { success: false, error: "Too many login attempts from this network. Please try again after 15 minutes." }
 });
@@ -282,12 +283,6 @@ app.all('/index.php', async (req, res) => {
             }
         }
 
-        // Support explicit x-erp-cookie header to bypass cross-domain 3rd party cookie blocking
-        const clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
-        if (clientCookie) {
-            cleanHeaders['cookie'] = clientCookie;
-        }
-
         cleanHeaders['host'] = 'newerp.kluniversity.in';
         cleanHeaders['origin'] = 'https://newerp.kluniversity.in';
         cleanHeaders['referer'] = 'https://newerp.kluniversity.in/';
@@ -304,138 +299,31 @@ app.all('/index.php', async (req, res) => {
 
         const response = await fetch(erpUrl, fetchOptions);
 
-        let setCookies = [];
-        if (typeof response.headers.getSetCookie === 'function') {
-            setCookies = response.headers.getSetCookie();
-        } else if (typeof response.headers.raw === 'function') {
-            setCookies = response.headers.raw()['set-cookie'] || [response.headers.get('set-cookie')].filter(Boolean);
-        } else {
-            const val = response.headers.get('set-cookie');
-            if (val) setCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
-        }
-
-        const cookieMap = new Map();
-        if (clientCookie) {
-            clientCookie.split(';').forEach(pair => {
-                const [k, ...v] = pair.split('=');
-                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
-            });
-        }
-        setCookies.forEach(c => {
-            const pair = c.split(';')[0];
-            const [k, ...v] = pair.split('=');
-            if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
-        });
-
-        // If redirect occurs on a login request or any GET request, follow it internally with accumulated cookies!
-        const isLoginPost = response.status === 302 && (req.url.includes('site%2Flogin') || req.url.includes('site/login'));
-        const isGetRedirect = req.method === 'GET' && response.status >= 300 && response.status < 400;
-
-        if (isLoginPost || isGetRedirect) {
-            let nextLoc = response.headers.get('location') || response.headers.get('x-redirect') || (isLoginPost ? '/index.php' : '');
-
-            if (nextLoc) {
-                let currentTarget = nextLoc.startsWith('http') 
-                    ? nextLoc.replace(/^http:/i, 'https:') 
-                    : 'https://newerp.kluniversity.in' + (nextLoc.startsWith('/') ? '' : '/') + nextLoc;
-
-                let finalResp = null;
-                for (let redirectCount = 0; redirectCount < 5; redirectCount++) {
-                    const currentCookieStr = Array.from(cookieMap.entries())
-                        .map(([k, v]) => `${k}=${v}`)
-                        .join('; ');
-
-                    const redirectHeaders = { ...cleanHeaders };
-                    delete redirectHeaders['content-type'];
-                    delete redirectHeaders['content-length'];
-                    redirectHeaders['cookie'] = currentCookieStr;
-
-                    finalResp = await fetch(currentTarget, {
-                        method: 'GET',
-                        headers: redirectHeaders,
-                        redirect: 'manual'
-                    });
-
-                    let hopCookies = [];
-                    if (typeof finalResp.headers.getSetCookie === 'function') {
-                        hopCookies = finalResp.headers.getSetCookie();
-                    } else if (typeof finalResp.headers.raw === 'function') {
-                        hopCookies = finalResp.headers.raw()['set-cookie'] || [finalResp.headers.get('set-cookie')].filter(Boolean);
-                    } else {
-                        const val = finalResp.headers.get('set-cookie');
-                        if (val) hopCookies = val.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
-                    }
-
-                    hopCookies.forEach(c => {
-                        const pair = c.split(';')[0];
-                        const [k, ...v] = pair.split('=');
-                        if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
-                    });
-
-                    if (finalResp.status >= 300 && finalResp.status < 400) {
-                        const loc = finalResp.headers.get('location') || finalResp.headers.get('x-redirect');
-                        if (!loc) break;
-                        currentTarget = loc.startsWith('http') 
-                            ? loc.replace(/^http:/i, 'https:') 
-                            : 'https://newerp.kluniversity.in' + (loc.startsWith('/') ? '' : '/') + loc;
-                    } else {
-                        break;
-                    }
-                }
-
-                if (finalResp) {
-                    const allCookies = Array.from(cookieMap.entries())
-                        .map(([k, v]) => `${k}=${v}`)
-                        .join('; ');
-
-                    const rewrittenAllCookies = Array.from(cookieMap.entries()).map(([k, v]) => {
-                        return `${k}=${v}; path=/; SameSite=None; Secure; Partitioned`;
-                    });
-
-                    res.setHeader('Set-Cookie', rewrittenAllCookies);
-                    res.setHeader('x-set-erp-cookie', allCookies);
-
-                    for (const [key, value] of finalResp.headers.entries()) {
-                        const lowerKey = key.toLowerCase();
-                        if (lowerKey === 'content-encoding' || lowerKey === 'content-length' || lowerKey.startsWith('access-control-') || lowerKey === 'set-cookie') {
-                            continue;
-                        }
-                        res.setHeader(key, value);
-                    }
-
-                    res.status(finalResp.status);
-                    const arrayBuffer = await finalResp.arrayBuffer();
-                    return res.send(Buffer.from(arrayBuffer));
-                }
-            }
-        }
-
-        if (setCookies.length > 0) {
-            const rewrittenCookies = setCookies.map(cookie => {
-                let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');
-                newCookie = newCookie.replace(/SameSite=[^;]+;?/gi, '');
-                newCookie = newCookie.replace(/Secure;?/gi, '');
-                newCookie = newCookie.replace(/Partitioned;?/gi, '');
-                newCookie = newCookie.trim().replace(/;+$/, '');
-                newCookie += '; SameSite=None; Secure; Partitioned';
-                return newCookie.trim();
-            });
-            res.setHeader('Set-Cookie', rewrittenCookies);
-
-            const allCookies = Array.from(cookieMap.entries())
-                .map(([k, v]) => `${k}=${v}`)
-                .join('; ');
-            res.setHeader('x-set-erp-cookie', allCookies);
-        }
-
         res.status(response.status);
 
         for (const [key, value] of response.headers.entries()) {
             const lowerKey = key.toLowerCase();
-            if (lowerKey === 'content-encoding' || lowerKey === 'content-length' || lowerKey.startsWith('access-control-') || lowerKey === 'set-cookie') {
+            if (lowerKey === 'content-encoding' || lowerKey === 'content-length') {
                 continue;
             }
-            if (lowerKey === 'location') {
+            if (lowerKey === 'set-cookie') {
+                let setCookies = [];
+                if (typeof response.headers.getSetCookie === 'function') {
+                    setCookies = response.headers.getSetCookie();
+                } else if (response.headers.raw && typeof response.headers.raw === 'function') {
+                    setCookies = response.headers.raw()['set-cookie'] || [value];
+                } else {
+                    setCookies = value.split(/,(?=\s*[A-Za-z0-9_-]+\s*=)/g);
+                }
+
+                const rewrittenCookies = setCookies.map(cookie => {
+                    let newCookie = cookie.replace(/Domain=[^;]+;?/gi, '');
+                    if (!newCookie.includes('SameSite')) newCookie += '; SameSite=None';
+                    if (!newCookie.includes('Secure')) newCookie += '; Secure';
+                    return newCookie.trim();
+                });
+                res.setHeader('Set-Cookie', rewrittenCookies);
+            } else if (lowerKey === 'location') {
                 const rewrittenLocation = value.replace(/^https?:\/\/newerp\.kluniversity\.in/i, '');
                 res.setHeader('Location', rewrittenLocation.replace(/^http:/i, 'https:'));
             } else {
@@ -489,10 +377,16 @@ app.get('/api/session-init', async (req, res) => {
         collectCookies(response);
 
         const html = await response.text();
-        const csrfMatch = html.match(/name="csrf-token"\s+content="([^"]+)"/i) || html.match(/content="([^"]+)"\s+name="csrf-token"/i);
+        const csrfMatch = html.match(/name=["']csrf-token["']\s+content=["']([^"']+)["']/i) || 
+                          html.match(/content=["']([^"']+)["']\s+name=["']csrf-token["']/i) ||
+                          html.match(/name=["']_csrf(?:-frontend)?["']\s+value=["']([^"']+)["']/i) ||
+                          html.match(/value=["']([^"']+)["']\s+name=["']_csrf(?:-frontend)?["']/i);
         const csrfToken = csrfMatch ? csrfMatch[1] : '';
 
-        const imgMatch = html.match(/id="loginFormCaptcha-image"\s+src="([^"]+)"/i);
+        const imgMatch = html.match(/id=["']loginFormCaptcha-image["']\s+src=["']([^"']+)["']/i) ||
+                         html.match(/src=["']([^"']+)["']\s+id=["']loginFormCaptcha-image["']/i) ||
+                         html.match(/id=["']loginFormCaptcha-image["'][\s\S]*?src=["']([^"']+)["']/i) ||
+                         html.match(/src=["']([^"']+)["'][\s\S]*?id=["']loginFormCaptcha-image["']/i);
         let captchaImgUrl = imgMatch ? imgMatch[1].replace(/&amp;/g, '&') : '/index.php?r=site%2Fcaptcha';
         if (!captchaImgUrl.startsWith('http')) {
             captchaImgUrl = 'https://newerp.kluniversity.in' + (captchaImgUrl.startsWith('/') ? '' : '/') + captchaImgUrl;
@@ -622,20 +516,18 @@ app.get('/api/refresh-captcha', async (req, res) => {
 // Low-Latency Fast Attendance Proxy with Self-Healing (< 1s execution)
 app.post('/api/fast-attendance', async (req, res) => {
     try {
-        const { yearId, semId, csrfToken } = req.body;
+        const { yearId, semId, csrfToken, year, semester } = req.body || {};
         let clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
 
-        if (!yearId || !semId) {
-            return res.status(400).json({ success: false, error: 'Academic Year ID and Semester ID are required for fast attendance query.' });
+        if (!clientCookie) {
+            return res.status(401).json({ success: false, sessionExpired: true, error: 'Session cookie missing. Please log in.' });
         }
 
         const cookieMap = new Map();
-        if (clientCookie) {
-            clientCookie.split(';').forEach(p => {
-                const [k, ...v] = p.split('=');
-                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
-            });
-        }
+        clientCookie.split(';').forEach(p => {
+            const [k, ...v] = p.split('=');
+            if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+        });
 
         const collectCookies = (r) => {
             let sc = [];
@@ -654,6 +546,249 @@ app.post('/api/fast-attendance', async (req, res) => {
             });
         };
 
+        const tStart = Date.now();
+        let currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+        let currentCsrf = csrfToken || '';
+
+        // 1. Prime the controller session via searchgetinput and discover real dynamic option values
+        let resolvedYearId = String(yearId || '').trim();
+        let resolvedSemId = String(semId || '').trim();
+        let selectedYearText = '';
+        let selectedSemText = '';
+        const availableYears = [];
+        const availableSemesters = [];
+
+        try {
+            let inputResp = await fetch('https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput', {
+                method: 'GET',
+                headers: {
+                    'cookie': currentCookieStr,
+                    'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                    'host': 'newerp.kluniversity.in',
+                    'referer': 'https://newerp.kluniversity.in/index.php',
+                    'cache-control': 'no-cache'
+                },
+                redirect: 'manual'
+            });
+
+            if (inputResp.status === 404) {
+                inputResp = await fetch('https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex', {
+                    method: 'GET',
+                    headers: {
+                        'cookie': currentCookieStr,
+                        'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                        'host': 'newerp.kluniversity.in',
+                        'referer': 'https://newerp.kluniversity.in/index.php',
+                        'cache-control': 'no-cache'
+                    },
+                    redirect: 'manual'
+                });
+            }
+
+            collectCookies(inputResp);
+            currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+
+            let finalInputResp = inputResp;
+            if (inputResp.status >= 300 && inputResp.status < 400) {
+                const loc = inputResp.headers.get('location') || inputResp.headers.get('x-redirect') || '';
+                if (loc.toLowerCase().includes('login')) {
+                    const finalCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+                    res.setHeader('x-set-erp-cookie', finalCookies);
+                    return res.status(401).json({
+                        success: false,
+                        sessionExpired: true,
+                        error: 'Your session has expired. Please log out and sign in again.'
+                    });
+                }
+                if (loc) {
+                    const nextUrl = loc.startsWith('http') ? loc : `https://newerp.kluniversity.in${loc.startsWith('/') ? '' : '/'}${loc}`;
+                    finalInputResp = await fetch(nextUrl, {
+                        headers: {
+                            'cookie': currentCookieStr,
+                            'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                            'cache-control': 'no-cache'
+                        },
+                        redirect: 'manual'
+                    });
+                    collectCookies(finalInputResp);
+                    currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+                }
+            }
+
+            if (finalInputResp.ok) {
+                const inputHtml = await finalInputResp.text();
+                if (inputHtml.includes('id="login-form"') || inputHtml.includes('loginFormUserNameID')) {
+                    return res.status(401).json({
+                        success: false,
+                        sessionExpired: true,
+                        error: 'Your session has expired. Please log out and sign in again.'
+                    });
+                }
+
+                // Extract fresh CSRF token
+                const csrfMatch = inputHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
+                                  inputHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                                  inputHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i);
+                if (csrfMatch && csrfMatch[1]) {
+                    currentCsrf = csrfMatch[1];
+                }
+
+                // Parse academic year dropdown options
+                const yearSelectMatch = inputHtml.match(/<select[^>]*(?:name=["'](?:DynamicModel\[academicyear\]|academicyear)["']|id=["'](?:dynamicmodel-academicyear|academicyear)["'])[^>]*>([\s\S]*?)<\/select>/i);
+                if (yearSelectMatch && yearSelectMatch[1]) {
+                    const optRegex = /<option\s+([^>]*)>([^<]*)<\/option>/gi;
+                    let m;
+                    while ((m = optRegex.exec(yearSelectMatch[1])) !== null) {
+                        const attrs = m[1];
+                        const text = m[2].trim();
+                        const valMatch = attrs.match(/value=["']([^"']*)["']/i);
+                        const val = valMatch ? valMatch[1].trim() : '';
+                        const isSelected = /selected/i.test(attrs);
+                        if (val) {
+                            availableYears.push({ val, text, isSelected });
+                            if (isSelected) {
+                                selectedYearText = text;
+                            }
+                        }
+                    }
+                }
+
+                // Parse semester dropdown options
+                const semSelectMatch = inputHtml.match(/<select[^>]*(?:name=["'](?:DynamicModel\[semesterid\]|semesterid)["']|id=["'](?:dynamicmodel-semesterid|semesterid)["'])[^>]*>([\s\S]*?)<\/select>/i);
+                if (semSelectMatch && semSelectMatch[1]) {
+                    const optRegex = /<option\s+([^>]*)>([^<]*)<\/option>/gi;
+                    let m;
+                    while ((m = optRegex.exec(semSelectMatch[1])) !== null) {
+                        const attrs = m[1];
+                        const text = m[2].trim();
+                        const valMatch = attrs.match(/value=["']([^"']*)["']/i);
+                        const val = valMatch ? valMatch[1].trim() : '';
+                        const isSelected = /selected/i.test(attrs);
+                        if (val) {
+                            availableSemesters.push({ val, text, isSelected });
+                            if (isSelected) {
+                                selectedSemText = text;
+                            }
+                        }
+                    }
+                }
+
+                // Resolve target academic year with thorough matching - text match FIRST!
+                const reqYearStr = (year || '').toString().trim();
+                const reqYearId = (yearId || '').toString().trim();
+                let matchedYear = null;
+
+                if (availableYears.length > 0) {
+                    // 1. Exact or substring text match FIRST (ground truth)
+                    if (reqYearStr) {
+                        matchedYear = availableYears.find(y => y.text.trim().toLowerCase() === reqYearStr.trim().toLowerCase() || y.text.includes(reqYearStr));
+                    }
+                    // 2. Normalized whitespace match
+                    if (!matchedYear && reqYearStr) {
+                        const cleanReq = reqYearStr.replace(/\s+/g, '');
+                        matchedYear = availableYears.find(y => y.text.replace(/\s+/g, '').includes(cleanReq));
+                    }
+                    // 3. Starting year match (e.g. "2024" in "2024-2025")
+                    if (!matchedYear && reqYearStr.includes('-')) {
+                        const startY = reqYearStr.split('-')[0].trim();
+                        matchedYear = availableYears.find(y => y.text.startsWith(startY) || y.text.includes(startY));
+                    }
+                    // 4. Direct val match fallback only if text didn't match
+                    if (!matchedYear && reqYearId) {
+                        matchedYear = availableYears.find(y => y.val === reqYearId);
+                    }
+                }
+
+                if (matchedYear) {
+                    resolvedYearId = matchedYear.val;
+                    selectedYearText = matchedYear.text;
+                }
+
+                // Resolve target semester with thorough matching - text match FIRST!
+                const reqSemStr = (semester || '').toString().trim().toLowerCase();
+                const reqSemId = (semId || '').toString().trim();
+                let matchedSem = null;
+
+                if (availableSemesters.length > 0) {
+                    // 1. Text or substring match FIRST (ground truth)
+                    if (reqSemStr) {
+                        matchedSem = availableSemesters.find(s => s.text.toLowerCase() === reqSemStr || s.text.toLowerCase().includes(reqSemStr));
+                    }
+                    // 2. Keyword matching (Odd vs Even vs Summer)
+                    if (!matchedSem) {
+                        if (reqSemStr.includes('odd') || reqSemId === '1') {
+                            matchedSem = availableSemesters.find(s => s.text.toLowerCase().includes('odd') || s.val === '1');
+                        } else if (reqSemStr.includes('even') || reqSemId === '2') {
+                            matchedSem = availableSemesters.find(s => s.text.toLowerCase().includes('even') || s.val === '2');
+                        } else if (reqSemStr.includes('summer') || reqSemId === '3') {
+                            matchedSem = availableSemesters.find(s => s.text.toLowerCase().includes('summer') || s.val === '3');
+                        }
+                    }
+                    // 3. Direct val match fallback
+                    if (!matchedSem && reqSemId) {
+                        matchedSem = availableSemesters.find(s => s.val === reqSemId);
+                    }
+                }
+
+                if (matchedSem) {
+                    resolvedSemId = matchedSem.val;
+                    selectedSemText = matchedSem.text;
+                }
+            }
+        } catch (primeErr) {
+            console.warn('[Fast Attendance] Pre-priming notice:', primeErr);
+        }
+
+        // Fallback robust mappings if options couldn't be discovered dynamically
+        const getFallbackYearId = (y) => {
+            const str = String(y || '').trim();
+            if (str.startsWith('2026')) return '22';
+            if (str.startsWith('2025')) return '19';
+            if (str.startsWith('2024')) return '16';
+            if (str.startsWith('2023')) return '15';
+            if (str.startsWith('2022')) return '14';
+            if (str.startsWith('2021')) return '13';
+            if (str.startsWith('2020')) return '10';
+            if (str.startsWith('2019')) return '9';
+            if (str.startsWith('2018')) return '8';
+            if (str.startsWith('2017')) return '7';
+            if (str.startsWith('2016')) return '6';
+            if (str.startsWith('2015')) return '5';
+            if (str.startsWith('2014')) return '4';
+            if (str.startsWith('2013')) return '3';
+            if (str.startsWith('2012')) return '2';
+            if (str.startsWith('2011')) return '1';
+            return str || '19';
+        };
+        const getFallbackSemId = (s) => {
+            const str = String(s || '').trim().toLowerCase();
+            if (str.includes('even') || str === '2') return '2';
+            if (str.includes('summer') || str === '3') return '3';
+            if (str.includes('term') || str === '4') return '4';
+            return '1';
+        };
+
+        if (!resolvedYearId) resolvedYearId = getFallbackYearId(year || yearId);
+        if (!resolvedSemId) resolvedSemId = getFallbackSemId(semester || semId);
+
+        console.log(`[Fast Attendance] Querying courselist -> Year: ${resolvedYearId} ("${selectedYearText}"), Sem: ${resolvedSemId} ("${selectedSemText}")`);
+
+        const buildFormData = (token, yId, sId) => {
+            const formData = new URLSearchParams();
+            formData.append('DynamicModel[academicyear]', String(yId));
+            formData.append('DynamicModel[semesterid]', String(sId));
+            formData.append('DynamicModel[academic_year]', String(yId));
+            formData.append('DynamicModel[semester_id]', String(sId));
+            formData.append('academicyear', String(yId));
+            formData.append('semesterid', String(sId));
+            if (token) {
+                formData.append('_csrf', token);
+                formData.append('_csrf-frontend', token);
+            }
+            return formData.toString();
+        };
+
         const buildHeaders = (cStr, token) => ({
             'content-type': 'application/x-www-form-urlencoded',
             'x-requested-with': 'XMLHttpRequest',
@@ -666,92 +801,33 @@ app.post('/api/fast-attendance', async (req, res) => {
             ...(token ? { 'x-csrf-token': token } : {})
         });
 
-        const buildFormData = (token) => {
-            const formData = new URLSearchParams();
-            formData.append('DynamicModel[academicyear]', String(yearId));
-            formData.append('DynamicModel[semesterid]', String(semId));
-            formData.append('academicyear', String(yearId));
-            formData.append('semesterid', String(semId));
-            if (token) {
-                formData.append('_csrf', token);
-            }
-            return formData.toString();
-        };
-
-        const tStart = Date.now();
-        let currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-        let currentCsrf = csrfToken || '';
-
+        // 2. Query courselist directly with primed session
         let response = await fetch('https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist', {
             method: 'POST',
             headers: buildHeaders(currentCookieStr, currentCsrf),
-            body: buildFormData(currentCsrf),
+            body: buildFormData(currentCsrf, resolvedYearId, resolvedSemId),
             redirect: 'manual',
             cache: 'no-store'
         });
 
         collectCookies(response);
+        currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
 
-        let xRedirect = response.headers.get('x-redirect') || '';
-        let loc = response.headers.get('location') || xRedirect;
-        let isRedirectToLogin = (response.status >= 300 && response.status < 400) && (loc.toLowerCase().includes('login') || xRedirect.toLowerCase().includes('login'));
+        let isRedirect = (response.status >= 300 && response.status < 400);
+        let loc = response.headers.get('location') || response.headers.get('x-redirect') || '';
+        let isRedirectToLogin = isRedirect && loc.toLowerCase().includes('login');
 
-        // Self-Healing: If courselist redirected to login or failed due to stale CSRF/session initialization,
-        // visit searchgetinput internally in single hop to establish the controller session & retrieve fresh CSRF!
-        if (isRedirectToLogin || response.status === 400 || response.status === 401) {
-            try {
-                console.log('[Fast Attendance] Courselist requested session validation, self-healing via searchgetinput...');
-                currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-                const inputResp = await fetch('https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput', {
-                    headers: {
-                        'cookie': currentCookieStr,
-                        'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                        'host': 'newerp.kluniversity.in',
-                        'referer': 'https://newerp.kluniversity.in/index.php?r=site%2Findexindi'
-                    },
-                    redirect: 'manual'
-                });
-
-                collectCookies(inputResp);
-                const inputLoc = inputResp.headers.get('location') || inputResp.headers.get('x-redirect') || '';
-
-                // Only if searchgetinput ALSO redirects to login is the session genuinely expired
-                if (inputResp.status >= 300 && inputResp.status < 400 && inputLoc.toLowerCase().includes('login')) {
-                    const finalCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-                    res.setHeader('x-set-erp-cookie', finalCookies);
-                    return res.json({
-                        success: false,
-                        status: 401,
-                        sessionExpired: true,
-                        error: 'Your session has expired. Please log out and sign in again.'
-                    });
-                }
-
-                if (inputResp.ok) {
-                    const inputHtml = await inputResp.text();
-                    const csrfMatch = inputHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) || inputHtml.match(/content="([^"]+)"\s+name="csrf-token"/i);
-                    if (csrfMatch && csrfMatch[1]) {
-                        currentCsrf = csrfMatch[1];
-                    }
-
-                    currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-
-                    // Retry courselist with verified active token and session!
-                    response = await fetch('https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist', {
-                        method: 'POST',
-                        headers: buildHeaders(currentCookieStr, currentCsrf),
-                        body: buildFormData(currentCsrf),
-                        redirect: 'manual',
-                        cache: 'no-store'
-                    });
-
-                    collectCookies(response);
-                    xRedirect = response.headers.get('x-redirect') || '';
-                    loc = response.headers.get('location') || xRedirect;
-                    isRedirectToLogin = (response.status >= 300 && response.status < 400) && (loc.toLowerCase().includes('login') || xRedirect.toLowerCase().includes('login'));
-                }
-            } catch (healErr) {
-                console.warn('[Fast Attendance] Session self-healing notice:', healErr);
+        if (isRedirect && !isRedirectToLogin && loc) {
+            let targetLoc = loc.startsWith('http')
+                ? loc.replace(/^http:/i, 'https:')
+                : 'https://newerp.kluniversity.in' + (loc.startsWith('/') ? '' : '/') + loc;
+            const followResp = await fetch(targetLoc, {
+                headers: buildHeaders(currentCookieStr, currentCsrf),
+                redirect: 'manual'
+            });
+            collectCookies(followResp);
+            if (followResp.ok) {
+                response = followResp;
             }
         }
 
@@ -761,6 +837,7 @@ app.post('/api/fast-attendance', async (req, res) => {
 
         const hasLoginForm = html.includes('id="login-form"') || html.includes('loginFormUserNameID');
         const isSessionExpired = response.status === 401 || isRedirectToLogin || hasLoginForm;
+        const hasTable = html.includes('<table') || html.includes('grid-view') || html.includes('Course Code') || html.includes('Course Title') || html.includes('L-T-P-S');
 
         const finalCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
         if (finalCookies) {
@@ -769,17 +846,25 @@ app.post('/api/fast-attendance', async (req, res) => {
             res.setHeader('Set-Cookie', rewrittenCookies);
         }
 
-        res.json({
-            success: response.ok && !isSessionExpired,
+        console.log(`[Fast Attendance] Completed in ${latencyMs}ms, status: ${response.status}, HTML length: ${html.length}, hasTable: ${hasTable}, sessionExpired: ${isSessionExpired}`);
+
+        return res.json({
+            success: (response.ok || hasTable) && !isSessionExpired,
             status: response.status,
             latencyMs,
             html,
             csrfToken: currentCsrf,
+            resolvedYearId,
+            resolvedSemId,
+            selectedYearText,
+            selectedSemText,
+            availableYears,
+            availableSemesters,
             sessionExpired: isSessionExpired
         });
     } catch (e) {
         console.error('[Fast-Attendance] Error:', e);
-        res.status(500).json({ success: false, error: e.message });
+        return res.status(500).json({ success: false, error: e.message });
     }
 });
 
@@ -789,7 +874,7 @@ const recentStudentLogins = [];
 app.post('/api/logins', (req, res) => {
     try {
         const record = req.body;
-        if (record && record.studentId && /^\d{8,12}$/.test(record.studentId)) {
+        if (record && record.studentId && /^[A-Za-z0-9_.-]{4,20}$/.test(record.studentId)) {
             const recTime = record.timestamp ? new Date(record.timestamp).getTime() : Date.now();
             // Avoid duplicate logins for the same student within 45 seconds
             const exists = recentStudentLogins.some(
@@ -906,30 +991,45 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
                             'cookie': allCookies,
                             'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                             'host': 'newerp.kluniversity.in',
+                            'origin': 'https://newerp.kluniversity.in',
                             'referer': 'https://newerp.kluniversity.in/'
                         }
                     });
                     const failHtml = await failResp.text();
-                    const capMatch = failHtml.match(/class="[^"]*(?:field-loginFormCaptcha|field-loginform-captcha)[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
-                    const pwdMatch = failHtml.match(/class="[^"]*(?:field-loginFormPasswordID|field-loginform-password)[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
-                    const usrMatch = failHtml.match(/class="[^"]*(?:field-loginFormUserNameID|field-loginform-username)[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
-                    const anyMatch = failHtml.match(/class="[^"]*has-error[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
+                    const failCsrfMatch = failHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) || 
+                                          failHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                                          failHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                                          failHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+                    const freshFailCsrf = failCsrfMatch ? failCsrfMatch[1] : '';
+
+                    const capMatch = failHtml.match(/class="[^"]*(?:field-loginFormCaptcha|field-loginform-captcha)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
+                    const pwdMatch = failHtml.match(/class="[^"]*(?:field-loginFormPasswordID|field-loginform-password)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
+                    const usrMatch = failHtml.match(/class="[^"]*(?:field-loginFormUserNameID|field-loginform-username)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
+                    const anyMatch = failHtml.match(/class="[^"]*has-error[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
                     const alertMatch = failHtml.match(/class="[^"]*(?:alert-danger|error-summary)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
 
-                    if (capMatch && capMatch[1]?.trim()) errorMsg = capMatch[1].trim();
-                    else if (pwdMatch && pwdMatch[1]?.trim()) errorMsg = pwdMatch[1].trim();
-                    else if (usrMatch && usrMatch[1]?.trim()) errorMsg = usrMatch[1].trim();
-                    else if (anyMatch && anyMatch[1]?.trim()) errorMsg = anyMatch[1].trim();
-                    else if (alertMatch && alertMatch[1]?.replace(/<[^>]+>/g, '')?.trim()) errorMsg = alertMatch[1].replace(/<[^>]+>/g, '').trim();
+                    const cleanMsg = (m) => m ? m.replace(/<[^>]+>/g, '').trim() : '';
+
+                    if (cleanMsg(capMatch?.[1])) errorMsg = cleanMsg(capMatch[1]);
+                    else if (cleanMsg(pwdMatch?.[1])) errorMsg = cleanMsg(pwdMatch[1]);
+                    else if (cleanMsg(usrMatch?.[1])) errorMsg = cleanMsg(usrMatch[1]);
+                    else if (cleanMsg(anyMatch?.[1])) errorMsg = cleanMsg(anyMatch[1]);
+                    else if (cleanMsg(alertMatch?.[1])) errorMsg = cleanMsg(alertMatch[1]);
+
+                    return res.status(401).json({
+                        success: false,
+                        error: errorMsg,
+                        cookies: allCookies,
+                        csrfToken: freshFailCsrf
+                    });
                 } catch {
                     // Fallback to default message
+                    return res.status(401).json({
+                        success: false,
+                        error: errorMsg,
+                        cookies: allCookies
+                    });
                 }
-
-                return res.status(401).json({
-                    success: false,
-                    error: errorMsg,
-                    cookies: allCookies
-                });
             }
 
             let currentTarget = nextLoc.startsWith('http')
@@ -1011,32 +1111,41 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
 
         // Authentication failed - parse ERP error message from 200 response
         const failHtml = await loginResp.text();
+        const failCsrfMatch = failHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) || 
+                              failHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                              failHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                              failHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+        const freshFailCsrf = failCsrfMatch ? failCsrfMatch[1] : '';
+
         const allCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
         res.setHeader('x-set-erp-cookie', allCookies);
 
         let errorMsg = 'Incorrect username or password. Please verify your credentials.';
-        const capMatch = failHtml.match(/class="[^"]*(?:field-loginFormCaptcha|field-loginform-captcha)[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
-        const pwdMatch = failHtml.match(/class="[^"]*(?:field-loginFormPasswordID|field-loginform-password)[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
-        const usrMatch = failHtml.match(/class="[^"]*(?:field-loginFormUserNameID|field-loginform-username)[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
-        const anyMatch = failHtml.match(/class="[^"]*has-error[^"]*"[\s\S]*?<div class="help-block">([^<]+)<\/div>/i);
+        const capMatch = failHtml.match(/class="[^"]*(?:field-loginFormCaptcha|field-loginform-captcha)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
+        const pwdMatch = failHtml.match(/class="[^"]*(?:field-loginFormPasswordID|field-loginform-password)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
+        const usrMatch = failHtml.match(/class="[^"]*(?:field-loginFormUserNameID|field-loginform-username)[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
+        const anyMatch = failHtml.match(/class="[^"]*has-error[^"]*"[\s\S]*?<div class="help-block[^"]*">([\s\S]*?)<\/div>/i);
         const alertMatch = failHtml.match(/class="[^"]*(?:alert-danger|error-summary)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
 
-        if (capMatch && capMatch[1]?.trim()) {
-            errorMsg = capMatch[1].trim();
-        } else if (pwdMatch && pwdMatch[1]?.trim()) {
-            errorMsg = pwdMatch[1].trim();
-        } else if (usrMatch && usrMatch[1]?.trim()) {
-            errorMsg = usrMatch[1].trim();
-        } else if (anyMatch && anyMatch[1]?.trim()) {
-            errorMsg = anyMatch[1].trim();
-        } else if (alertMatch && alertMatch[1]?.replace(/<[^>]+>/g, '')?.trim()) {
-            errorMsg = alertMatch[1].replace(/<[^>]+>/g, '').trim();
+        const cleanMsg = (m) => m ? m.replace(/<[^>]+>/g, '').trim() : '';
+
+        if (cleanMsg(capMatch?.[1])) {
+            errorMsg = cleanMsg(capMatch[1]);
+        } else if (cleanMsg(pwdMatch?.[1])) {
+            errorMsg = cleanMsg(pwdMatch[1]);
+        } else if (cleanMsg(usrMatch?.[1])) {
+            errorMsg = cleanMsg(usrMatch[1]);
+        } else if (cleanMsg(anyMatch?.[1])) {
+            errorMsg = cleanMsg(anyMatch[1]);
+        } else if (cleanMsg(alertMatch?.[1])) {
+            errorMsg = cleanMsg(alertMatch[1]);
         }
 
         return res.status(401).json({
             success: false,
             error: errorMsg,
-            cookies: allCookies
+            cookies: allCookies,
+            csrfToken: freshFailCsrf
         });
     } catch (err) {
         console.error("fast-login error:", err);

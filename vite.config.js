@@ -48,8 +48,8 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
         cookieDomainRewrite: { "*": "" }, // Crucial for session cookies to be saved locally regardless of IP/localhost
-        configure: (proxy) => {
-          proxy.on('proxyReq', (proxyReq, req) => {
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
             proxyReq.setHeader('origin', 'https://newerp.kluniversity.in');
             proxyReq.setHeader('referer', 'https://newerp.kluniversity.in/');
             // Forward IP to simulate real requester
@@ -59,9 +59,9 @@ export default defineConfig({
         }
       },
       '/api': {
-        target: 'https://kl-attendance-api.yaswanthadithyareddy10.workers.dev',
+        target: 'http://localhost:3000',
         changeOrigin: true,
-        secure: true,
+        secure: false,
       },
     },
   },

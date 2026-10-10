@@ -4,7 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev.js",
+    "dev:vite": "vite",
     "server": "node server/server.js",
     "build": "vite build",
     "lint": "eslint .",

@@ -18,14 +18,14 @@ import { subscribeCrossDomainSync } from '../services/crossDomainSync';
 // KLU Official Weights
 const KLU_WEIGHTS = {
     L: 100, // Lecture: 100%
-    T: 100, // Tutorial: 100%
+    T: 25,  // Tutorial: 25%
     P: 50,  // Practical: 50%
     S: 25   // Skill: 25%
 };
 
 const COMPONENT_LABELS = {
     L: 'Lecture (L - 100%)',
-    T: 'Tutorial (T - 100%)',
+    T: 'Tutorial (T - 25%)',
     P: 'Practical (P - 50%)',
     S: 'Skill (S - 25%)'
 };
@@ -201,10 +201,25 @@ const BunkSimulator = () => {
         });
 
         // Classes needed to attend if below threshold
+        const classesNeededByComp = {};
+        const primaryComp = activeComponents.includes('L') ? 'L' : (activeComponents[0] || 'L');
+        const primaryWeight = KLU_WEIGHTS[primaryComp] || 100;
         let classesNeededToRecover = 0;
+
+        activeComponents.forEach((k) => {
+            const weight = KLU_WEIGHTS[k] || 100;
+            if (currentPctExact >= targetThreshold) {
+                classesNeededByComp[k] = 0;
+            } else {
+                const numerator = targetFrac * currentWeightedConducted - currentWeightedAttended;
+                const denominator = weight * (1 - targetFrac);
+                classesNeededByComp[k] = Math.max(0, Math.ceil(numerator / denominator));
+            }
+        });
+
         if (currentPctExact < targetThreshold && currentPctOfficial < targetThreshold) {
             const numerator = targetFrac * currentWeightedConducted - currentWeightedAttended;
-            const denominator = 100 * (1 - targetFrac);
+            const denominator = primaryWeight * (1 - targetFrac);
             classesNeededToRecover = Math.max(0, Math.ceil(numerator / denominator));
         }
 
@@ -216,7 +231,9 @@ const BunkSimulator = () => {
             percentageDrop,
             totalBunksCount,
             activeComponents,
+            primaryComp,
             maxSafeBunks,
+            classesNeededByComp,
             classesNeededToRecover,
             isSafe: projectedPctOfficial >= 85,
             isWarning: projectedPctOfficial >= 75 && projectedPctOfficial < 85,
@@ -758,7 +775,7 @@ const BunkSimulator = () => {
                                                         Recovery Needed for {targetThreshold}%
                                                     </p>
                                                     <p className="text-xs text-amber-800 mt-0.5">
-                                                        You must attend the next <strong>{ltpsResults.classesNeededToRecover}</strong> lecture sessions consecutively without missing to reach {targetThreshold}%.
+                                                        You must attend the next <strong>{ltpsResults.classesNeededToRecover}</strong> {COMP_SHORT_NAMES[ltpsResults.primaryComp] || 'lecture'} sessions consecutively without missing to reach {targetThreshold}%.
                                                     </p>
                                                 </div>
                                             </div>

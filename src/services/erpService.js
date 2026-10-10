@@ -1,539 +1,183 @@
-import { SEMESTER_MAP, getAcademicYearCode, findAcademicYearFromHtml, getCandidateYearIdsForYear, findSemesterFromHtml, isHtmlMatchingRequestedYear } from '../config/api';
-import { APP_CONFIG } from '../config';
-
-const FALLBACK_ERP_BASE = 'https://kl-attendance-api.yaswanthadithyareddy10.workers.dev';
-let activeErpBase = APP_CONFIG.API_URL || FALLBACK_ERP_BASE;
-
-export const getErpBase = () => activeErpBase || FALLBACK_ERP_BASE;
-
-export const switchToFallbackErpBase = () => {
-    if (activeErpBase !== FALLBACK_ERP_BASE) {
-        console.warn(`[ERP] Switching API from ${activeErpBase} to fallback: ${FALLBACK_ERP_BASE}`);
-        activeErpBase = FALLBACK_ERP_BASE;
-    }
-    return activeErpBase;
-};
-
-export const getStoredErpCookies = () => {
-    return sessionStorage.getItem('erp_session_cookie') || localStorage.getItem('erp_session_cookie') || '';
-};
-
-export const getStoredCsrfToken = () => {
-    let token = sessionStorage.getItem('erp_csrf_token') || localStorage.getItem('erp_csrf_token');
-    if (!token) {
-        const dashboardHtml = localStorage.getItem('erpDashboardHtml');
-        if (dashboardHtml) {
-            try {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(dashboardHtml, 'text/html');
-                token = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || null;
-                if (token) {
-                    sessionStorage.setItem('erp_csrf_token', token);
-                    localStorage.setItem('erp_csrf_token', token);
-                }
-            } catch {
-                // Ignore parse errors
-            }
-        }
-    }
-    return token;
-};
-
-export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = false } = {}) => {
-    try {
-        if (!response) return;
-        // Do NOT save cookies from error responses (400, 401, 403, 500)
-        // because error pages frequently issue guest sessions that poison authenticated cookies
-        if (response.status && response.status >= 400) {
-            return;
-        }
-
-        const newCookies = response.headers?.get?.('x-set-erp-cookie');
-        if (newCookies) {
-            const existing = getStoredErpCookies();
-            const cookieMap = new Map();
-            if (existing) {
-                existing.split(';').forEach(pair => {
-                    const [k, ...v] = pair.split('=');
-                    if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
-                });
-            }
-            newCookies.split(';').forEach(pair => {
-                const [k, ...v] = pair.split('=');
-                if (k && k.trim()) {
-                    const key = k.trim();
-                    const val = v.join('=').trim();
-                    // Guard against session cookie poisoning ONLY when user is marked as authenticated on dashboard
-                    const isAuthenticated = sessionStorage.getItem('erp_authenticated') === 'true';
-                    if (key === 'PHPSESSID' && cookieMap.has('PHPSESSID') && isAuthenticated && !forceAuthUpdate) {
-                        return;
-                    }
-                    cookieMap.set(key, val);
-                }
-            });
-            const merged = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-            sessionStorage.setItem('erp_session_cookie', merged);
-            localStorage.setItem('erp_session_cookie', merged);
-        }
-    } catch (e) {
-        console.warn("[ERP] Failed to persist x-set-erp-cookie:", e);
-    }
-};
-
-export const clearStoredErpCookies = () => {
-    sessionStorage.removeItem('erp_session_cookie');
-    localStorage.removeItem('erp_session_cookie');
-    sessionStorage.removeItem('erp_csrf_token');
-    localStorage.removeItem('erp_csrf_token');
-};
-
-const buildErpHeaders = (extraHeaders = {}) => {
-    const headers = { ...extraHeaders };
-    const cookie = getStoredErpCookies();
-    if (cookie) {
-        headers['x-erp-cookie'] = cookie;
-    }
-    return headers;
-};
-
-export const fetchWithTimeout = async (url, options = {}, timeoutMs = 7000) => {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-        const response = await fetch(url, { ...options, signal: controller.signal });
-        clearTimeout(id);
-        return response;
-    } catch (err) {
-        clearTimeout(id);
-        throw err;
-    }
-};
+import { SEMESTER_MAP, getAcademicYearCode, getCandidateYearIdsForYear } from '../config/api';
 
 export const erpService = {
-    getErpBase,
-    getStoredErpCookies,
-    saveErpCookiesFromResponse,
-    clearStoredErpCookies,
-
-    // Ultra-fast session & captcha initialization in a single round-trip
-    async getSessionInit() {
-        clearStoredErpCookies();
-        sessionStorage.removeItem('erp_authenticated');
-        let apiBase = getErpBase();
-        if (apiBase) {
-            try {
-                const resp = await fetchWithTimeout(`${apiBase}/api/session-init`, {
-                    headers: { 'Cache-Control': 'no-cache' }
-                }, 7000);
-                if (resp.ok) {
-                    const data = await resp.json();
-                    if (data.success && data.csrfToken && data.captchaUrl) {
-                        saveErpCookiesFromResponse(resp);
-                        if (data.cookies) {
-                            sessionStorage.setItem('erp_session_cookie', data.cookies);
-                            localStorage.setItem('erp_session_cookie', data.cookies);
-                        }
-                        if (data.csrfToken) {
-                            sessionStorage.setItem('erp_csrf_token', data.csrfToken);
-                            localStorage.setItem('erp_csrf_token', data.csrfToken);
-                        }
-                        return {
-                            csrfToken: data.csrfToken,
-                            captchaUrl: data.captchaUrl
-                        };
-                    }
-                }
-            } catch (e) {
-                console.warn("[ERP] Fast session-init unavailable on current base, trying fallback:", e);
-                if (apiBase !== FALLBACK_ERP_BASE) {
-                    apiBase = switchToFallbackErpBase();
-                    try {
-                        const fbResp = await fetchWithTimeout(`${FALLBACK_ERP_BASE}/api/session-init`, {
-                            headers: { 'Cache-Control': 'no-cache' }
-                        }, 7000);
-                        if (fbResp.ok) {
-                            const data = await fbResp.json();
-                            if (data.success && data.csrfToken && data.captchaUrl) {
-                                saveErpCookiesFromResponse(fbResp);
-                                if (data.cookies) {
-                                    sessionStorage.setItem('erp_session_cookie', data.cookies);
-                                    localStorage.setItem('erp_session_cookie', data.cookies);
-                                }
-                                return {
-                                    csrfToken: data.csrfToken,
-                                    captchaUrl: data.captchaUrl
-                                };
-                            }
-                        }
-                    } catch (fbErr) {
-                        console.warn("[ERP] Fallback session-init also failed:", fbErr);
-                    }
-                }
-            }
-        }
-
-        // Fallback to legacy getInitialState
-        const state = await this.getInitialState();
-        if (!state || !state.csrfToken) {
-            throw new Error("Unable to connect to ERP server. Please check your internet connection or refresh.");
-        }
-        return state;
-    },
-
-    // Ultra-fast captcha refresh in a single round-trip
-    async fastRefreshCaptcha() {
-        let apiBase = getErpBase();
-        if (apiBase) {
-            try {
-                const headers = buildErpHeaders({ 'Cache-Control': 'no-cache' });
-                const resp = await fetchWithTimeout(`${apiBase}/api/refresh-captcha`, { headers }, 7000);
-                if (resp.ok) {
-                    const data = await resp.json();
-                    if (data.success && data.captchaUrl) {
-                        saveErpCookiesFromResponse(resp);
-                        if (data.cookies) {
-                            sessionStorage.setItem('erp_session_cookie', data.cookies);
-                            localStorage.setItem('erp_session_cookie', data.cookies);
-                        }
-                        return data.captchaUrl;
-                    }
-                }
-            } catch (e) {
-                console.warn("[ERP] Fast refresh-captcha unavailable on base, trying fallback:", e);
-                if (apiBase !== FALLBACK_ERP_BASE) {
-                    switchToFallbackErpBase();
-                    try {
-                        const headers = buildErpHeaders({ 'Cache-Control': 'no-cache' });
-                        const resp = await fetchWithTimeout(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, { headers }, 7000);
-                        if (resp.ok) {
-                            const data = await resp.json();
-                            if (data.success && data.captchaUrl) {
-                                saveErpCookiesFromResponse(resp);
-                                if (data.cookies) {
-                                    sessionStorage.setItem('erp_session_cookie', data.cookies);
-                                    localStorage.setItem('erp_session_cookie', data.cookies);
-                                }
-                                return data.captchaUrl;
-                            }
-                        }
-                    } catch (fbErr) {
-                        console.warn("[ERP] Fallback refresh-captcha also failed:", fbErr);
-                    }
-                }
-            }
-        }
-        return null;
-    },
-
-    // Fetch the login page to scrape CSRF token and establish a clean ERP session
+    // Fetch the login page to scrape CSRF token and initial captcha atomically
     async getInitialState() {
-        // ALWAYS clear stale cookies so ERP issues a fresh, active PHPSESSID
-        clearStoredErpCookies();
         const timestamp = new Date().getTime();
-        const headers = {
-            'Cache-Control': 'no-cache'
-        };
-        let response;
-        try {
-            response = await fetchWithTimeout(`${getErpBase()}/index.php?_t=${timestamp}`, { 
-                credentials: 'include',
-                cache: 'no-store',
-                headers
-            }, 8000);
-        } catch (fetchErr) {
-            if (getErpBase() !== FALLBACK_ERP_BASE) {
-                switchToFallbackErpBase();
-                response = await fetchWithTimeout(`${FALLBACK_ERP_BASE}/index.php?_t=${timestamp}`, { 
-                    credentials: 'include',
-                    cache: 'no-store',
-                    headers
-                }, 8000);
-            } else {
-                throw fetchErr;
+        const response = await fetch(`/index.php?_t=${timestamp}`, { 
+            credentials: 'include',
+            cache: 'no-store',
+            headers: {
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache'
             }
-        }
-        saveErpCookiesFromResponse(response);
+        });
         const html = await response.text();
-        if (response.status === 503 || html.includes('Service Suspended')) {
-            throw new Error("ERP backend service is temporarily unavailable (503). Please try again in a moment.");
-        }
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
-        const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-        if (!csrfToken) {
-            throw new Error("Unable to connect to ERP server. Please check your internet connection or refresh.");
-        }
-        return { csrfToken };
-    },
+        const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                          doc.querySelector('input[name="_csrf"]')?.getAttribute('value');
 
-    // Login function - sub-second fast path with resilient fallback
-    async login(username, password, captcha, csrfToken) {
-        const apiBase = getErpBase();
-        const storedCookie = getStoredErpCookies();
-
-        // 1. Ultra-fast direct backend login (sub-second response, zero client DOM parsing lag)
-        if (apiBase) {
-            try {
-                const fastResp = await fetch(`${apiBase}/api/fast-login`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Cache-Control': 'no-cache',
-                        ...(storedCookie ? { 'x-erp-cookie': storedCookie } : {})
-                    },
-                    body: JSON.stringify({ username, password, captcha, csrfToken })
-                });
-
-                saveErpCookiesFromResponse(fastResp, { forceAuthUpdate: true });
-                const fastData = await fastResp.json();
-
-                if (fastData.cookies) {
-                    sessionStorage.setItem('erp_session_cookie', fastData.cookies);
-                    localStorage.setItem('erp_session_cookie', fastData.cookies);
-                }
-                if (fastData.csrfToken) {
-                    sessionStorage.setItem('erp_csrf_token', fastData.csrfToken);
-                    localStorage.setItem('erp_csrf_token', fastData.csrfToken);
-                }
-
-                if (fastResp.ok && fastData.success && fastData.html) {
-                    const html = fastData.html;
-                    const isForm = html.includes('id="login-form"') || html.includes('loginFormUserNameID');
-                    const hasAuthProof = html.includes('site%2Flogout') || 
-                                         html.includes('site/logout') || 
-                                         html.includes('indexindi') || 
-                                         html.includes('logout') || 
-                                         html.includes(username);
-
-                    if (!isForm && hasAuthProof) {
-                        console.log("[ERP] Fast login succeeded and verified in single hop!");
-                        sessionStorage.setItem('erp_authenticated', 'true');
-                        return { success: true, verified: true, html, csrfToken: fastData.csrfToken };
-                    }
-                    throw new Error("Credentials verification failed. Please check your Student ID and Password.");
-                }
-
-                if (fastData && fastData.error) {
-                    throw new Error(fastData.error);
-                }
-                if (fastData && !fastData.success) {
-                    throw new Error(fastData.error || "Incorrect Student ID, Password, or Captcha code.");
-                }
-            } catch (err) {
-                // If it's a real authentication error (e.g. wrong password/captcha), throw immediately
-                if (err.message && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError')) {
-                    throw err;
-                }
-                console.warn("[ERP] Fast login endpoint network failure, trying fallback:", err);
-                if (apiBase !== FALLBACK_ERP_BASE) {
-                    switchToFallbackErpBase();
-                    try {
-                        const fbResp = await fetch(`${FALLBACK_ERP_BASE}/api/fast-login`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Cache-Control': 'no-cache',
-                                ...(storedCookie ? { 'x-erp-cookie': storedCookie } : {})
-                            },
-                            body: JSON.stringify({ username, password, captcha, csrfToken })
-                        });
-                        saveErpCookiesFromResponse(fbResp, { forceAuthUpdate: true });
-                        const fbData = await fbResp.json();
-                        if (fbData.cookies) {
-                            sessionStorage.setItem('erp_session_cookie', fbData.cookies);
-                            localStorage.setItem('erp_session_cookie', fbData.cookies);
-                        }
-                        if (fbData.csrfToken) {
-                            sessionStorage.setItem('erp_csrf_token', fbData.csrfToken);
-                            localStorage.setItem('erp_csrf_token', fbData.csrfToken);
-                        }
-                        if (fbResp.ok && fbData.success && fbData.html) {
-                            const html = fbData.html;
-                            const isForm = html.includes('id="login-form"') || html.includes('loginFormUserNameID');
-                            const hasAuthProof = html.includes('site%2Flogout') || 
-                                                 html.includes('site/logout') || 
-                                                 html.includes('indexindi') || 
-                                                 html.includes('logout') || 
-                                                 html.includes(username);
-
-                            if (!isForm && hasAuthProof) {
-                                console.log("[ERP] Fallback fast login succeeded and verified!");
-                                sessionStorage.setItem('erp_authenticated', 'true');
-                                return { success: true, verified: true, html, csrfToken: fbData.csrfToken };
-                            }
-                            throw new Error("Credentials verification failed. Please check your Student ID and Password.");
-                        }
-                        if (fbData && fbData.error) {
-                            throw new Error(fbData.error);
-                        }
-                        if (fbData && !fbData.success) {
-                            throw new Error(fbData.error || "Incorrect Student ID, Password, or Captcha code.");
-                        }
-                    } catch (fbErr) {
-                        if (fbErr.message && !fbErr.message.includes('Failed to fetch') && !fbErr.message.includes('NetworkError')) {
-                            throw fbErr;
-                        }
-                    }
-                }
+        // Extract the exact captcha image URL generated for this session
+        let captchaSrc = doc.getElementById('loginFormCaptcha-image')?.getAttribute('src') ||
+                         doc.querySelector('img[src*="captcha"]')?.getAttribute('src');
+        if (captchaSrc) {
+            captchaSrc = captchaSrc.replace(/&amp;/g, '&');
+            if (captchaSrc.includes('newerp.kluniversity.in/')) {
+                captchaSrc = captchaSrc.replace(/^https?:\/\/newerp\.kluniversity\.in/i, '');
             }
         }
 
-        // 2. Resilient fallback to legacy proxy submission
+        let captchaBlob = null;
+        if (captchaSrc) {
+            try {
+                const captchaResp = await fetch(captchaSrc, {
+                    credentials: 'include',
+                    cache: 'no-store',
+                    headers: {
+                        'Pragma': 'no-cache',
+                        'Cache-Control': 'no-cache'
+                    }
+                });
+                if (captchaResp.ok) {
+                    captchaBlob = await captchaResp.blob();
+                }
+            } catch (e) {
+                console.warn('[ERP] Failed to load initial captcha image:', e);
+            }
+        }
+
+        return { csrfToken, captchaSrc, captchaBlob };
+    },
+
+    // Refresh captcha via Yii2 official refresh endpoint with refresh=1
+    async refreshCaptcha() {
+        try {
+            let refreshResp = await fetch('/index.php?r=site%2Fcaptcha&refresh=1', {
+                credentials: 'include',
+                cache: 'no-store',
+                headers: {
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+
+            let newUrl = null;
+            if (refreshResp.ok) {
+                try {
+                    const data = await refreshResp.json();
+                    if (data && data.url) {
+                        newUrl = data.url.replace(/&amp;/g, '&');
+                    }
+                } catch {
+                    // Not JSON, continue to fallback
+                }
+            }
+
+            if (!newUrl) {
+                newUrl = '/index.php?r=site%2Fcaptcha&v=' + Math.random();
+            }
+
+            const imgResp = await fetch(newUrl, {
+                credentials: 'include',
+                cache: 'no-store',
+                headers: {
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache'
+                }
+            });
+            const blob = await imgResp.blob();
+            return { blob, url: newUrl };
+        } catch (e) {
+            console.error('[ERP] refreshCaptcha error:', e);
+            throw e;
+        }
+    },
+
+    // Login function
+    async login(username, password, captcha, csrfToken) {
         const formData = new URLSearchParams();
         formData.append('_csrf', csrfToken);
         formData.append('LoginForm[username]', username);
         formData.append('LoginForm[password]', password);
         formData.append('LoginForm[rememberMe]', '0');
         formData.append('LoginForm[captcha]', captcha);
-        formData.append('LoginForm[qr_code]', '');
         formData.append('login-button', '');
 
-        const headers = buildErpHeaders({
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Cache-Control': 'no-cache'
+        const response = await fetch('/index.php?r=site%2Flogin', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache'
+            },
+            body: formData,
+            credentials: 'include',
+            cache: 'no-store'
         });
 
-        let response;
-        try {
-            response = await fetch(`${getErpBase()}/index.php?r=site%2Flogin`, {
-                method: 'POST',
-                headers,
-                body: formData,
-                credentials: 'include',
-                cache: 'no-store'
-            });
-        } catch (fetchErr) {
-            if (getErpBase() !== FALLBACK_ERP_BASE) {
-                switchToFallbackErpBase();
-                response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=site%2Flogin`, {
-                    method: 'POST',
-                    headers: buildErpHeaders({
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'Cache-Control': 'no-cache'
-                    }),
-                    body: formData,
-                    credentials: 'include',
-                    cache: 'no-store'
-                });
-            } else {
-                throw fetchErr;
-            }
-        }
-
-        if (!response.ok) {
-            throw new Error(`ERP server responded with status ${response.status}. Please check your connection or try again.`);
-        }
-
-        saveErpCookiesFromResponse(response);
         const html = await response.text();
-
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        const loginForm = doc.getElementById('login-form');
-
-        // Extract precise error message from ERP page:
-        // 1. Password error
-        const passwordError = doc.querySelector('.field-loginFormPasswordID .help-block, .field-loginform-password .help-block');
-        const pwdErrText = passwordError?.textContent?.trim();
-
-        // 2. Captcha error
-        const captchaError = doc.querySelector('.field-loginFormCaptcha .help-block, .field-loginform-captcha .help-block');
-        const capErrText = captchaError?.textContent?.trim();
-
-        // 3. Username error
-        const usernameError = doc.querySelector('.field-loginFormUserNameID .help-block, .field-loginform-username .help-block');
-        const usrErrText = usernameError?.textContent?.trim();
-
-        // 4. Any .has-error help-block
-        const anyHelpError = doc.querySelector('.has-error .help-block');
-        const anyErrText = anyHelpError?.textContent?.trim();
-
-        // 5. Alert banners
-        const alertBanner = doc.querySelector('.alert-danger, .error-summary');
-        const alertErrText = alertBanner?.textContent?.trim();
-
-        if (pwdErrText) throw new Error(pwdErrText);
-        if (capErrText) throw new Error(capErrText);
-        if (usrErrText) throw new Error(usrErrText);
-        if (anyErrText) throw new Error(anyErrText);
-        if (alertErrText) throw new Error(alertErrText);
-
-        // If loginForm is NOT found, verify that html is genuine authenticated student HTML (not an error page)
-        if (!loginForm) {
-            const hasAuthProof = html.includes('site%2Flogout') || 
-                                 html.includes('site/logout') || 
-                                 html.includes('indexindi') || 
-                                 html.includes('logout') || 
-                                 html.includes(username);
-            if (hasAuthProof) {
-                return { success: true, verified: true, html };
-            }
-            throw new Error("Credentials verification failed. Please check your Student ID and Password.");
-        }
-
-        // If loginForm is present, verify if active session exists via indexindi fallback
-        const storedCookies = getStoredErpCookies();
-        const hasDeviceId = storedCookies.includes('kl_erp_device_id');
-        const hasAnyFormError = !!(pwdErrText || capErrText || usrErrText || anyErrText || alertErrText);
-
-        if (!hasAnyFormError || hasDeviceId) {
-            try {
-                const dashResp = await fetch(`${getErpBase()}/index.php`, {
-                    method: 'GET',
-                    headers: buildErpHeaders({
-                        'Cache-Control': 'no-cache'
-                    }),
-                    credentials: 'include',
-                    cache: 'no-store'
-                });
-                if (dashResp.ok) {
-                    saveErpCookiesFromResponse(dashResp, { forceAuthUpdate: true });
-                    const dashHtml = await dashResp.text();
-                    const dashDoc = parser.parseFromString(dashHtml, 'text/html');
-                    const isForm = dashDoc.getElementById('login-form');
-                    const hasAuth = dashHtml.includes('site%2Flogout') || 
-                                    dashHtml.includes('site/logout') || 
-                                    dashHtml.includes('logout') || 
-                                    dashHtml.includes(username);
-                    if (!isForm && hasAuth) {
-                        console.log("[ERP] Successfully verified active session via index fallback!");
-                        sessionStorage.setItem('erp_authenticated', 'true');
-                        return { success: true, verified: true, html: dashHtml };
-                    }
+        // Check for specific field error blocks
+        const errorBlocks = doc.querySelectorAll('.help-block, .help-block-error');
+        for (const el of errorBlocks) {
+            const txt = el.textContent.trim();
+            if (txt && !txt.includes('*') && txt !== 'Enter Username' && txt !== 'Enter Password') {
+                if (txt.toLowerCase().includes('verification code') || txt.toLowerCase().includes('captcha')) {
+                    throw new Error("Invalid Captcha. Please re-enter the captcha.");
                 }
-            } catch (e) {
-                console.warn("[ERP] Fallback dashboard check failed:", e);
+                if (txt.toLowerCase().includes('incorrect username') || txt.toLowerCase().includes('password')) {
+                    throw new Error(txt);
+                }
             }
         }
 
-        throw new Error("Incorrect username or password. Please verify your credentials.");
+        const pwdError = doc.querySelector('.field-loginFormPasswordID .help-block, .field-loginform-password .help-block');
+        if (pwdError && pwdError.textContent.trim()) {
+            throw new Error(pwdError.textContent.trim());
+        }
+
+        const captchaError = doc.querySelector('.field-loginFormCaptcha .help-block, .field-loginform-captcha .help-block');
+        if (captchaError && captchaError.textContent.trim()) {
+            throw new Error("Invalid Captcha. Please re-enter the captcha.");
+        }
+
+        const generalError = doc.querySelector('.text-danger:not(span)');
+        if (generalError && generalError.textContent.trim() && generalError.textContent.trim() !== '*') {
+            throw new Error(generalError.textContent.trim());
+        }
+
+        // Success detection: If we are redirected or see dashboard elements
+        const loginForm = doc.getElementById('login-form');
+        if (!loginForm) {
+            return { success: true, html };
+        } else {
+            const alertDanger = doc.querySelector('.alert-danger, .callout-danger');
+            if (alertDanger && alertDanger.textContent.trim()) {
+                throw new Error(alertDanger.textContent.trim());
+            }
+            throw new Error("Login failed. Please check your credentials.");
+        }
     },
 
-    // IMPORTANT: Actually tell the ERP server to destroy the session cookie!
+    // Destroy ERP session cookie
     async erpLogout() {
         try {
-            // We need the CSRF token to logout from Yii2
-            let csrfToken = null;
-            const dashboardHtml = localStorage.getItem('erpDashboardHtml');
-            if (dashboardHtml) {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(dashboardHtml, 'text/html');
-                csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-            }
-
+            const csrfToken = this.getCachedCsrfToken();
             if (csrfToken) {
                 const formData = new URLSearchParams();
                 formData.append('_csrf', csrfToken);
 
-                const headers = buildErpHeaders({
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'Cache-Control': 'no-cache'
-                });
-
-                await fetch(`${getErpBase()}/index.php?r=site%2Flogout`, {
+                await fetch('/index.php?r=site%2Flogout', {
                     method: 'POST',
-                    headers,
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Pragma': 'no-cache',
+                        'Cache-Control': 'no-cache'
+                    },
                     body: formData,
                     credentials: 'include',
                     cache: 'no-store'
@@ -542,10 +186,23 @@ export const erpService = {
             }
         } catch (e) {
             console.error("Failed to notify ERP of logout", e);
-        } finally {
-            clearStoredErpCookies();
-            sessionStorage.removeItem('erp_authenticated');
         }
+    },
+
+    // Helper to get CSRF token from cached dashboard HTML
+    getCachedCsrfToken() {
+        try {
+            const dashboardHtml = localStorage.getItem('erpDashboardHtml');
+            if (dashboardHtml) {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(dashboardHtml, 'text/html');
+                return doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                       doc.querySelector('input[name="_csrf"]')?.getAttribute('value') || null;
+            }
+        } catch {
+            return null;
+        }
+        return null;
     },
 
     // Parse Student Data from Dashboard HTML
@@ -554,7 +211,7 @@ export const erpService = {
         const doc = parser.parseFromString(html, 'text/html');
 
         let name = "Student";
-        let image = "/assets/default-user.png"; // Fallback
+        let image = "/assets/default-user.png";
 
         const nameEl = doc.querySelector('.profile_info h2') || doc.querySelector('.user-profile');
         if (nameEl) name = nameEl.textContent.trim();
@@ -568,574 +225,385 @@ export const erpService = {
         return { name, image };
     },
 
-    // Single request helper
-    async _postFetchAttendance(yearId, semId, csrfToken) {
-        const activeCsrf = csrfToken || getStoredCsrfToken();
+    // Parse the search form HTML to extract available academic years, semesters, and active selections
+    parseSearchInputHtml(html) {
+        if (!html) return null;
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
 
-        // 1. Primary Strategy: Fast low-latency direct proxy (< 300ms)
-        try {
-            const fastResp = await fetch(`${getErpBase()}/api/fast-attendance`, {
-                method: 'POST',
-                headers: buildErpHeaders({
-                    'Content-Type': 'application/json'
-                }),
-                body: JSON.stringify({
-                    yearId: String(yearId),
-                    semId: String(semId),
-                    csrfToken: activeCsrf || ''
-                }),
-                cache: 'no-store'
-            });
+        const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                          doc.querySelector('input[name="_csrf"]')?.getAttribute('value') ||
+                          this.getCachedCsrfToken();
 
-            if (fastResp.ok) {
-                const fastData = await fastResp.json();
-                if (fastData.success && fastData.html) {
-                    if (fastData.html.includes('id="login-form"') || fastData.html.includes('loginFormUserNameID')) {
-                        throw new Error("Your session has expired. Please log out and sign in again.");
+        const years = [];
+        let selectedYear = null;
+        const yearSelect = doc.querySelector('select[name*="academicyear"], select#dynamicmodel-academicyear, select#academicyear');
+        if (yearSelect) {
+            yearSelect.querySelectorAll('option').forEach(opt => {
+                const val = (opt.getAttribute('value') || opt.value || '').trim();
+                const text = opt.textContent.trim();
+                if (val && val !== '') {
+                    const isSelected = opt.hasAttribute('selected') || opt.selected;
+                    years.push({ value: val, text, isSelected });
+                    if (isSelected) {
+                        selectedYear = { value: val, text };
                     }
-                    saveErpCookiesFromResponse(fastResp);
-                    const subjects = this.parseSubjects(fastData.html);
-                    return { subjects: subjects || [], html: fastData.html };
-                } else if (fastData.sessionExpired || (fastData.html && (fastData.html.includes('id="login-form"') || fastData.html.includes('loginFormUserNameID')))) {
-                    throw new Error("Your session has expired. Please log out and sign in again.");
                 }
-                return { subjects: [], html: fastData.html || '' };
-            }
-        } catch (fastErr) {
-            if (fastErr.message?.includes('session has expired')) {
-                throw fastErr;
-            }
-            console.warn('[ERP] Fast-attendance endpoint notice, trying standard endpoint:', fastErr);
-        }
-
-        // 2. Secondary Strategy: Standard proxy post to courselist (fallback only)
-        const formData = new URLSearchParams();
-        formData.append('DynamicModel[academicyear]', String(yearId));
-        formData.append('DynamicModel[semesterid]', String(semId));
-        formData.append('academicyear', String(yearId));
-        formData.append('semesterid', String(semId));
-        if (activeCsrf) {
-            formData.append('_csrf', activeCsrf);
-        }
-
-        const extraHeaders = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Cache-Control': 'no-cache'
-        };
-        if (activeCsrf) {
-            extraHeaders['X-CSRF-Token'] = activeCsrf;
-        }
-        const headers = buildErpHeaders(extraHeaders);
-
-        let response;
-        try {
-            response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
-                method: 'POST',
-                headers,
-                body: formData,
-                credentials: 'include',
-                cache: 'no-store'
             });
-        } catch (fetchErr) {
-            if (getErpBase() !== FALLBACK_ERP_BASE) {
-                switchToFallbackErpBase();
-                response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
+        }
+
+        const semesters = [];
+        let selectedSemester = null;
+        const semSelect = doc.querySelector('select[name*="semesterid"], select#dynamicmodel-semesterid, select#semesterid');
+        if (semSelect) {
+            semSelect.querySelectorAll('option').forEach(opt => {
+                const val = (opt.getAttribute('value') || opt.value || '').trim();
+                const text = opt.textContent.trim();
+                if (val && val !== '') {
+                    const isSelected = opt.hasAttribute('selected') || opt.selected;
+                    semesters.push({ value: val, text, isSelected });
+                    if (isSelected) {
+                        selectedSemester = { value: val, text };
+                    }
+                }
+            });
+        }
+
+        return { csrfToken, years, semesters, selectedYear, selectedSemester, rawHtml: html };
+    },
+
+    // Prime the Yii2 controller session and fetch real options
+    async getAvailableSessions() {
+        try {
+            let resp = await fetch('/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput', {
+                method: 'GET',
+                credentials: 'include',
+                cache: 'no-store',
+                headers: {
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache',
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            });
+
+            if (!resp.ok || resp.status === 404) {
+                resp = await fetch('/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex', {
+                    method: 'GET',
+                    credentials: 'include',
+                    cache: 'no-store',
+                    headers: {
+                        'Pragma': 'no-cache',
+                        'Cache-Control': 'no-cache'
+                    }
+                });
+            }
+
+            if (!resp.ok) return null;
+            const html = await resp.text();
+            if (html.includes('id="login-form"') || html.includes('loginFormUserNameID')) {
+                return null;
+            }
+
+            return this.parseSearchInputHtml(html);
+        } catch (e) {
+            console.warn("[ERP] Failed to retrieve dynamic session options:", e);
+            return null;
+        }
+    },
+
+    // Fetch Subjects and Attendance with automatic session priming and candidate fallbacks
+    async fetchAttendance(year, semester) {
+        console.log(`[ERP] Fetch Attendance initiated -> Year: "${year}", Semester: "${semester}"`);
+
+        // 1. Prime the controller session and discover dynamic options
+        let sessionInfo = null;
+        try {
+            sessionInfo = await this.getAvailableSessions();
+        } catch (e) {
+            console.warn("[ERP] Session priming warning:", e);
+        }
+
+        const csrfToken = sessionInfo?.csrfToken || this.getCachedCsrfToken();
+
+        // 2. Resolve matching year ID
+        let matchedYearVal = null;
+        const reqYearStr = String(year || '').trim().toLowerCase();
+
+        if (sessionInfo?.years && sessionInfo.years.length > 0) {
+            // Text match (e.g. "2026-2027", "26-27", "2026")
+            const textMatch = sessionInfo.years.find(y => 
+                y.text.toLowerCase() === reqYearStr ||
+                y.text.toLowerCase().includes(reqYearStr) ||
+                reqYearStr.includes(y.text.toLowerCase())
+            );
+            if (textMatch) matchedYearVal = textMatch.value;
+
+            // Start year match (e.g. "2026")
+            if (!matchedYearVal && reqYearStr.includes('-')) {
+                const startY = reqYearStr.split('-')[0].trim();
+                const startMatch = sessionInfo.years.find(y => y.text.startsWith(startY) || y.text.includes(startY));
+                if (startMatch) matchedYearVal = startMatch.value;
+            }
+
+            // Direct value match
+            if (!matchedYearVal) {
+                const valMatch = sessionInfo.years.find(y => y.value === year);
+                if (valMatch) matchedYearVal = valMatch.value;
+            }
+        }
+
+        // 3. Resolve semester ID
+        let semId = SEMESTER_MAP[semester] || '1';
+        const reqSemStr = String(semester || '').trim().toLowerCase();
+
+        if (sessionInfo?.semesters && sessionInfo.semesters.length > 0) {
+            const semMatch = sessionInfo.semesters.find(s => 
+                s.text.toLowerCase() === reqSemStr ||
+                s.text.toLowerCase().includes(reqSemStr) ||
+                (reqSemStr.includes('odd') && (s.value === '1' || s.text.toLowerCase().includes('odd'))) ||
+                (reqSemStr.includes('even') && (s.value === '2' || s.text.toLowerCase().includes('even'))) ||
+                (reqSemStr.includes('summer') && (s.value === '3' || s.text.toLowerCase().includes('summer'))) ||
+                (reqSemStr.includes('term') && (s.value === '4' || s.text.toLowerCase().includes('term')))
+            );
+            if (semMatch) semId = semMatch.value;
+        }
+
+        // 4. Candidate IDs to try (matched first, then standard 2026 mappings, then selected default)
+        const candidateYearIds = getCandidateYearIdsForYear(year, matchedYearVal, sessionInfo?.selectedYear?.value);
+        console.log(`[ERP] Candidate Year IDs to query:`, candidateYearIds, `SemId:`, semId);
+
+        let subjects = [];
+        let lastHtml = '';
+        let lastError = null;
+
+        for (const currentYearId of candidateYearIds) {
+            try {
+                const formData = new URLSearchParams();
+                formData.append('DynamicModel[academicyear]', String(currentYearId));
+                formData.append('DynamicModel[semesterid]', String(semId));
+                formData.append('DynamicModel[academic_year]', String(currentYearId));
+                formData.append('DynamicModel[semester_id]', String(semId));
+                formData.append('academicyear', String(currentYearId));
+                formData.append('semesterid', String(semId));
+                if (csrfToken) {
+                    formData.append('_csrf', csrfToken);
+                    formData.append('_csrf-frontend', csrfToken);
+                }
+
+                const headers = {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache',
+                    'Referer': 'https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput'
+                };
+                if (csrfToken) {
+                    headers['X-CSRF-Token'] = csrfToken;
+                }
+
+                const response = await fetch('/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist', {
                     method: 'POST',
-                    headers: buildErpHeaders(extraHeaders),
+                    headers,
                     body: formData,
                     credentials: 'include',
                     cache: 'no-store'
                 });
-            } else {
-                throw fetchErr;
+
+                if (response.status === 400) {
+                    const errorText = await response.text();
+                    if (errorText.includes('Unable to verify your data submission')) {
+                        throw new Error("Your session has expired. Please completely sign out and log in again.");
+                    }
+                    continue;
+                }
+
+                if (!response.ok) {
+                    console.warn(`[ERP] Candidate Year ID ${currentYearId} returned status ${response.status}`);
+                    continue;
+                }
+
+                const html = await response.text();
+                lastHtml = html;
+
+                if (html.includes('id="login-form"') || html.includes('loginFormUserNameID')) {
+                    throw new Error("Your session has expired. Please log out and sign in again.");
+                }
+
+                const parsed = this.parseSubjects(html);
+                if (parsed.length > 0) {
+                    subjects = parsed;
+                    console.log(`[ERP] Successfully fetched ${subjects.length} courses with YearId: ${currentYearId}`);
+                    break;
+                }
+            } catch (err) {
+                lastError = err;
+                if (err.message?.includes('expired') || err.message?.includes('sign in')) {
+                    throw err;
+                }
+                console.warn(`[ERP] Error querying Year ID ${currentYearId}:`, err.message);
             }
         }
 
-        if (response.status === 401) {
-            throw new Error("Your session has expired. Please log out and sign in again.");
+        if (subjects.length > 0) {
+            return subjects;
         }
 
-        if (response.status === 302) {
-            const loc = response.headers.get('Location') || response.headers.get('location') || response.headers.get('X-Redirect') || response.headers.get('x-redirect') || '';
-            if (loc.includes('login')) {
+        if (lastError && lastError.message?.includes('expired')) {
+            throw lastError;
+        }
+
+        if (lastHtml) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(lastHtml, 'text/html');
+            if (doc.getElementById('login-form')) {
                 throw new Error("Your session has expired. Please log out and sign in again.");
             }
-            return { subjects: [], html: '' };
         }
 
-        if (!response.ok) {
-            console.error("ERP HTTP Error:", response.status, response.statusText);
-            throw new Error(`Unable to load attendance (HTTP ${response.status}). Please try again.`);
-        }
-
-        let html = await response.text();
-
-        const parser = new DOMParser();
-        let doc = parser.parseFromString(html, 'text/html');
-        if (doc.getElementById('login-form') || html.includes('loginFormUserNameID')) {
-            throw new Error("Your session has expired. Please log out and sign in again.");
-        }
-
-        saveErpCookiesFromResponse(response);
-        let subjects = this.parseSubjects(html);
-
-        return { subjects: subjects || [], html };
-    },
-
-    // Fetch live attendance index page to scrape real option values & CSRF token
-    async getAttendancePageOptions(year, semester) {
-        try {
-            const timestamp = new Date().getTime();
-            const headers = buildErpHeaders({
-                'Cache-Control': 'no-cache'
-            });
-            let response;
-            try {
-                // KLU ERP attendance form input route is searchgetinput
-                response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
-                    method: 'GET',
-                    credentials: 'include',
-                    cache: 'no-store',
-                    headers
-                });
-                if (!response.ok && response.status === 404) {
-                    response = await fetch(`${getErpBase()}/index.php?r=studentattendance%2Fstudentdailyattendance%2Findex&_t=${timestamp}`, {
-                        method: 'GET',
-                        credentials: 'include',
-                        cache: 'no-store',
-                        headers
-                    });
-                }
-            } catch (fetchErr) {
-                if (getErpBase() !== FALLBACK_ERP_BASE) {
-                    switchToFallbackErpBase();
-                    response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput&_t=${timestamp}`, {
-                        method: 'GET',
-                        credentials: 'include',
-                        cache: 'no-store',
-                        headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
-                    });
-                } else {
-                    throw fetchErr;
-                }
-            }
-
-            if (response && response.ok) {
-                const html = await response.text();
-                // Never extract tokens or cookies from a redirected login page!
-                if (html.includes('id="login-form"') || html.includes('loginFormUserNameID')) {
-                    console.warn("[ERP] Attendance index returned login page; skipping option scraping.");
-                    return null;
-                }
-
-                saveErpCookiesFromResponse(response);
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
-                const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-                if (csrfToken) {
-                    sessionStorage.setItem('erp_csrf_token', csrfToken);
-                    localStorage.setItem('erp_csrf_token', csrfToken);
-                }
-                const parsedYearId = findAcademicYearFromHtml(html, year);
-                const parsedSemId = findSemesterFromHtml(html, semester);
-                return { csrfToken, parsedYearId, parsedSemId, html };
-            }
-        } catch (e) {
-            console.warn("[ERP] Failed to fetch live attendance index page options", e);
-        }
-        return null;
-    },
-
-    // Fast-Path In-Memory and Session Storage Helpers
-    _getFastPathKey(year, semester) {
-        const username = sessionStorage.getItem('erp_username') || localStorage.getItem('activeErpUser') || 'default';
-        return `kl_erp_fastpath_${username}_${year}_${semester}`;
-    },
-
-    _getFastPath(year, semester) {
-        const key = this._getFastPathKey(year, semester);
-        try {
-            const raw = sessionStorage.getItem(key);
-            if (raw) return JSON.parse(raw);
-        } catch {
-            // Ignore fast-path cache read errors
-        }
-        return null;
-    },
-
-    _saveFastPath(year, semester, yearId, semId, csrfToken) {
-        const key = this._getFastPathKey(year, semester);
-        try {
-            sessionStorage.setItem(key, JSON.stringify({
-                yearId,
-                semId,
-                csrfToken: csrfToken || '',
-                savedAt: Date.now()
-            }));
-        } catch {
-            // Ignore fast-path cache write errors
-        }
-    },
-
-    // 0ms Synchronous Optimistic Cache Reader for Instant Page Paint
-    getCachedAttendance(year, semester) {
-        const username = sessionStorage.getItem('erp_username') || localStorage.getItem('activeErpUser') || '';
-        const cacheKey = username ? `kl_att_cache_${username}_${year}_${semester}` : null;
-        if (cacheKey) {
-            try {
-                const cachedRaw = sessionStorage.getItem(cacheKey);
-                if (cachedRaw) {
-                    const data = JSON.parse(cachedRaw);
-                    if (Array.isArray(data.subjects) && data.subjects.length > 0) {
-                        return data.subjects;
-                    }
-                }
-            } catch {
-                // Ignore session cache parse errors
-            }
-        }
-        try {
-            const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
-            const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
-            const raw = localStorage.getItem(storageKey) || localStorage.getItem('kleData');
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                const list = parsed.attendance_data || (Array.isArray(parsed) ? parsed : null);
-                if (Array.isArray(list) && list.length > 0) {
-                    return list;
-                }
-            }
-        } catch {
-            // Ignore storage key read errors
-        }
-        return null;
-    },
-
-    // Live Sub-Second Attendance Fetcher (< 1s execution)
-    async fetchAttendance(year, semester, { forceLive = true } = {}) {
-        const startTime = performance.now();
-        const username = sessionStorage.getItem('erp_username') || localStorage.getItem('activeErpUser') || '';
-        const cacheKey = username ? `kl_att_cache_${username}_${year}_${semester}` : null;
-
-        // If forceLive is explicitly false and valid local cache exists, return cache
-        if (!forceLive && cacheKey) {
-            try {
-                const cachedRaw = sessionStorage.getItem(cacheKey);
-                if (cachedRaw) {
-                    const data = JSON.parse(cachedRaw);
-                    if (Array.isArray(data.subjects) && data.subjects.length > 0) {
-                        return data.subjects;
-                    }
-                }
-            } catch {
-                // Ignore session cache read errors
-            }
-        }
-
-        // 1. FAST-PATH & DETERMINISTIC DIRECT EXECUTION (< 1s, typically ~150ms-300ms):
-        // Query direct deterministic IDs (e.g. '19' for 2025-2026, '1' for Odd) in a single fast hop!
-        const fastPath = this._getFastPath(year, semester);
-        const targetYearId = fastPath?.yearId || getAcademicYearCode(year);
-        const targetSemId = fastPath?.semId || SEMESTER_MAP[semester] || '1';
-        const activeCsrf = fastPath?.csrfToken || getStoredCsrfToken();
-
-        if (targetYearId && targetSemId) {
-            try {
-                const t0 = performance.now();
-                const { subjects } = await this._postFetchAttendance(
-                    targetYearId,
-                    targetSemId,
-                    activeCsrf
-                );
-
-                if (subjects && subjects.length > 0) {
-                    const latencyMs = Math.round(performance.now() - t0);
-                    console.log(`[ERP Direct-Path] Attendance updated in ${latencyMs}ms (< 1s) for ${year} ${semester}`);
-
-                    // Save verified fast path
-                    this._saveFastPath(year, semester, targetYearId, targetSemId, activeCsrf);
-
-                    // Attach speed metadata
-                    subjects.__latencyMs = latencyMs;
-                    subjects.__isFastPath = true;
-                    subjects.__fetchedAt = Date.now();
-
-                    // Update session storage
-                    if (cacheKey) {
-                        try {
-                            sessionStorage.setItem(cacheKey, JSON.stringify({
-                                subjects,
-                                last_updated: Date.now()
-                            }));
-                        } catch {
-                            // Ignore session storage errors
-                        }
-                    }
-
-                    return subjects;
-                }
-            } catch (err) {
-                if (err.message?.includes('session has expired') || err.message?.includes('sign in again')) {
-                    throw err;
-                }
-                console.warn('[ERP Direct-Path] Direct query notice, trying candidate resolver:', err);
-            }
-        }
-
-        // 2. Full Resolution (Discovers active yearId and semId, then stores in Fast-Path)
-        const subjects = await this._fetchAttendanceFromERP(year, semester);
-        const totalLatencyMs = Math.round(performance.now() - startTime);
-
-        if (subjects && subjects.length > 0) {
-            subjects.__latencyMs = totalLatencyMs;
-            subjects.__isFastPath = false;
-            subjects.__fetchedAt = Date.now();
-
-            if (cacheKey) {
-                try {
-                    sessionStorage.setItem(cacheKey, JSON.stringify({
-                        subjects,
-                        last_updated: Date.now()
-                    }));
-                } catch {
-                    // Ignore session storage errors
-                }
-            }
-        }
-
-        return subjects;
-    },
-
-    // Actual Scraping & Discovery Logic (Fallback only)
-    async _fetchAttendanceFromERP(year, semester) {
-        let dashboardHtml = localStorage.getItem('erpDashboardHtml') || '';
-        let csrfToken = getStoredCsrfToken();
-        const htmlYearId = findAcademicYearFromHtml(dashboardHtml, year);
-        const calculatedYearId = getAcademicYearCode(year);
-        const semId = SEMESTER_MAP[semester] || '1';
-
-        // Try fast HTML-scraped candidate first before slow network options scraping
-        if (htmlYearId && htmlYearId !== calculatedYearId) {
-            try {
-                const { subjects } = await this._postFetchAttendance(htmlYearId, semId, csrfToken);
-                if (subjects && subjects.length > 0) {
-                    this._saveFastPath(year, semester, htmlYearId, semId, csrfToken);
-                    return subjects;
-                }
-            } catch (err) {
-                if (err.message?.includes('session has expired')) throw err;
-            }
-        }
-
-        const liveOptions = await this.getAttendancePageOptions(year, semester);
-        csrfToken = liveOptions?.csrfToken || csrfToken;
-        if (!csrfToken && dashboardHtml) {
-            try {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(dashboardHtml, 'text/html');
-                csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
-            } catch (e) {
-                console.warn("[ERP] Failed to parse cached dashboard HTML", e);
-            }
-        }
-
-        const liveYearId = liveOptions?.parsedYearId;
-        const liveSemId = liveOptions?.parsedSemId;
-        const candidateYearIds = getCandidateYearIdsForYear(year, liveYearId, htmlYearId);
-
-        const primaryYearId = liveYearId || htmlYearId || calculatedYearId;
-        console.log(`[ERP] Fetch Attendance -> Year: ${year} (Primary ID: ${primaryYearId}, Live Year ID: ${liveYearId}), Sem: ${semester} (Live Sem ID: ${liveSemId}, Sem ID: ${semId})`);
-
-        if (!primaryYearId || !semId) {
-            throw new Error(`Invalid year (${year}) or semester (${semester}) selected.`);
-        }
-
-        if (!csrfToken) {
-            console.error("[ERP] No CSRF token available for request. Session likely wiped.");
-        }
-
-        // Build lean, prioritized candidate pairs (max 2-3 pairs, eliminating lag!)
-        const candidatePairs = [];
-        
-        // 1. Primary pair: primaryYearId + semId (e.g. '19' + '1' for 2025-2026 Odd)
-        candidatePairs.push({ yearId: primaryYearId, semId: semId });
-
-        // 2. If liveSemId differs from semId, try it
-        if (liveSemId && liveSemId !== semId) {
-            candidatePairs.push({ yearId: primaryYearId, semId: liveSemId });
-        }
-
-        // 3. Known alternate year candidate (e.g. raw year string like '2025-2026')
-        const altYearIds = candidateYearIds.filter(id => id !== primaryYearId);
-        if (altYearIds.length > 0) {
-            candidatePairs.push({ yearId: altYearIds[0], semId: semId });
-        }
-
-        let fallbackSubjects = null;
-        let fallbackCandidate = null;
-
-        for (const { yearId: candidateYearId, semId: candidateSemId } of candidatePairs) {
-            try {
-                const { subjects, html } = await this._postFetchAttendance(candidateYearId, candidateSemId, csrfToken);
-                const isLiveId = (candidateYearId === liveYearId);
-                
-                if (subjects && subjects.length > 0) {
-                    if (isLiveId || isHtmlMatchingRequestedYear(html, year)) {
-                        console.log(`[ERP] Attendance retrieved rapidly for ${year} ${semester} (yearId: ${candidateYearId}, semId: ${candidateSemId})`);
-                        this._saveFastPath(year, semester, candidateYearId, candidateSemId, csrfToken);
-                        return subjects;
-                    } else if (!fallbackSubjects) {
-                        fallbackSubjects = subjects;
-                        fallbackCandidate = { yearId: candidateYearId, semId: candidateSemId };
-                    }
-                }
-            } catch (err) {
-                if (err.message?.includes('session has expired')) {
-                    throw err;
-                }
-                console.warn(`[ERP] Candidate pair [${candidateYearId}, ${candidateSemId}] notice:`, err);
-            }
-        }
-
-        if (fallbackSubjects && fallbackSubjects.length > 0) {
-            console.log(`[ERP] Using fallback subjects from candidate yearId ${fallbackCandidate.yearId} because no perfect HTML match was found.`);
-            this._saveFastPath(year, semester, fallbackCandidate.yearId, fallbackCandidate.semId, csrfToken);
-            return fallbackSubjects;
-        }
-
-        // Auto-extract registered subjects from user data / dashboard HTML if available
-        if (isHtmlMatchingRequestedYear(dashboardHtml, year)) {
-            console.log(`[ERP] Auto-extracting registered subjects for ${year} (${semester} Sem) from user data...`);
-            const extracted = this.extractRegisteredCoursesFromUserData(dashboardHtml, liveOptions?.html);
-            if (extracted && extracted.length > 0) {
-                return extracted;
-            }
-        }
-
-        // Return clean empty array so dashboard renders a friendly empty state instead of crashing
+        // Return empty array to trigger standard "No Courses Found" view gracefully
         return [];
     },
-    // Parse Subjects from Attendance Page
+
+    // Resilient Parser for Attendance HTML
     parseSubjects(html) {
+        if (!html) return [];
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
         const subjectMap = new Map();
 
+        // Standard LTPS Weights: Lecture=100, Tutorial=100, Practical=50, Skill=25
         const getWeight = (ltpsType) => {
             const type = (ltpsType || '').toLowerCase();
             if (type.includes('lecture') || type === 'l') return 100;
-            if (type.includes('tutorial') || type === 't') return 100;
-            if (type.includes('theory')) return 100;
             if (type.includes('practical') || type === 'p') return 50;
+            if (type.includes('theory') || type.includes('tutorial') || type === 't') return 100;
             if (type.includes('skill') || type === 's') return 25;
             return 1;
         };
 
-        const rows = doc.querySelectorAll('table tr');
+        const tables = doc.querySelectorAll('table');
 
-        rows.forEach(row => {
-            if (row.querySelector('th')) return;
+        tables.forEach(table => {
+            let codeIdx = 1;
+            let titleIdx = 2;
+            let ltpsIdx = 3;
+            let conductedIdx = 8;
+            let attendedIdx = 9;
 
-            const cols = Array.from(row.querySelectorAll('td')).map(td => td.textContent.trim());
-            if (cols.length < 2) return;
-
-            // Detect course code and title
-            let code = '';
-            let title = '';
-            let ltps = 'N/A';
-            let rawConducted = 0;
-            let rawAttended = 0;
-
-            if (cols.length >= 4) {
-                // Standard ERP table structure
-                code = cols[1];
-                title = cols[2];
-                ltps = cols[3] || 'N/A';
+            // Detect headers if available
+            const ths = Array.from(table.querySelectorAll('th'));
+            if (ths.length >= 4) {
+                ths.forEach((th, idx) => {
+                    const txt = th.textContent.trim().toLowerCase();
+                    if (txt.includes('code')) codeIdx = idx;
+                    else if (txt.includes('title') || txt.includes('name') || txt.includes('course')) titleIdx = idx;
+                    else if (txt.includes('ltps') || txt.includes('component') || txt.includes('type')) ltpsIdx = idx;
+                    else if (txt.includes('conducted')) conductedIdx = idx;
+                    else if (txt.includes('attended') || txt.includes('present')) attendedIdx = idx;
+                });
             }
 
-            // Fallback for non-standard column index: search for code matching pattern or column
-            if (!code || !/^[A-Za-z0-9\s-]{4,15}$/.test(code) || /^\d+$/.test(code) || code.toLowerCase().includes('course') || title.toLowerCase().includes('title')) {
-                const codeIdx = cols.findIndex(c => /\b[0-9]{2}[A-Z]{1,5}[0-9]{3,5}[A-Z]?\b/i.test(c));
-                if (codeIdx !== -1) {
-                    code = cols[codeIdx];
-                    title = cols[codeIdx + 1] || cols[codeIdx - 1] || '';
-                    if (cols[codeIdx + 2] && ['L', 'T', 'P', 'S', 'Lecture', 'Tutorial', 'Practical', 'Skill'].some(k => cols[codeIdx + 2].includes(k))) {
-                        ltps = cols[codeIdx + 2];
+            const rows = table.querySelectorAll('tr');
+
+            rows.forEach(row => {
+                // Ignore pure header rows
+                if (row.querySelector('th') && !row.querySelector('td')) return;
+
+                const cols = row.querySelectorAll('td');
+                if (cols.length < 3) return;
+
+                let code = cols[codeIdx]?.textContent.trim();
+                let title = cols[titleIdx]?.textContent.trim();
+                let ltps = cols[ltpsIdx]?.textContent.trim() || 'N/A';
+
+                // If standard index didn't produce a valid course code, scan cells
+                if (!code || code.length < 3 || code.toLowerCase().includes('code')) {
+                    for (let i = 0; i < cols.length; i++) {
+                        const cellText = cols[i].textContent.trim();
+                        // Alphanumeric course code pattern (e.g., 23CS2101, 24AD01HF)
+                        if (/^[0-9]{2}[A-Za-z]{2,5}[0-9A-Za-z]+$/.test(cellText)) {
+                            code = cellText;
+                            if (cols[i + 1]) title = cols[i + 1].textContent.trim();
+                            if (cols[i + 2]) ltps = cols[i + 2].textContent.trim();
+                            break;
+                        }
                     }
                 }
-            }
 
-            if (!code || !title || /^\d+$/.test(code) || code.toLowerCase().includes('course') || title.toLowerCase().includes('title')) {
-                return;
-            }
+                if (!code || !title) return;
+                if (code.toLowerCase() === 'course code' || code.toLowerCase() === 'code') return;
 
-            // Clean up trailing percentage in title if concatenated by ERP (e.g. "SOA PROGRAMMING...92.06%")
-            title = title.replace(/\s*\d+(\.\d+)?%\s*$/, '').trim();
+                // Extract conducted and attended numbers
+                let rawConducted = 0;
+                let rawAttended = 0;
 
-            // Extract numbers for conducted, attended, and TCBR (classes before late registration)
-            let rawTcbr = 0;
-            if (cols.length >= 12) {
-                rawConducted = parseInt(cols[8] || '0', 10) || 0;
-                rawAttended = parseInt(cols[9] || '0', 10) || 0;
-                rawTcbr = parseInt(cols[11] || '0', 10) || 0;
-            } else if (cols.length >= 10) {
-                rawConducted = parseInt(cols[8] || '0', 10) || 0;
-                rawAttended = parseInt(cols[9] || '0', 10) || 0;
-            } else {
-                const numbers = cols.map(c => parseInt(c, 10)).filter(n => !isNaN(n) && n >= 0);
-                if (numbers.length >= 2) {
-                    rawConducted = numbers[numbers.length - 2];
-                    rawAttended = numbers[numbers.length - 1];
-                }
-            }
-
-            // Effective conducted is total conducted minus classes before registration
-            const effectiveConducted = Math.max(0, rawConducted - rawTcbr);
-            const weight = getWeight(ltps);
-            const conducted = effectiveConducted * weight;
-            const attended = rawAttended * weight;
-
-            const componentName = ltps !== 'N/A' && ltps !== '' ? ltps : 'Unknown';
-            const componentPercent = effectiveConducted > 0 ? ((rawAttended / effectiveConducted) * 100).toFixed(2) : 0;
-            const componentData = {
-                conducted: effectiveConducted,
-                totalConducted: rawConducted,
-                tcbr: rawTcbr,
-                attended: rawAttended,
-                percent: parseFloat(componentPercent)
-            };
-
-            if (!subjectMap.has(code)) {
-                subjectMap.set(code, {
-                    code: code,
-                    title: title,
-                    ltpsArray: ltps !== 'N/A' && ltps !== '' ? [ltps] : [],
-                    components: { [componentName]: componentData },
-                    totalConducted: conducted,
-                    totalAttended: attended,
-                    rawConducted: effectiveConducted,
-                    rawAttended: rawAttended
-                });
-            } else {
-                const existing = subjectMap.get(code);
-                if (ltps !== 'N/A' && ltps !== '' && !existing.ltpsArray.includes(ltps)) {
-                    existing.ltpsArray.push(ltps);
+                if (cols[conductedIdx] && cols[attendedIdx]) {
+                    rawConducted = parseInt(cols[conductedIdx].textContent.trim() || '0', 10) || 0;
+                    rawAttended = parseInt(cols[attendedIdx].textContent.trim() || '0', 10) || 0;
                 }
 
-                if (existing.components[componentName]) {
-                    existing.components[componentName].conducted += effectiveConducted;
-                    existing.components[componentName].attended += rawAttended;
-                    existing.components[componentName].percent = parseFloat((existing.components[componentName].conducted > 0 ? (existing.components[componentName].attended / existing.components[componentName].conducted) * 100 : 0).toFixed(2));
+                // Fallback: look for "Attended/Conducted" format in any column
+                if (rawConducted === 0 && rawAttended === 0) {
+                    for (let i = 0; i < cols.length; i++) {
+                        const t = cols[i].textContent.trim();
+                        if (t.includes('/')) {
+                            const parts = t.split('/');
+                            const a = parseInt(parts[0], 10);
+                            const c = parseInt(parts[1], 10);
+                            if (!isNaN(a) && !isNaN(c) && c > 0) {
+                                rawAttended = a;
+                                rawConducted = c;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                const weight = getWeight(ltps);
+                const conducted = rawConducted * weight;
+                const attended = rawAttended * weight;
+                const componentName = ltps !== 'N/A' && ltps !== '' ? ltps : 'Unknown';
+                const componentPercent = rawConducted > 0 ? parseFloat(((rawAttended / rawConducted) * 100).toFixed(2)) : 0;
+                const componentData = {
+                    conducted: rawConducted,
+                    attended: rawAttended,
+                    percent: componentPercent
+                };
+
+                if (!subjectMap.has(code)) {
+                    subjectMap.set(code, {
+                        code,
+                        title,
+                        ltpsArray: ltps !== 'N/A' && ltps !== '' ? [ltps] : [],
+                        components: { [componentName]: componentData },
+                        totalConducted: conducted,
+                        totalAttended: attended,
+                        rawConducted,
+                        rawAttended
+                    });
                 } else {
-                    existing.components[componentName] = componentData;
-                }
+                    const existing = subjectMap.get(code);
+                    if (ltps !== 'N/A' && ltps !== '' && !existing.ltpsArray.includes(ltps)) {
+                        existing.ltpsArray.push(ltps);
+                    }
 
-                existing.totalConducted += conducted;
-                existing.totalAttended += attended;
-                existing.rawConducted += effectiveConducted;
-                existing.rawAttended += rawAttended;
-            }
+                    if (existing.components[componentName]) {
+                        existing.components[componentName].conducted += rawConducted;
+                        existing.components[componentName].attended += rawAttended;
+                        const cTot = existing.components[componentName].conducted;
+                        existing.components[componentName].percent = cTot > 0
+                            ? parseFloat(((existing.components[componentName].attended / cTot) * 100).toFixed(2))
+                            : 0;
+                    } else {
+                        existing.components[componentName] = componentData;
+                    }
+
+                    existing.totalConducted += conducted;
+                    existing.totalAttended += attended;
+                    existing.rawConducted += rawConducted;
+                    existing.rawAttended += rawAttended;
+                }
+            });
         });
 
         return Array.from(subjectMap.values()).map(subj => {
@@ -1154,61 +622,21 @@ export const erpService = {
         });
     },
 
-    extractRegisteredCoursesFromUserData(dashboardHtml, liveHtml) {
-        const combinedHtml = (dashboardHtml || '') + ' ' + (liveHtml || '');
-        const subjectMap = new Map();
-
-        if (combinedHtml.trim()) {
-            try {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(combinedHtml, 'text/html');
-
-                const elements = doc.querySelectorAll('tr, li, div.card, div.box, div.panel, p, span, td, a');
-                elements.forEach(el => {
-                    const text = el.textContent.trim();
-                    // Match valid KL University course codes like 24CS3101, 23SDCS11, 22EC2101, 24UC1101
-                    const match = text.match(/\b([0-9]{2}[A-Z]{1,5}[0-9]{3,5}[A-Z]?)\b/i);
-                    if (match && /[A-Za-z]/.test(match[1]) && /\d{3,}/.test(match[1])) {
-                        const code = match[1].toUpperCase();
-                        let title = text.replace(match[1], '').replace(/[\s\-_:=]+/g, ' ').trim();
-                        title = title.split('\n')[0].trim();
-                        if (title.length > 50) title = title.slice(0, 50);
-                        if (!title || /^\d+$/.test(title)) title = `Course ${code}`;
-
-                        if (!subjectMap.has(code) && !code.toLowerCase().includes('course')) {
-                            subjectMap.set(code, {
-                                code: code,
-                                title: title,
-                                ltps: 'L + T + P',
-                                components: {
-                                    'Lecture': { conducted: 0, attended: 0, percent: 0 },
-                                    'Tutorial': { conducted: 0, attended: 0, percent: 0 },
-                                    'Practical': { conducted: 0, attended: 0, percent: 0 }
-                                },
-                                attended: '0/0',
-                                percent: 0,
-                                isAutoExtracted: true
-                            });
-                        }
-                    }
-                });
-            } catch (e) {
-                console.warn("[ERP] Failed parsing registered courses from user HTML", e);
-            }
-        }
-
-        if (subjectMap.size > 0) {
-            return Array.from(subjectMap.values());
-        }
-
-        // Return empty array when no courses are found
-        return [];
+    async getCaptchaUrl() {
+        const apiBase = import.meta.env.VITE_API_URL || '';
+        return `${apiBase}/api/captcha?v=${Math.random().toString(36).substring(7)}`;
     },
 
-    async getCaptchaUrl() {
-        const apiBase = getErpBase();
-        return `${apiBase}/api/captcha?v=${Math.random().toString(36).substring(7)}`;
+    // Backward compatibility helper
+    clearStoredErpCookies() {
+        sessionStorage.removeItem('erp_session_cookie');
+        localStorage.removeItem('erp_session_cookie');
+        sessionStorage.removeItem('erp_csrf_token');
+        localStorage.removeItem('erp_csrf_token');
     }
 };
 
+export const clearStoredErpCookies = () => erpService.clearStoredErpCookies();
+export const getStoredErpCookies = () => '';
+export const getStoredCsrfToken = () => erpService.getCachedCsrfToken();
 

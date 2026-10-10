@@ -4,8 +4,6 @@ export const API_CONFIG = {
   CAPTCHA_URL: `${APP_CONFIG.API_URL}/api/captcha`
 };
 
-
-
 // Semester mapping
 export const SEMESTER_MAP = {
   'Odd': '1',
@@ -16,16 +14,27 @@ export const SEMESTER_MAP = {
 
 export const getAcademicYearCode = (academicYear) => {
   if (!academicYear) return null;
-  let firstYear = parseInt(academicYear.split('-')[0], 10);
+  const str = String(academicYear).trim();
+  // If it's already an ID number (e.g., '18', '22')
+  if (/^\d+$/.test(str) && parseInt(str, 10) < 50) return str;
+
+  let firstYear = parseInt(str.split('-')[0], 10);
   if (isNaN(firstYear)) return null;
-  if (firstYear < 100) {
-    firstYear += 2000;
-  }
+  if (firstYear < 100) firstYear += 2000;
   
-  // Historical mapping observed from the ERP
+  // Historical mapping observed from the ERP (step of 1 in the MySQL auto-increment ID):
+  // 2026: 18
+  // 2025: 17
+  // 2024: 16
+  // 2023: 15
+  // 2022: 14
+  // 2021: 13
+  // 2020: 10
+  // 2019: 9
+  // 2018: 8
   const historicalMap = {
-    '2026': '22',
-    '2025': '19',
+    '2026': '18',
+    '2025': '17',
     '2024': '16',
     '2023': '15',
     '2022': '14',
@@ -37,122 +46,7 @@ export const getAcademicYearCode = (academicYear) => {
   
   if (historicalMap[firstYear]) return historicalMap[firstYear];
   
-  // Dynamic formula for 2027 and beyond
-  if (firstYear >= 2027) {
-    return (16 + (firstYear - 2024) * 3).toString();
-  }
-  return null;
-};
-
-export const getCandidateYearIdsForYear = (academicYear, liveYearId, htmlYearId) => {
-  if (!academicYear) return [];
-  let firstYear = parseInt(academicYear.split('-')[0], 10);
-  if (isNaN(firstYear)) return [];
-  if (firstYear < 100) firstYear += 2000;
-
-  const strictYearMap = {
-    '2026': ['22', '2026-2027'],
-    '2025': ['19', '2025-2026'],
-    '2024': ['16', '2024-2025'],
-    '2023': ['15', '2023-2024'],
-    '2022': ['14', '2022-2023'],
-    '2021': ['13', '2021-2022'],
-    '2020': ['10', '2020-2021']
-  };
-
-  const knownCandidates = strictYearMap[firstYear] || [academicYear.trim()];
-
-  return Array.from(new Set([
-    liveYearId,
-    htmlYearId,
-    ...knownCandidates
-  ])).filter(Boolean);
-};
-
-export const isHtmlMatchingRequestedYear = (html, requestedYear) => {
-  if (!html || !requestedYear) return true;
-  try {
-    let reqFirst = requestedYear.split('-')[0].trim();
-    let reqFirstNum = parseInt(reqFirst, 10);
-    if (isNaN(reqFirstNum)) return true;
-    let reqFull = reqFirstNum < 100 ? (2000 + reqFirstNum).toString() : reqFirst;
-
-    const foundYears = html.match(/\b(20\d{2})-(20\d{2}|\d{2})\b/g);
-    if (foundYears && foundYears.length > 0) {
-      const hasMatch = foundYears.some(y => y.startsWith(reqFull) || y.startsWith(reqFull.slice(-2)));
-      const hasMismatch = foundYears.some(y => !y.startsWith(reqFull) && !y.startsWith(reqFull.slice(-2)));
-      if (!hasMatch && hasMismatch) {
-        console.warn(`[ERP] HTML contained year ${foundYears[0]} which does not match requested year ${requestedYear}`);
-        return false;
-      }
-      return hasMatch;
-    }
-    
-    // When no explicit year string is in the partial table, accept the results fetched for the requested year
-    return true;
-  } catch (e) {
-    console.warn("Error validating HTML matching year", e);
-  }
-  return true;
-};
-
-export const findAcademicYearFromHtml = (html, year) => {
-  if (!html || !year) return null;
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const selects = doc.querySelectorAll('select');
-    let firstYearStr = year.split('-')[0].trim();
-    let shortYearStr = firstYearStr.slice(-2);
-    if (parseInt(firstYearStr, 10) < 100) {
-      firstYearStr = (2000 + parseInt(firstYearStr, 10)).toString();
-    }
-    
-    for (const select of selects) {
-      const nameOrId = (select.getAttribute('name') || select.getAttribute('id') || '').toLowerCase();
-      if (nameOrId.includes('year') || nameOrId.includes('academic') || nameOrId.includes('dynamicmodel')) {
-        const options = select.querySelectorAll('option');
-        for (const opt of options) {
-          const text = opt.textContent.trim();
-          const val = opt.getAttribute('value');
-          // Match 2026 or 26-27
-          if (val && (text.includes(firstYearStr) || text.includes(`${shortYearStr}-`))) {
-            return val;
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("Failed to parse academic year from HTML", e);
-  }
-  return null;
-};
-
-export const findSemesterFromHtml = (html, semester) => {
-  if (!html || !semester) return null;
-  try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const selects = doc.querySelectorAll('select');
-    const semLower = semester.toLowerCase();
-
-    for (const select of selects) {
-      const nameOrId = (select.getAttribute('name') || select.getAttribute('id') || '').toLowerCase();
-      if (nameOrId.includes('sem') || nameOrId.includes('dynamicmodel')) {
-        const options = select.querySelectorAll('option');
-        for (const opt of options) {
-          const text = opt.textContent.trim().toLowerCase();
-          const val = opt.getAttribute('value');
-          if (val && (text.includes(semLower) || (semLower.includes('odd') && text.includes('odd')) || (semLower.includes('even') && text.includes('even')))) {
-            return val;
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn("Failed to parse semester from HTML", e);
-  }
-  return null;
+  return (18 + (firstYear - 2026)).toString();
 };
 
 export const getFormData = (username, password, captcha, semester, academicYear, sessionId) => {
@@ -174,3 +68,33 @@ export const getCurrentAcademicYearOptions = () => {
     `${currentYear - 2}-${(currentYear - 1).toString().slice(-2)}`
   ];
 };
+
+export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId) => {
+  const candidates = [];
+  if (detectedYearId) candidates.push(String(detectedYearId).trim());
+  if (extraId) candidates.push(String(extraId).trim());
+  
+  const code = getAcademicYearCode(academicYear);
+  if (code) candidates.push(String(code).trim());
+
+  let firstYear = parseInt(String(academicYear || '').split('-')[0], 10);
+  if (!isNaN(firstYear) && firstYear < 100) firstYear += 2000;
+
+  if (firstYear === 2026) {
+    candidates.push('18', '22', '19', '17', '20', '21');
+  } else if (firstYear === 2025) {
+    candidates.push('17', '19', '18', '16');
+  } else if (firstYear === 2024) {
+    candidates.push('16', '15', '17');
+  } else if (firstYear === 2023) {
+    candidates.push('15', '14', '16');
+  } else {
+    if (code) candidates.push(code);
+  }
+
+  return Array.from(new Set(candidates.filter(Boolean)));
+};
+
+export const isHtmlMatchingRequestedYear = () => true;
+export const findAcademicYearFromHtml = () => null;
+export const findSemesterFromHtml = () => null;
