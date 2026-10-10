@@ -51,11 +51,10 @@ export async function publishCrossDomainEvent(type, data = {}) {
     }
 
     // 3. Global Cross-Domain Firestore Engine (< 500ms real-time push to all domains)
-    try {
-        await setDoc(SYNC_DOC_REF, eventPayload, { merge: true });
-    } catch (err) {
+    // Non-blocking fire-and-forget push so mobile callers execute with 0ms lag
+    setDoc(SYNC_DOC_REF, eventPayload, { merge: true }).catch(err => {
         console.warn('[CrossDomainSync] Publish notice:', err);
-    }
+    });
 
     return eventPayload;
 }

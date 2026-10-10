@@ -1434,43 +1434,50 @@ export default function AdminDashboard() {
         }
     };
 
-    // Save Announcement (< 1 second cross-domain sync)
+    // Save Announcement (< 1 second cross-domain sync, 0ms local response)
     const handleSaveAnnouncement = async () => {
         setSavingAnnouncement(true);
         try {
-            await Promise.all([
-                setDoc(doc(db, 'config', 'global'), { announcement, portfolioUrl }, { merge: true }),
-                setDoc(doc(db, 'config', 'announcements'), { text: announcement, announcement }, { merge: true })
-            ]);
-            publishCrossDomainEvent('ANNOUNCEMENT_CHANGE', { announcement, portfolioUrl });
-            setAnnouncementSuccess(true);
-            setTimeout(() => setAnnouncementSuccess(false), 2500);
-        } catch (e) {
-            console.error('Save announcement failed:', e);
-            alert('Failed to save announcement.');
-        } finally {
-            setSavingAnnouncement(false);
+            localStorage.setItem('kl_announcement', announcement);
+            sessionStorage.setItem('kl_announcement', announcement);
+        } catch {
+            // ignore
         }
+        publishCrossDomainEvent('ANNOUNCEMENT_CHANGE', { announcement, portfolioUrl });
+        setAnnouncementSuccess(true);
+        setTimeout(() => setAnnouncementSuccess(false), 2500);
+        setSavingAnnouncement(false);
+
+        // Background non-blocking sync to Firestore
+        Promise.all([
+            setDoc(doc(db, 'config', 'global'), { announcement, portfolioUrl }, { merge: true }),
+            setDoc(doc(db, 'config', 'announcements'), { text: announcement, announcement }, { merge: true })
+        ]).catch(e => {
+            console.error('Save announcement firestore sync notice:', e);
+        });
     };
 
-    // Save Weights (< 1 second cross-domain sync)
+    // Save Weights (< 1 second cross-domain sync, 0ms local response)
     const handleSaveWeights = async () => {
         setSavingWeights(true);
         try {
-            await setDoc(doc(db, 'config', 'weights'), ltpsWeights, { merge: true });
-            publishCrossDomainEvent('WEIGHTS_CHANGE', ltpsWeights);
-            setWeightsSuccess(true);
-            setTimeout(() => setWeightsSuccess(false), 2500);
-        } catch (e) {
-            console.error('Save weights failed:', e);
-            alert('Failed to save weights.');
-        } finally {
-            setSavingWeights(false);
+            localStorage.setItem('kl_ltps_weights', JSON.stringify(ltpsWeights));
+        } catch {
+            // ignore
         }
+        publishCrossDomainEvent('WEIGHTS_CHANGE', ltpsWeights);
+        setWeightsSuccess(true);
+        setTimeout(() => setWeightsSuccess(false), 2500);
+        setSavingWeights(false);
+
+        // Background non-blocking sync to Firestore
+        setDoc(doc(db, 'config', 'weights'), ltpsWeights, { merge: true }).catch(e => {
+            console.error('Save weights firestore sync notice:', e);
+        });
     };
 
-    // Save ERP Maintenance Mode (< 1 second cross-domain sync)
-    const handleSaveMaintenance = async (targetEnabled = erpMaintenance) => {
+    // Save ERP Maintenance Mode (< 1 second cross-domain sync, 0ms local response)
+    const handleSaveMaintenance = (targetEnabled = erpMaintenance) => {
         setSavingMaintenance(true);
         const payload = {
             enabled: Boolean(targetEnabled),
@@ -1481,31 +1488,29 @@ export default function AdminDashboard() {
             updatedAt: new Date().toISOString()
         };
 
-        // 1. Instant local persistence & Cross-domain broadcast (< 1s sync across both domains)
-        localStorage.setItem('kl_erp_maintenance', JSON.stringify(payload));
+        // 1. Instant local persistence & Cross-domain broadcast (< 1s sync across all domains) - 0ms
+        try {
+            localStorage.setItem('kl_erp_maintenance', JSON.stringify(payload));
+        } catch {
+            // ignore
+        }
         publishCrossDomainEvent('MAINTENANCE_UPDATE', payload);
 
         setMaintenanceSuccess(true);
         setTimeout(() => setMaintenanceSuccess(false), 2500);
         setSavingMaintenance(false);
 
-        // 2. Dispatch to Firestore with graceful timeout
-        try {
-            const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore timeout')), 4000));
-            await Promise.race([
-                setDoc(doc(db, 'config', 'maintenance'), payload, { merge: true }),
-                timeoutPromise
-            ]);
-        } catch (e) {
+        // 2. Dispatch to Firestore in background without blocking UI
+        setDoc(doc(db, 'config', 'maintenance'), payload, { merge: true }).catch(e => {
             console.warn('Firestore maintenance sync notice:', e);
-        }
+        });
     };
 
-    // One-click Toggle for ERP Maintenance Mode
-    const handleToggleMaintenance = async () => {
+    // One-click Toggle for ERP Maintenance Mode (0ms instant response)
+    const handleToggleMaintenance = () => {
         const nextState = !erpMaintenance;
         setErpMaintenance(nextState);
-        await handleSaveMaintenance(nextState);
+        handleSaveMaintenance(nextState);
     };
 
     // Apply quick presets for common maintenance scenarios
@@ -3612,7 +3617,7 @@ export default function AdminDashboard() {
                                         type="url"
                                         value={portfolioUrl}
                                         onChange={(e) => setPortfolioUrl(e.target.value)}
-                                        placeholder="https://github.com/aadi30358 or your personal portfolio URL"
+                                        placeholder="https://garlapatiyaswanthadithya.web.app/"
                                         className="w-full admin-input-luxury rounded-xl px-3 py-2 text-xs placeholder:text-slate-400 font-medium"
                                     />
                                 </div>

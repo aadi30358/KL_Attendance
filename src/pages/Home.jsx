@@ -6,9 +6,16 @@ import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDa
 // --- Ultra-Advanced 3D Parallax Card ---
 const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, to, accentColor, activeBorderColor = "border-indigo-600", hoverBorderColor = "hover:border-indigo-600", onClick, isUnderMaintenance = false }) => {
     const [isClicked, setIsClicked] = useState(false);
+    const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 1024 : false);
     const ref = useRef(null);
     const x = useMotionValue(0);
     const y = useMotionValue(0);
+
+    useEffect(() => {
+        const updateMobile = () => setIsMobile(window.innerWidth < 1024);
+        window.addEventListener('resize', updateMobile, { passive: true });
+        return () => window.removeEventListener('resize', updateMobile);
+    }, []);
 
     const mouseXSpring = useSpring(x, { stiffness: 300, damping: 30 });
     const mouseYSpring = useSpring(y, { stiffness: 300, damping: 30 });
@@ -21,13 +28,14 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
     const iconY = useTransform(mouseYSpring, [-0.5, 0.5], ["15px", "-15px"]);
 
     const handleMouseMove = (e) => {
-        if (window.innerWidth < 1024 || !ref.current) return;
+        if (isMobile || !ref.current) return;
         const rect = ref.current.getBoundingClientRect();
         x.set((e.clientX - rect.left) / rect.width - 0.5);
         y.set((e.clientY - rect.top) / rect.height - 0.5);
     };
 
     const handleMouseLeave = () => {
+        if (isMobile) return;
         x.set(0);
         y.set(0);
     };
@@ -37,17 +45,17 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
             ref={ref}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
-            style={{
+            style={isMobile ? {} : {
                 rotateY,
                 rotateX,
                 transformStyle: "preserve-3d",
             }}
-            whileHover={{ y: -6, scale: 1.01 }}
+            whileHover={isMobile ? {} : { y: -6, scale: 1.01 }}
             className={`relative h-full transition-transform duration-200 ease-out group transform-gpu ${className}`}
         >
-            {/* Dynamic Depth Background */}
+            {/* Dynamic Depth Background - Disabled on mobile to preserve GPU memory */}
             <div
-                className={`absolute inset-0 rounded-[2rem] sm:rounded-[2.5rem] opacity-20 sm:opacity-30 blur-xl sm:blur-2xl transition-colors duration-500 pointer-events-none ${colorClass.replace('text', 'bg')}`}
+                className={`hidden sm:block absolute inset-0 rounded-[2rem] sm:rounded-[2.5rem] opacity-20 sm:opacity-30 blur-xl sm:blur-2xl transition-colors duration-500 pointer-events-none ${colorClass.replace('text', 'bg')}`}
             />
 
             <div
@@ -65,14 +73,14 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
                 <div className="relative z-10 transform-style-3d flex flex-col justify-between h-full flex-1">
                     <div className="flex justify-between items-start mb-4 sm:mb-6">
                         <motion.div
-                            style={{ x: iconX, y: iconY, transform: "translateZ(40px)" }}
+                            style={isMobile ? {} : { x: iconX, y: iconY, transform: "translateZ(40px)" }}
                             className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center shadow-lg ${accentColor} shrink-0`}
                         >
                             <Icon className={`w-7 h-7 sm:w-8 sm:h-8 text-white`} />
                         </motion.div>
                         {isUnderMaintenance ? (
                             <motion.div
-                                style={{ transform: "translateZ(30px)" }}
+                                style={isMobile ? {} : { transform: "translateZ(30px)" }}
                                 className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 flex items-center justify-center text-amber-600 dark:text-amber-400 shadow-2xs shrink-0"
                                 title="Under Maintenance"
                             >
@@ -80,7 +88,7 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
                             </motion.div>
                         ) : to ? (
                             <motion.div
-                                style={{ transform: "translateZ(30px)" }}
+                                style={isMobile ? {} : { transform: "translateZ(30px)" }}
                                 className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700/60 flex items-center justify-center text-slate-700 dark:text-slate-200 group-hover:bg-slate-900 group-hover:text-white dark:group-hover:bg-indigo-600 dark:group-hover:text-white transition-colors duration-300 shrink-0"
                             >
                                 <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 -rotate-45 group-hover:rotate-0 transition-transform duration-300" />
@@ -88,7 +96,7 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
                         ) : null}
                     </div>
 
-                    <motion.div style={{ transform: "translateZ(30px)" }} className="flex-1 flex flex-col justify-between">
+                    <motion.div style={isMobile ? {} : { transform: "translateZ(30px)" }} className="flex-1 flex flex-col justify-between">
                         {children}
                     </motion.div>
                 </div>
@@ -96,7 +104,7 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
         </motion.div>
     );
 
-    if (to && !isUnderMaintenance) {
+    if (to) {
         return <Link to={to} onClick={onClick} className="h-full block perspective-1000">{CardContent}</Link>;
     }
     return <div onClick={onClick} className="h-full perspective-1000">{CardContent}</div>;
@@ -104,29 +112,15 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
 
 // --- Responsive Animated Typewriter Text ---
 const TypewriterText = ({ text, delay = 0 }) => {
-    const words = text.split(" ");
     return (
-        <span className="inline-flex flex-wrap justify-center gap-x-1.5 px-2">
-            {words.map((word, wIdx) => (
-                <span key={wIdx} className="inline-flex whitespace-nowrap">
-                    {Array.from(word).map((letter, lIdx) => (
-                        <motion.span
-                            key={lIdx}
-                            initial={{ opacity: 0, y: 8 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{
-                                duration: 0.15,
-                                delay: delay + (wIdx * 4 + lIdx) * 0.025,
-                                type: "spring"
-                            }}
-                            className="inline-block"
-                        >
-                            {letter}
-                        </motion.span>
-                    ))}
-                </span>
-            ))}
-        </span>
+        <motion.span
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: "easeOut", delay }}
+            className="inline-block px-2 text-center"
+        >
+            {text}
+        </motion.span>
     );
 };
 
@@ -442,46 +436,109 @@ const ExamCountdownSection = () => {
     );
 };
 
-// --- Staggered Text Animation ---
+// --- Staggered Text Animation (Word-level for mobile performance) ---
 const StaggeredText = ({ text, className, delay = 0 }) => {
-    // Split text into words to handle spacing correctly, then letters
     const words = text.split(" ");
 
     return (
         <motion.span
-            className={`inline-flex flex-wrap justify-center gap-x-3 ${className}`}
+            className={`inline-flex flex-wrap justify-center gap-x-2 sm:gap-x-3 ${className}`}
             initial="hidden"
             whileInView="visible"
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: "-20px" }}
             variants={{
-                visible: { transition: { staggerChildren: 0.05, delayChildren: delay } }
+                visible: { transition: { staggerChildren: 0.08, delayChildren: delay } }
             }}
         >
             {words.map((word, wordIndex) => (
-                <span key={wordIndex} className="inline-flex">
-                    {word.split("").map((char, charIndex) => (
-                        <motion.span
-                            key={`${wordIndex}-${charIndex}`}
-                            variants={{
-                                hidden: { opacity: 0, y: 50, rotateX: -90 },
-                                visible: { opacity: 1, y: 0, rotateX: 0 }
-                            }}
-                            transition={{ type: "spring", damping: 10, stiffness: 100 }}
-                            className="inline-block origin-bottom"
-                        >
-                            {char}
-                        </motion.span>
-                    ))}
-                </span>
+                <motion.span
+                    key={wordIndex}
+                    variants={{
+                        hidden: { opacity: 0, y: 20 },
+                        visible: { opacity: 1, y: 0 }
+                    }}
+                    transition={{ type: "spring", damping: 15, stiffness: 120 }}
+                    className="inline-block"
+                >
+                    {word}
+                </motion.span>
             ))}
         </motion.span>
     );
 };
 
 import SEO from '../components/SEO';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
+import { subscribeCrossDomainSync } from '../services/crossDomainSync';
 
 export default function Home() {
     const [plutoMaintenanceModal, setPlutoMaintenanceModal] = useState(false);
+    const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
+    const [maintenanceConfig, setMaintenanceConfig] = useState(() => {
+        try {
+            const raw = localStorage.getItem('kl_erp_maintenance');
+            return raw ? JSON.parse(raw) : { enabled: false };
+        } catch {
+            return { enabled: false };
+        }
+    });
+
+    useEffect(() => {
+        let unsub = null;
+        try {
+            unsub = onSnapshot(doc(db, 'config', 'maintenance'), (docSnap) => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    setMaintenanceConfig(data);
+                    try {
+                        localStorage.setItem('kl_erp_maintenance', JSON.stringify(data));
+                    } catch {
+                        // ignore
+                    }
+                } else {
+                    setMaintenanceConfig({ enabled: false });
+                }
+            }, (err) => console.warn('[Home] Maintenance sync notice:', err));
+        } catch {
+            // ignore
+        }
+
+        const unsubCross = subscribeCrossDomainSync((event) => {
+            if (event.type === 'MAINTENANCE_UPDATE' && event.data) {
+                setMaintenanceConfig(event.data);
+                try {
+                    localStorage.setItem('kl_erp_maintenance', JSON.stringify(event.data));
+                } catch {
+                    // ignore
+                }
+            }
+        });
+
+        const handleStorage = (e) => {
+            if (e.key === 'kl_erp_maintenance') {
+                try {
+                    setMaintenanceConfig(e.newValue ? JSON.parse(e.newValue) : { enabled: false });
+                } catch {
+                    // ignore
+                }
+            }
+        };
+        window.addEventListener('storage', handleStorage);
+
+        return () => {
+            if (unsub) unsub();
+            if (unsubCross) unsubCross();
+            window.removeEventListener('storage', handleStorage);
+        };
+    }, []);
+
+    useEffect(() => {
+        const check = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', check, { passive: true });
+        return () => window.removeEventListener('resize', check);
+    }, []);
+
     const { scrollY } = useScroll();
     const heroY = useTransform(scrollY, [0, 500], [0, 150]);
     const heroOpacity = useTransform(scrollY, [0, 300], [1, 0]);
@@ -517,9 +574,11 @@ export default function Home() {
             <div className="fixed inset-0 pointer-events-none overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white dark:from-[#0b1120] dark:to-[#0f172a] opacity-90" />
 
-                {/* Ambient Soft Glows */}
-                <div className="absolute -top-[15%] -left-[10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-r from-indigo-100 via-purple-100 to-pink-100 dark:from-indigo-950/30 dark:via-purple-950/20 dark:to-transparent blur-[50px] sm:blur-[100px] opacity-40 pointer-events-none" />
-                <div className="absolute top-[35%] -right-[15%] w-[50vw] h-[50vw] rounded-full bg-gradient-to-l from-blue-100 via-teal-100 to-emerald-100 dark:from-blue-950/25 dark:via-indigo-950/25 dark:to-transparent blur-[50px] sm:blur-[100px] opacity-30 pointer-events-none" />
+                {/* Ambient Soft Glows - Desktop only to save mobile GPU compositing memory */}
+                <div className="hidden sm:block absolute -top-[15%] -left-[10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-r from-indigo-100 via-purple-100 to-pink-100 dark:from-indigo-950/30 dark:via-purple-950/20 dark:to-transparent blur-[100px] opacity-40 pointer-events-none" />
+                <div className="hidden sm:block absolute top-[35%] -right-[15%] w-[50vw] h-[50vw] rounded-full bg-gradient-to-l from-blue-100 via-teal-100 to-emerald-100 dark:from-blue-950/25 dark:via-indigo-950/25 dark:to-transparent blur-[100px] opacity-30 pointer-events-none" />
+                {/* Lightweight non-blurred static gradient on mobile */}
+                <div className="sm:hidden absolute top-0 left-0 w-full h-72 bg-gradient-to-b from-indigo-50/50 dark:from-indigo-950/20 to-transparent pointer-events-none" />
 
                 {/* 3D Floating Particles (Desktop Only for buttery-smooth mobile scrolling) */}
                 <div className="hidden lg:block absolute inset-0 preserve-3d">
@@ -555,7 +614,7 @@ export default function Home() {
 
                 {/* --- Hero Section --- */}
                 <motion.div
-                    style={{ y: heroY, opacity: heroOpacity }}
+                    style={isMobile ? {} : { y: heroY, opacity: heroOpacity }}
                     className="relative z-10 w-full text-center flex flex-col items-center mb-16 sm:mb-28"
                 >
                     <motion.div
@@ -617,10 +676,23 @@ export default function Home() {
                             <motion.button
                                 whileHover={{ scale: 1.04 }}
                                 whileTap={{ scale: 0.96 }}
-                                className="w-full py-3.5 px-3 sm:px-5 bg-gradient-to-r from-rose-500 to-pink-500 text-white rounded-2xl font-bold shadow-lg shadow-rose-500/25 flex items-center justify-center gap-1.5 sm:gap-2 group text-xs sm:text-sm whitespace-nowrap border border-rose-400/30"
+                                className={`w-full py-3.5 px-3 sm:px-5 ${
+                                    maintenanceConfig?.enabled
+                                        ? 'bg-gradient-to-r from-amber-500 to-orange-500 shadow-amber-500/25 border-amber-400/30'
+                                        : 'bg-gradient-to-r from-rose-500 to-pink-500 shadow-rose-500/25 border-rose-400/30'
+                                } text-white rounded-2xl font-bold shadow-lg flex items-center justify-center gap-1.5 sm:gap-2 group text-xs sm:text-sm whitespace-nowrap border`}
                             >
-                                <LogIn className="w-4 h-4 text-white group-hover:scale-110 transition-transform shrink-0" />
-                                <span>ERP Login</span>
+                                {maintenanceConfig?.enabled ? (
+                                    <>
+                                        <Wrench className="w-4 h-4 text-white group-hover:rotate-12 transition-transform shrink-0" />
+                                        <span>ERP (Maintenance)</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <LogIn className="w-4 h-4 text-white group-hover:scale-110 transition-transform shrink-0" />
+                                        <span>ERP Login</span>
+                                    </>
+                                )}
                             </motion.button>
                         </Link>
                     </div>
@@ -730,30 +802,58 @@ export default function Home() {
                     <div className="min-h-[280px] sm:min-h-[300px] md:h-[360px]">
                         <ThreeDParallaxCard
                             to="/login"
-                            icon={LogIn}
-                            colorClass="text-rose-500"
-                            accentColor="bg-gradient-to-tr from-rose-600 to-pink-500"
-                            activeBorderColor="border-rose-600"
-                            hoverBorderColor="hover:border-rose-600"
+                            icon={maintenanceConfig?.enabled ? Wrench : LogIn}
+                            colorClass={maintenanceConfig?.enabled ? "text-amber-500" : "text-rose-500"}
+                            accentColor={maintenanceConfig?.enabled ? "bg-gradient-to-tr from-amber-500 to-orange-500" : "bg-gradient-to-tr from-rose-600 to-pink-500"}
+                            activeBorderColor={maintenanceConfig?.enabled ? "border-amber-500" : "border-rose-600"}
+                            hoverBorderColor={maintenanceConfig?.enabled ? "hover:border-amber-500" : "hover:border-rose-600"}
+                            isUnderMaintenance={Boolean(maintenanceConfig?.enabled)}
                         >
                             <div className="flex flex-col h-full justify-between">
                                 <div>
                                     <div className="flex items-center gap-2 mb-2">
-                                        <span className="px-2.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60 text-[10px] font-black uppercase tracking-wider">
-                                            Instant Sync
+                                        <span className={`px-2.5 py-0.5 rounded-full ${
+                                            maintenanceConfig?.enabled
+                                                ? 'bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
+                                                : 'bg-rose-100 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300 border-rose-200 dark:border-rose-800/60'
+                                        } border text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5`}>
+                                            {maintenanceConfig?.enabled && (
+                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                            )}
+                                            {maintenanceConfig?.enabled ? 'Maintenance Active' : 'Instant Sync'}
                                         </span>
                                         <span className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-400">
-                                            Live Portal
+                                            {maintenanceConfig?.enabled ? 'Offline' : 'Live Portal'}
                                         </span>
                                     </div>
-                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mb-1.5">ERP Login</h3>
-                                    <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mb-3">Connect to KL ERP to auto-fetch attendance records and check eligibility without manual entry.</p>
+                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mb-1.5">
+                                        {maintenanceConfig?.enabled ? 'ERP Maintenance' : 'ERP Login'}
+                                    </h3>
+                                    <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mb-3">
+                                        {maintenanceConfig?.enabled
+                                            ? (maintenanceConfig.message || 'ERP login is temporarily paused for system maintenance. Click to view status.')
+                                            : 'Connect to KL ERP to auto-fetch attendance records and check eligibility without manual entry.'}
+                                    </p>
                                 </div>
 
-                                <div className="w-full py-2.5 sm:py-3 bg-rose-50 dark:bg-rose-950/40 group-hover:bg-rose-100 dark:group-hover:bg-rose-900/50 text-rose-900 dark:text-rose-200 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black dark:border-rose-800/60 transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
-                                    <LogIn className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                                    <span>Login to ERP</span>
-                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                <div className={`w-full py-2.5 sm:py-3 ${
+                                    maintenanceConfig?.enabled
+                                        ? 'bg-amber-50 dark:bg-amber-950/40 group-hover:bg-amber-100 dark:group-hover:bg-amber-900/50 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-800/60'
+                                        : 'bg-rose-50 dark:bg-rose-950/40 group-hover:bg-rose-100 dark:group-hover:bg-rose-900/50 text-rose-900 dark:text-rose-200 border-black dark:border-rose-800/60'
+                                } rounded-xl font-bold text-xs sm:text-sm text-center border-2 transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto`}>
+                                    {maintenanceConfig?.enabled ? (
+                                        <>
+                                            <Wrench className="w-4 h-4 text-amber-600 dark:text-amber-400 animate-bounce" />
+                                            <span>Under Maintenance — View Status</span>
+                                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                        </>
+                                    ) : (
+                                        <>
+                                            <LogIn className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                                            <span>Login to ERP</span>
+                                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         </ThreeDParallaxCard>

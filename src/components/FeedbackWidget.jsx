@@ -35,7 +35,7 @@ export default function FeedbackWidget() {
     const location = useLocation();
     const { currentUser, erpUser } = useAuth();
 
-    const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || erpUser?.id || '';
+    const activeId = erpUser || localStorage.getItem('activeErpUser') || '';
     const userEmail = currentUser?.email || '';
 
     const handleOpen = () => {

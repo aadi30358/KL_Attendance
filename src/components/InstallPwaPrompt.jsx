@@ -109,40 +109,40 @@ export const InstallPwaPrompt = () => {
                 )}
             </AnimatePresence>
 
-            {/* Small Sleek Install Pop-up - Positioned above Feedback button so it never obstructs it */}
+            {/* Small Sleek Install Pop-up - Compact on mobile so it never obstructs content */}
             <AnimatePresence>
                 {showBanner && (
                     <motion.div
-                        initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                        initial={{ opacity: 0, y: 20, scale: 0.95 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 30, scale: 0.95 }}
+                        exit={{ opacity: 0, y: 20, scale: 0.95 }}
                         transition={{ type: "spring", stiffness: 350, damping: 25 }}
-                        className="fixed bottom-24 right-4 left-4 sm:left-auto sm:bottom-20 sm:right-6 sm:w-80 z-40 bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-2xl p-3 rounded-2xl flex items-center justify-between gap-3 text-slate-900"
+                        className="fixed bottom-20 right-3 sm:right-6 sm:bottom-20 z-40 max-w-[275px] sm:max-w-none sm:w-80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/90 dark:border-slate-800 shadow-xl p-2 sm:p-3 rounded-xl sm:rounded-2xl flex items-center justify-between gap-2 sm:gap-3 text-slate-900 dark:text-white"
                     >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-sky-500 flex items-center justify-center shrink-0 shadow-sm">
-                                <Smartphone className="w-4 h-4 text-white" />
+                        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+                            <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-gradient-to-tr from-indigo-600 to-sky-500 flex items-center justify-center shrink-0 shadow-xs">
+                                <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
                             </div>
                             <div className="min-w-0">
-                                <p className="text-xs font-black text-slate-900 truncate">Install App</p>
-                                <p className="text-[10px] text-slate-500 font-semibold truncate">Fast 0.1s offline access</p>
+                                <p className="text-[11px] sm:text-xs font-black text-slate-900 dark:text-white truncate leading-tight">Install App</p>
+                                <p className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-medium truncate">Fast 0.1s offline access</p>
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                             <button
                                 onClick={handleInstallClick}
-                                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1 cursor-pointer"
+                                className="px-2.5 py-1 sm:px-3 sm:py-1.5 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-bold shadow-xs transition-all flex items-center gap-1 cursor-pointer"
                             >
-                                <Download className="w-3.5 h-3.5" />
+                                <Download className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                                 <span>Install</span>
                             </button>
                             <button
                                 onClick={handleDismiss}
-                                className="p-1 text-slate-400 hover:text-slate-700 rounded-lg transition-colors cursor-pointer"
+                                className="p-0.5 sm:p-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-md sm:rounded-lg transition-colors cursor-pointer"
                                 aria-label="Dismiss"
                             >
-                                <X className="w-4 h-4" />
+                                <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                             </button>
                         </div>
                     </motion.div>
