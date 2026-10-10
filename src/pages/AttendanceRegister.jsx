@@ -141,10 +141,20 @@ const AttendanceRegister = () => {
     const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
-    const [year, setYear] = useState('');
-    const [semester, setSemester] = useState('');
-    const [availableYears, setAvailableYears] = useState([]);
-    const [availableSemesters, setAvailableSemesters] = useState([]);
+    const [year, setYear] = useState('18');
+    const [semester, setSemester] = useState('Odd');
+    const [availableYears, setAvailableYears] = useState([
+        { value: '18', text: '2026-2027 (26-27)' },
+        { value: '17', text: '2025-2026 (25-26)' },
+        { value: '16', text: '2024-2025 (24-25)' },
+        { value: '15', text: '2023-2024 (23-24)' }
+    ]);
+    const [availableSemesters, setAvailableSemesters] = useState([
+        { value: 'Odd', text: 'Odd Sem' },
+        { value: 'Even', text: 'Even Sem' },
+        { value: 'Summer', text: 'Summer Term' },
+        { value: 'Term3', text: 'Term 3' }
+    ]);
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
     const [debugHtml, setDebugHtml] = useState(null);
