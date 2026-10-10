@@ -1,7 +1,7 @@
 // KL Attendance - High-Speed Real-time Service Worker
 // Automatically versioned on build to guarantee zero-lag deployment updates
 
-const CACHE_NAME = 'kl-attendance-v1791641288152';
+const CACHE_NAME = 'kl-attendance-v1791641702638';
 const STATIC_EXTENSIONS = ['.js', '.css', '.woff2', '.woff', '.ttf', '.svg', '.png', '.webp', '.ico'];
 
 self.addEventListener('install', () => {
@@ -42,26 +42,53 @@ self.addEventListener('fetch', (event) => {
   if (isStatic) {
     // Stale-While-Revalidate: serve cached version instantly for 60fps speed, refresh in background
     event.respondWith(
-      caches.open(CACHE_NAME).then(async cache => {
-        const cached = await cache.match(request);
-        const fetchPromise = fetch(request).then(networkRes => {
-          if (networkRes && networkRes.status === 200) {
+      caches.open(CACHE_NAME).then(async (cache) => {
+        try {
+          const cached = await cache.match(request);
+          if (cached) {
+            // Revalidate in background
+            fetch(request).then((networkRes) => {
+              if (networkRes && networkRes.ok) {
+                cache.put(request, networkRes.clone());
+              }
+            }).catch(() => {});
+            return cached;
+          }
+          const networkRes = await fetch(request);
+          if (networkRes && networkRes.ok) {
             cache.put(request, networkRes.clone());
           }
           return networkRes;
-        }).catch(() => cached);
-
-        return cached || fetchPromise;
+        } catch {
+          const fallback = await cache.match(request);
+          if (fallback) return fallback;
+          return fetch(request);
+        }
       })
     );
   } else {
     // Network-First for HTML navigation: always get the absolute latest build from server
     event.respondWith(
       fetch(request)
-        .then(networkRes => {
+        .then((networkRes) => {
+          if (networkRes && networkRes.ok) {
+            const clone = networkRes.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+          }
           return networkRes;
         })
-        .catch(() => caches.match(request))
+        .catch(async () => {
+          const cached = await caches.match(request);
+          if (cached) return cached;
+          const fallbackIndex = await caches.match('/');
+          if (fallbackIndex) return fallbackIndex;
+          const fallbackHtml = await caches.match('/index.html');
+          if (fallbackHtml) return fallbackHtml;
+          return new Response(
+            '<!DOCTYPE html><html><body><h1>Offline</h1><p>Please check your connection and reload.</p></body></html>',
+            { status: 200, headers: { 'Content-Type': 'text/html' } }
+          );
+        })
     );
   }
 });

@@ -1,7 +1,7 @@
 /**
  * Developer Console Portfolio & Social Links Easter Egg
  * Displays developer info, socials, and interactive helper commands in the browser console.
- * Strictly prints once per session to keep console clean and fast.
+ * Opens portfolio when user presses F12 or inspects the page.
  */
 
 const DEFAULT_PORTFOLIO = 'https://garlapatiyaswanthadithya.web.app/';
@@ -30,9 +30,29 @@ export const setPortfolioUrl = (url) => {
 
 // Singleton guard so developer info prints strictly once per session
 let hasPrintedConsole = false;
+let lastOpenTime = 0;
+
+export const triggerPortfolioLaunch = () => {
+    const now = Date.now();
+    if (now - lastOpenTime < 6000) return; // 6s debounce
+    lastOpenTime = now;
+
+    try {
+        const url = getPortfolioUrl();
+        window.open(url, '_blank', 'noopener,noreferrer');
+    } catch {
+        // handled
+    }
+
+    // Dispatch modal asking for Instagram, LinkedIn, GitHub, Telegram
+    window.dispatchEvent(new CustomEvent('kl_open_dev_modal', {
+        detail: { openedPortfolio: true }
+    }));
+};
 
 /**
  * Prints the exact requested Developer Info banner in Console
+ * Formatted with separate lines so each link is clean, visible, and clickable
  */
 export const printConsolePortfolio = (force = false) => {
     if (hasPrintedConsole && !force) return;
@@ -48,22 +68,14 @@ export const printConsolePortfolio = (force = false) => {
     const commandBadge = 'background: #1e1b4b; color: #a5b4fc; padding: 2px 6px; border-radius: 4px; font-weight: 800; font-family: monospace; font-size: 11px;';
 
     console.log('%c🚀 KL Attendance Calculator — Developer Info', titleStyle);
-    console.log(
-        `%c👨‍💻 Developer : %cYaswanth Adithya Reddy\n` +
-        `%c🌐 Portfolio : %c${portfolioUrl}\n` +
-        `%c🐙 GitHub    : %c${GITHUB_URL}\n` +
-        `%c💼 LinkedIn  : %c${LINKEDIN_URL}\n` +
-        `%c📸 Instagram : %c${INSTAGRAM_URL}\n` +
-        `%c✈️ Telegram  : %c${TELEGRAM_URL}\n\n` +
-        `%c💡 Commands: Type %cportfolio()%c or click any link above to open directly!`,
-        labelStyle, valueStyle,
-        labelStyle, linkStyle,
-        labelStyle, linkStyle,
-        labelStyle, linkStyle,
-        labelStyle, linkStyle,
-        labelStyle, linkStyle,
-        tipStyle, commandBadge, tipStyle
-    );
+    console.log('%c👨‍💻 Developer : %cYaswanth Adithya Reddy', labelStyle, valueStyle);
+    console.log('%c🌐 Portfolio : %c' + portfolioUrl, labelStyle, linkStyle);
+    console.log('%c🐙 GitHub    : %c' + GITHUB_URL, labelStyle, linkStyle);
+    console.log('%c💼 LinkedIn  : %c' + LINKEDIN_URL, labelStyle, linkStyle);
+    console.log('%c📸 Instagram : %c' + INSTAGRAM_URL, labelStyle, linkStyle);
+    console.log('%c✈️ Telegram  : %c' + TELEGRAM_URL, labelStyle, linkStyle);
+    console.log('');
+    console.log('%c💡 Commands: Type %cportfolio()%c, %cinstagram()%c, %clinkedin()%c, %cgithub()%c, or %ctelegram()%c to open directly!', tipStyle, commandBadge, tipStyle, commandBadge, tipStyle, commandBadge, tipStyle, commandBadge, tipStyle, commandBadge, tipStyle);
 };
 
 export const initConsolePortfolio = () => {
@@ -104,35 +116,38 @@ export const initConsolePortfolio = () => {
     // Print strictly once on mount
     printConsolePortfolio(false);
 
-    // F12 Keybinding Handler:
-    // Opens portfolio directly in a new tab AND displays the selection modal for Instagram / LinkedIn / GitHub / Telegram
+    // Keydown handler for F12 and Inspect shortcuts (Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C)
     const handleKeydown = (e) => {
         const isF12 = e.key === 'F12';
-        const isInspect = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j');
+        const isInspect = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c');
 
         if (isF12 || isInspect) {
-            // Attempt to directly open Portfolio
-            let openedDirectly = false;
-            try {
-                const url = getPortfolioUrl();
-                const win = window.open(url, '_blank', 'noopener,noreferrer');
-                if (win) {
-                    openedDirectly = true;
-                }
-            } catch {
-                openedDirectly = false;
-            }
-
-            // Also open on-screen dialog asking for Instagram, LinkedIn, GitHub, or Telegram
-            window.dispatchEvent(new CustomEvent('kl_open_dev_modal', {
-                detail: { openedPortfolio: openedDirectly }
-            }));
+            triggerPortfolioLaunch();
         }
     };
 
     window.addEventListener('keydown', handleKeydown);
 
+    // Detect DevTools opening (e.g. via right-click Inspect)
+    let devtoolsOpen = false;
+    const checkDevTools = () => {
+        const threshold = 160;
+        const widthDiff = window.outerWidth - window.innerWidth > threshold;
+        const heightDiff = window.outerHeight - window.innerHeight > threshold;
+        if (widthDiff || heightDiff) {
+            if (!devtoolsOpen) {
+                devtoolsOpen = true;
+                triggerPortfolioLaunch();
+            }
+        } else {
+            devtoolsOpen = false;
+        }
+    };
+
+    window.addEventListener('resize', checkDevTools, { passive: true });
+
     return () => {
         window.removeEventListener('keydown', handleKeydown);
+        window.removeEventListener('resize', checkDevTools);
     };
 };
