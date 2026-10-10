@@ -166,7 +166,24 @@ export const erpService = {
             localStorage.setItem('erp_csrf_token', csrfToken);
         }
 
-        return { csrfToken };
+        const captchaImg = doc.querySelector('#loginFormCaptcha-image')?.getAttribute('src');
+        let captchaBlob = null;
+        if (captchaImg) {
+            try {
+                const imgUrl = `${apiBase || ''}${captchaImg.startsWith('/') ? '' : '/'}${captchaImg.replace(/&amp;/g, '&')}`;
+                const imgResp = await fetch(imgUrl, {
+                    credentials: 'include',
+                    cache: 'no-store'
+                });
+                if (imgResp.ok) {
+                    captchaBlob = await imgResp.blob();
+                }
+            } catch (e) {
+                console.warn("[ERP] Could not fetch initial captcha image:", e);
+            }
+        }
+
+        return { csrfToken, captchaBlob };
     },
 
     // Refresh captcha directly via ERP endpoint
