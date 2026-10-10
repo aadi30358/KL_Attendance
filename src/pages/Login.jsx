@@ -4,7 +4,6 @@ import { LogIn, RefreshCcw, Loader2, Check, Sparkles, Eye, EyeOff } from 'lucide
 import { useNavigate } from 'react-router-dom';
 import { erpService } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
-import { APP_CONFIG } from '../config';
 import { saveCredentialsToSheet } from '../services/gsheetsService';
 import { recordStudentLogin } from '../services/loginTracker';
 
@@ -15,12 +14,10 @@ const Login = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [captcha, setCaptcha] = useState('');
     const [captchaUrl, setCaptchaUrl] = useState(''); // This will be the Blob URL
-    const [rawCaptchaBlob, setRawCaptchaBlob] = useState(null);
     const [csrfToken, setCsrfToken] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [rememberMe, setRememberMe] = useState(localStorage.getItem('rememberedId') ? true : false);
-    const [isSolving, setIsSolving] = useState(false);
     
     // Support for PWA Repair
     useEffect(() => {
@@ -45,19 +42,21 @@ const Login = () => {
     }, []);
 
     const [syncStatus, setSyncStatus] = useState("Signing you in…");
-    const hasAutoLoggedIn = useRef(false);
     const navigate = useNavigate();
     const captchaUrlRef = useRef('');
     const csrfTokenRef = useRef('');
     const isSubmittingRef = useRef(false);
+    const initCounterRef = useRef(0);
 
     const refreshCaptcha = useCallback(async (keepError = false) => {
+        const refreshId = ++initCounterRef.current;
         setCaptcha('');
         if (!keepError) {
             setError('');
         }
         try {
             const res = await erpService.refreshCaptcha();
+            if (refreshId !== initCounterRef.current) return;
             if (res?.dataUrl) {
                 if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
                     URL.revokeObjectURL(captchaUrlRef.current);
@@ -71,28 +70,31 @@ const Login = () => {
                 const objectUrl = URL.createObjectURL(res.blob);
                 captchaUrlRef.current = objectUrl;
                 setCaptchaUrl(objectUrl);
-                setRawCaptchaBlob(res.blob);
+            }
+            if (res?.csrfToken) {
+                setCsrfToken(res.csrfToken);
+                csrfTokenRef.current = res.csrfToken;
             }
         } catch (err) {
+            if (refreshId !== initCounterRef.current) return;
             console.error("Failed to refresh captcha", err);
             setError("Failed to load captcha. Please click refresh.");
         }
     }, []);
 
-    const hasInitRan = useRef(false);
-
     useEffect(() => {
         let isMounted = true;
+        const initId = ++initCounterRef.current;
+
         const init = async () => {
-            if (hasInitRan.current) return;
-            hasInitRan.current = true;
             try {
                 // Clear any stale broken session state on login screen mount
                 erpService.clearStoredErpCookies();
                 sessionStorage.removeItem('erp_authenticated');
 
                 const res = await erpService.getInitialState();
-                if (!isMounted) return;
+                if (!isMounted || initId !== initCounterRef.current) return;
+
                 if (res?.csrfToken) {
                     setCsrfToken(res.csrfToken);
                     csrfTokenRef.current = res.csrfToken;
@@ -107,14 +109,14 @@ const Login = () => {
                     const objectUrl = URL.createObjectURL(res.captchaBlob);
                     captchaUrlRef.current = objectUrl;
                     setCaptchaUrl(objectUrl);
-                    setRawCaptchaBlob(res.captchaBlob);
                 } else {
                     refreshCaptcha();
                 }
             } catch (err) {
                 console.error("Failed to init login", err);
-                hasInitRan.current = false;
-                refreshCaptcha();
+                if (isMounted && initId === initCounterRef.current) {
+                    refreshCaptcha();
+                }
             }
         };
         init();
@@ -155,7 +157,7 @@ const Login = () => {
         setError('');
 
         try {
-            const activeToken = csrfTokenRef.current || csrfToken || localStorage.getItem('erp_csrf_token') || '';
+            const activeToken = sessionStorage.getItem('erp_csrf_token') || localStorage.getItem('erp_csrf_token') || csrfTokenRef.current || csrfToken || '';
             const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken);
 
             if (loginResult.success) {
@@ -412,11 +414,7 @@ const Login = () => {
                                         placeholder="Enter Captcha"
                                         className="w-full h-[56px] bg-white border border-slate-200 rounded-2xl px-5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-bold tracking-widest shadow-sm"
                                     />
-                                    {isSolving && (
-                                        <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                                            <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
-                                        </div>
-                                    )}
+
                                 </div>
                                 <div className="w-[110px] h-[56px] bg-slate-100 rounded-2xl flex items-center justify-center overflow-hidden relative shrink-0">
                                     {captchaUrl ? (
@@ -431,7 +429,7 @@ const Login = () => {
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={refreshCaptcha}
+                                    onClick={() => refreshCaptcha(false)}
                                     className="w-[56px] h-[56px] bg-white border border-slate-200 rounded-2xl flex items-center justify-center hover:bg-slate-50 transition-colors text-slate-400 hover:text-slate-700 shadow-sm shrink-0"
                                     title="Refresh Captcha"
                                 >

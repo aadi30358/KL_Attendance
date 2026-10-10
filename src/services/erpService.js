@@ -1,4 +1,4 @@
-import { SEMESTER_MAP, getAcademicYearCode, getCandidateYearIdsForYear } from '../config/api';
+import { SEMESTER_MAP, getCandidateYearIdsForYear } from '../config/api';
 import { APP_CONFIG } from '../config';
 
 const FALLBACK_ERP_BASE = 'https://kl-attendance-api.yaswanthadithyareddy10.workers.dev';
@@ -6,11 +6,14 @@ const FALLBACK_ERP_BASE = 'https://kl-attendance-api.yaswanthadithyareddy10.work
 export const getErpBase = () => {
     if (typeof window !== 'undefined') {
         const hostname = window.location.hostname;
-        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
             return '';
         }
     }
-    return APP_CONFIG.API_URL || FALLBACK_ERP_BASE;
+    if (APP_CONFIG.API_URL && !APP_CONFIG.API_URL.includes('localhost') && APP_CONFIG.API_URL.startsWith('https://')) {
+        return APP_CONFIG.API_URL;
+    }
+    return FALLBACK_ERP_BASE;
 };
 
 export const getStoredErpCookies = () => {
@@ -20,6 +23,8 @@ export const getStoredErpCookies = () => {
         return '';
     }
 };
+
+const IGNORED_COOKIE_ATTRS = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned']);
 
 export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = false } = {}) => {
     try {
@@ -31,13 +36,16 @@ export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = false }
             if (existing) {
                 existing.split(';').forEach(pair => {
                     const [k, ...v] = pair.split('=');
-                    if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+                    if (k && k.trim() && !IGNORED_COOKIE_ATTRS.has(k.trim().toLowerCase())) {
+                        cookieMap.set(k.trim(), v.join('=').trim());
+                    }
                 });
             }
             newCookies.split(';').forEach(pair => {
                 const [k, ...v] = pair.split('=');
                 if (k && k.trim()) {
                     const key = k.trim();
+                    if (IGNORED_COOKIE_ATTRS.has(key.toLowerCase())) return;
                     const val = v.join('=').trim();
                     const isAuthenticated = sessionStorage.getItem('erp_authenticated') === 'true';
                     if (key === 'PHPSESSID' && cookieMap.has('PHPSESSID') && isAuthenticated && !forceAuthUpdate) {
@@ -69,12 +77,9 @@ export const clearStoredErpCookies = () => {
 
 const buildErpHeaders = (extraHeaders = {}) => {
     const headers = { ...extraHeaders };
-    const apiBase = getErpBase();
-    if (apiBase) {
-        const cookie = getStoredErpCookies();
-        if (cookie) {
-            headers['x-erp-cookie'] = cookie;
-        }
+    const cookie = getStoredErpCookies();
+    if (cookie) {
+        headers['x-erp-cookie'] = cookie;
     }
     return headers;
 };
@@ -88,20 +93,45 @@ export const erpService = {
     // Fetch the login page to scrape CSRF token and initial captcha atomically
     async getInitialState() {
         const apiBase = getErpBase();
-        const isLocalHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-        // 1. In production (Firebase Hosting / custom domain), fast single-trip session initialization via Cloudflare edge
-        if (!isLocalHost && (apiBase || (typeof window !== 'undefined' && (window.location.hostname.includes('.web.app') || window.location.hostname.includes('firebaseapp.com'))))) {
+        // 1. Fast single-trip session initialization via /api/session-init
+        try {
+            const resp = await fetch(`${apiBase || ''}/api/session-init`, {
+                cache: 'no-store',
+                headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+            });
+            if (resp.ok) {
+                const data = await resp.json().catch(() => null);
+                if (data && data.success && data.csrfToken) {
+                    saveErpCookiesFromResponse(resp);
+                    if (data.cookies) {
+                        sessionStorage.setItem('erp_session_cookie', data.cookies);
+                        localStorage.setItem('erp_session_cookie', data.cookies);
+                    }
+                    if (data.csrfToken) {
+                        sessionStorage.setItem('erp_csrf_token', data.csrfToken);
+                        localStorage.setItem('erp_csrf_token', data.csrfToken);
+                    }
+                    return {
+                        csrfToken: data.csrfToken,
+                        captchaUrl: data.captchaUrl
+                    };
+                }
+            }
+        } catch (e) {
+            console.warn("[ERP] /api/session-init error, attempting fallback:", e);
+        }
+
+        // 2. Production fallback via Cloudflare edge if relative was not available
+        if (apiBase !== FALLBACK_ERP_BASE && typeof window !== 'undefined' && (window.location.hostname.includes('.web.app') || window.location.hostname.includes('firebaseapp.com'))) {
             try {
-                const target = apiBase || FALLBACK_ERP_BASE;
-                const resp = await fetch(`${target}/api/session-init`, {
+                const resp = await fetch(`${FALLBACK_ERP_BASE}/api/session-init`, {
                     cache: 'no-store',
                     headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
                 });
                 if (resp.ok) {
-                    const data = await resp.json();
+                    const data = await resp.json().catch(() => null);
                     if (data && data.success && data.csrfToken) {
-                        saveErpCookiesFromResponse(resp);
                         if (data.cookies) {
                             sessionStorage.setItem('erp_session_cookie', data.cookies);
                             localStorage.setItem('erp_session_cookie', data.cookies);
@@ -117,45 +147,22 @@ export const erpService = {
                     }
                 }
             } catch (e) {
-                console.warn("[ERP] Edge /api/session-init error, attempting fallback:", e);
+                console.warn("[ERP] Edge /api/session-init fallback error:", e);
             }
         }
 
-        // 2. Direct / relative flow (for localhost Vite proxy)
+        // 3. Direct scraping flow via /index.php
         const timestamp = new Date().getTime();
-        let response = await fetch(`${apiBase}/index.php?_t=${timestamp}`, { 
+        let response = await fetch(`${apiBase || ''}/index.php?_t=${timestamp}`, { 
             credentials: 'include',
             cache: 'no-store',
-            headers: {
+            headers: buildErpHeaders({
                 'Pragma': 'no-cache',
                 'Cache-Control': 'no-cache'
-            }
+            })
         });
 
         let html = await response.text();
-        // If relative URL returned SPA index.html (Firebase static rewrite), fall back to Cloudflare edge
-        if (!isLocalHost && (html.includes('<div id="root">') || html.includes('/vite.svg') || !html.includes('_csrf'))) {
-            const resp = await fetch(`${FALLBACK_ERP_BASE}/api/session-init`, {
-                cache: 'no-store',
-                headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
-            });
-            const data = await resp.json();
-            if (data && data.success && data.csrfToken) {
-                if (data.cookies) {
-                    sessionStorage.setItem('erp_session_cookie', data.cookies);
-                    localStorage.setItem('erp_session_cookie', data.cookies);
-                }
-                if (data.csrfToken) {
-                    sessionStorage.setItem('erp_csrf_token', data.csrfToken);
-                    localStorage.setItem('erp_csrf_token', data.csrfToken);
-                }
-                return {
-                    csrfToken: data.csrfToken,
-                    captchaUrl: data.captchaUrl
-                };
-            }
-        }
-
         saveErpCookiesFromResponse(response);
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
@@ -173,9 +180,11 @@ export const erpService = {
                 const imgUrl = `${apiBase || ''}${captchaImg.startsWith('/') ? '' : '/'}${captchaImg.replace(/&amp;/g, '&')}`;
                 const imgResp = await fetch(imgUrl, {
                     credentials: 'include',
-                    cache: 'no-store'
+                    cache: 'no-store',
+                    headers: buildErpHeaders()
                 });
                 if (imgResp.ok) {
+                    saveErpCookiesFromResponse(imgResp);
                     captchaBlob = await imgResp.blob();
                 }
             } catch (e) {
@@ -189,84 +198,83 @@ export const erpService = {
     // Refresh captcha directly via ERP endpoint
     async refreshCaptcha() {
         const apiBase = getErpBase();
-        const isLocalHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-        // 1. If using edge worker (production), call /api/refresh-captcha
-        if (!isLocalHost && apiBase && apiBase.includes('workers.dev')) {
+        // 1. Fast captcha refresh via /api/refresh-captcha
+        try {
+            const resp = await fetch(`${apiBase || ''}/api/refresh-captcha`, {
+                headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
+            });
+            if (resp.ok) {
+                const data = await resp.json().catch(() => null);
+                if (data && data.success && data.captchaUrl) {
+                    saveErpCookiesFromResponse(resp);
+                    if (data.cookies) {
+                        sessionStorage.setItem('erp_session_cookie', data.cookies);
+                        localStorage.setItem('erp_session_cookie', data.cookies);
+                    }
+                    if (data.csrfToken) {
+                        sessionStorage.setItem('erp_csrf_token', data.csrfToken);
+                        localStorage.setItem('erp_csrf_token', data.csrfToken);
+                    }
+                    return { dataUrl: data.captchaUrl, csrfToken: data.csrfToken };
+                }
+            }
+        } catch (e) {
+            console.warn("[ERP] /api/refresh-captcha error, attempting fallback:", e);
+        }
+
+        // Fallback to Cloudflare edge if relative failed in production
+        if (apiBase !== FALLBACK_ERP_BASE && typeof window !== 'undefined' && (window.location.hostname.includes('.web.app') || window.location.hostname.includes('firebaseapp.com'))) {
             try {
-                const resp = await fetch(`${apiBase}/api/refresh-captcha`, {
+                const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
                     headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
                 });
                 if (resp.ok) {
-                    const data = await resp.json();
+                    const data = await resp.json().catch(() => null);
                     if (data && data.success && data.captchaUrl) {
+                        saveErpCookiesFromResponse(resp);
                         if (data.cookies) {
-                            saveErpCookiesFromResponse({ headers: new Headers({ 'x-set-erp-cookie': data.cookies }) });
+                            sessionStorage.setItem('erp_session_cookie', data.cookies);
+                            localStorage.setItem('erp_session_cookie', data.cookies);
                         }
                         return { dataUrl: data.captchaUrl };
                     }
                 }
             } catch (e) {
-                console.warn("[ERP] /api/refresh-captcha edge error:", e);
+                console.warn("[ERP] Edge /api/refresh-captcha fallback error:", e);
             }
         }
 
-        // 2. Fetch directly from /index.php?r=site%2Fcaptcha (for localhost Vite proxy)
+        // 2. Direct fallback via /index.php?r=site%2Fcaptcha
         try {
-            const url = `${apiBase || ''}/index.php?r=site%2Fcaptcha&v=${Math.random()}`;
-            const headers = {
-                'Pragma': 'no-cache',
-                'Cache-Control': 'no-cache'
-            };
-            if (apiBase) {
-                const cookie = getStoredErpCookies();
-                if (cookie) headers['x-erp-cookie'] = cookie;
-            }
-
-            let imgResp = await fetch(url, {
+            const refreshResp = await fetch(`${apiBase || ''}/index.php?r=site%2Fcaptcha&refresh=1`, {
                 credentials: 'include',
                 cache: 'no-store',
-                headers
+                headers: buildErpHeaders({
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache'
+                })
             });
-
-            const contentType = imgResp.headers.get('content-type') || '';
-            if (!isLocalHost && (contentType.includes('text/html') || !imgResp.ok)) {
-                // Firebase hosting SPA fallback detected! Switch to edge worker
-                const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
-                    headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
-                });
-                const data = await resp.json();
-                if (data && data.success && data.captchaUrl) {
-                    if (data.cookies) {
-                        saveErpCookiesFromResponse({ headers: new Headers({ 'x-set-erp-cookie': data.cookies }) });
-                    }
-                    return { dataUrl: data.captchaUrl };
-                }
+            saveErpCookiesFromResponse(refreshResp);
+            const refreshData = await refreshResp.json().catch(() => null);
+            let imgUrl = refreshData?.url || `/index.php?r=site%2Fcaptcha&v=${Math.random()}`;
+            if (!imgUrl.startsWith('http') && apiBase) {
+                imgUrl = `${apiBase}${imgUrl.startsWith('/') ? '' : '/'}${imgUrl}`;
             }
 
+            const imgResp = await fetch(imgUrl, {
+                credentials: 'include',
+                cache: 'no-store',
+                headers: buildErpHeaders({
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache'
+                })
+            });
             saveErpCookiesFromResponse(imgResp);
             const blob = await imgResp.blob();
-            if (!isLocalHost && blob.type && !blob.type.startsWith('image/')) {
-                const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
-                    headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
-                });
-                const data = await resp.json();
-                if (data && data.success && data.captchaUrl) {
-                    return { dataUrl: data.captchaUrl };
-                }
-            }
-            return { blob, url };
+            return { blob, url: imgUrl };
         } catch (e) {
             console.error('[ERP] refreshCaptcha error:', e);
-            if (!isLocalHost) {
-                const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
-                    headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
-                });
-                const data = await resp.json();
-                if (data && data.success && data.captchaUrl) {
-                    return { dataUrl: data.captchaUrl };
-                }
-            }
             throw e;
         }
     },
@@ -274,7 +282,6 @@ export const erpService = {
     // Login function
     async login(username, password, captcha, csrfToken) {
         const apiBase = getErpBase();
-        const isLocalHost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
         let token = csrfToken || sessionStorage.getItem('erp_csrf_token') || localStorage.getItem('erp_csrf_token');
         if (!token) {
@@ -282,23 +289,63 @@ export const erpService = {
             token = initRes?.csrfToken;
         }
 
+        // 1. Try high-performance /api/fast-login endpoint
+        try {
+            const resp = await fetch(`${apiBase || ''}/api/fast-login`, {
+                method: 'POST',
+                headers: buildErpHeaders({
+                    'Content-Type': 'application/json'
+                }),
+                body: JSON.stringify({
+                    username: username.trim(),
+                    password,
+                    captcha: captcha.trim(),
+                    csrfToken: token
+                })
+            });
+
+            saveErpCookiesFromResponse(resp);
+            const data = await resp.json().catch(() => null);
+
+            if (data) {
+                if (data.cookies) {
+                    sessionStorage.setItem('erp_session_cookie', data.cookies);
+                    localStorage.setItem('erp_session_cookie', data.cookies);
+                }
+                if (data.csrfToken) {
+                    sessionStorage.setItem('erp_csrf_token', data.csrfToken);
+                    localStorage.setItem('erp_csrf_token', data.csrfToken);
+                }
+                if (data.success) {
+                    sessionStorage.setItem('erp_authenticated', 'true');
+                    return { success: true, html: data.html || '' };
+                }
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+            }
+        } catch (fastErr) {
+            if (fastErr.message && !fastErr.message.includes('fetch') && !fastErr.message.includes('NetworkError') && !fastErr.message.includes('Failed to fetch')) {
+                throw fastErr;
+            }
+            console.warn("[ERP] fast-login endpoint unavailable, trying direct POST:", fastErr);
+        }
+
+        // 2. Direct POST to /index.php?r=site%2Flogin
         const formData = new URLSearchParams();
         formData.append('_csrf', token || '');
-        formData.append('LoginForm[username]', username);
+        formData.append('LoginForm[username]', username.trim());
         formData.append('LoginForm[password]', password);
         formData.append('LoginForm[rememberMe]', '0');
-        formData.append('LoginForm[captcha]', captcha);
+        formData.append('LoginForm[captcha]', captcha.trim());
+        formData.append('LoginForm[qr_code]', '');
         formData.append('login-button', '');
 
-        const headers = {
+        const headers = buildErpHeaders({
             'Content-Type': 'application/x-www-form-urlencoded',
             'Pragma': 'no-cache',
             'Cache-Control': 'no-cache'
-        };
-        if (apiBase) {
-            const cookie = getStoredErpCookies();
-            if (cookie) headers['x-erp-cookie'] = cookie;
-        }
+        });
 
         let url = `${apiBase || ''}/index.php?r=site%2Flogin`;
         let response = await fetch(url, {
@@ -310,25 +357,9 @@ export const erpService = {
         });
 
         let html = await response.text();
-        // Fallback to edge worker only if relative URL returned SPA index.html on Firebase static hosting
-        if (!isLocalHost && (html.includes('<div id="root">') || html.includes('/vite.svg')) && apiBase !== FALLBACK_ERP_BASE) {
-            url = `${FALLBACK_ERP_BASE}/index.php?r=site%2Flogin`;
-            const fbHeaders = { ...headers };
-            const cookie = getStoredErpCookies();
-            if (cookie) fbHeaders['x-erp-cookie'] = cookie;
-            response = await fetch(url, {
-                method: 'POST',
-                headers: fbHeaders,
-                body: formData,
-                credentials: 'include',
-                cache: 'no-store'
-            });
-            html = await response.text();
-        }
-
         saveErpCookiesFromResponse(response, { forceAuthUpdate: true });
 
-        // HTTP error check (HTTP 400 Bad Request, 500, etc. are errors, not successes)
+        // HTTP error check
         if (!response.ok || response.status >= 400) {
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
@@ -337,12 +368,7 @@ export const erpService = {
             if (alertText && !alertText.includes('The above error occurred')) {
                 throw new Error(alertText);
             }
-            throw new Error(`Login session expired or rejected (HTTP ${response.status}). Please refresh captcha and try again.`);
-        }
-
-        // Check for Yii2 generic error page (site-error)
-        if (html.includes('site-error') || html.includes('The above error occurred while the Web server was processing your request')) {
-            throw new Error("Session expired or invalid data submission. Please refresh and try again.");
+            throw new Error(`Login session rejected (HTTP ${response.status}). Please refresh captcha and try again.`);
         }
 
         const parser = new DOMParser();
@@ -356,7 +382,7 @@ export const erpService = {
 
         const captchaError = doc.querySelector('.field-loginFormCaptcha .help-block, .field-loginform-captcha .help-block');
         if (captchaError && captchaError.textContent.trim()) {
-            throw new Error(captchaError.textContent.trim() || "Invalid Captcha");
+            throw new Error(captchaError.textContent.trim() || "The verification code is incorrect.");
         }
 
         const generalError = doc.querySelector('.text-danger:not(span)');
@@ -369,7 +395,7 @@ export const erpService = {
             const txt = el.textContent.trim();
             if (txt && !txt.includes('*') && txt !== 'Enter Username' && txt !== 'Enter Password') {
                 if (txt.toLowerCase().includes('verification code') || txt.toLowerCase().includes('captcha')) {
-                    throw new Error("Invalid Captcha");
+                    throw new Error("The verification code is incorrect.");
                 }
                 if (txt.toLowerCase().includes('incorrect username') || txt.toLowerCase().includes('password')) {
                     throw new Error(txt);
@@ -521,17 +547,13 @@ export const erpService = {
     async getAvailableSessions() {
         try {
             const apiBase = getErpBase();
-            const headers = {
+            const headers = buildErpHeaders({
                 'Pragma': 'no-cache',
                 'Cache-Control': 'no-cache',
                 'X-Requested-With': 'XMLHttpRequest'
-            };
-            if (apiBase) {
-                const cookie = getStoredErpCookies();
-                if (cookie) headers['x-erp-cookie'] = cookie;
-            }
+            });
 
-            let resp = await fetch(`${apiBase}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
+            let resp = await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
                 method: 'GET',
                 credentials: 'include',
                 cache: 'no-store',
@@ -541,14 +563,11 @@ export const erpService = {
             let html = resp.ok ? await resp.text() : '';
             if (!resp.ok || resp.status === 404 || html.includes('<div id="root">') || html.includes('/vite.svg')) {
                 const target = apiBase || FALLBACK_ERP_BASE;
-                const fbHeaders = { ...headers };
-                const cookie = getStoredErpCookies();
-                if (cookie) fbHeaders['x-erp-cookie'] = cookie;
                 resp = await fetch(`${target}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
                     method: 'GET',
                     credentials: 'include',
                     cache: 'no-store',
-                    headers: fbHeaders
+                    headers: buildErpHeaders(headers)
                 });
                 if (resp.ok) html = await resp.text();
             }
@@ -570,7 +589,46 @@ export const erpService = {
     async fetchAttendance(year, semester) {
         console.log(`[ERP] Fetch Attendance initiated -> Year: "${year}", Semester: "${semester}"`);
 
-        // 1. Prime the controller session and discover dynamic options
+        const apiBase = getErpBase();
+        const csrfToken = this.getCachedCsrfToken();
+
+        // 1. Try high-performance /api/fast-attendance endpoint first (< 1s execution)
+        try {
+            const resp = await fetch(`${apiBase || ''}/api/fast-attendance`, {
+                method: 'POST',
+                headers: buildErpHeaders({
+                    'Content-Type': 'application/json',
+                    ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
+                }),
+                body: JSON.stringify({
+                    year,
+                    semester,
+                    csrfToken: csrfToken || ''
+                })
+            });
+
+            saveErpCookiesFromResponse(resp);
+            if (resp.ok) {
+                const data = await resp.json().catch(() => null);
+                if (data && data.sessionExpired) {
+                    throw new Error("Your session has expired. Please log out and sign in again.");
+                }
+                if (data && data.html) {
+                    const parsed = this.parseSubjects(data.html);
+                    if (parsed.length > 0) {
+                        console.log(`[ERP] Fast-attendance successfully fetched ${parsed.length} courses!`);
+                        return parsed;
+                    }
+                }
+            }
+        } catch (fastErr) {
+            if (fastErr.message?.includes('expired') || fastErr.message?.includes('sign in')) {
+                throw fastErr;
+            }
+            console.warn("[ERP] Fast-attendance endpoint failed, trying direct courselist discovery:", fastErr.message);
+        }
+
+        // 2. Prime the controller session and discover dynamic options
         let sessionInfo = null;
         try {
             sessionInfo = await this.getAvailableSessions();
@@ -578,9 +636,9 @@ export const erpService = {
             console.warn("[ERP] Session priming warning:", e);
         }
 
-        const csrfToken = sessionInfo?.csrfToken || this.getCachedCsrfToken();
+        const effectiveCsrfToken = sessionInfo?.csrfToken || csrfToken;
 
-        // 2. Resolve matching year ID
+        // 3. Resolve matching year ID
         let matchedYearVal = null;
         const reqYearStr = String(year || '').trim().toLowerCase();
 
@@ -607,7 +665,7 @@ export const erpService = {
             }
         }
 
-        // 3. Resolve semester ID
+        // 4. Resolve semester ID
         let semId = SEMESTER_MAP[semester] || '1';
         const reqSemStr = String(semester || '').trim().toLowerCase();
 
@@ -623,7 +681,7 @@ export const erpService = {
             if (semMatch) semId = semMatch.value;
         }
 
-        // 4. Candidate IDs to try (matched first, then standard 2026 mappings, then selected default)
+        // 5. Candidate IDs to try (matched first, then standard 2026 mappings, then selected default)
         const candidateYearIds = getCandidateYearIdsForYear(year, matchedYearVal, sessionInfo?.selectedYear?.value);
         console.log(`[ERP] Candidate Year IDs to query:`, candidateYearIds, `SemId:`, semId);
 
@@ -640,28 +698,23 @@ export const erpService = {
                 formData.append('DynamicModel[semester_id]', String(semId));
                 formData.append('academicyear', String(currentYearId));
                 formData.append('semesterid', String(semId));
-                if (csrfToken) {
-                    formData.append('_csrf', csrfToken);
-                    formData.append('_csrf-frontend', csrfToken);
+                if (effectiveCsrfToken) {
+                    formData.append('_csrf', effectiveCsrfToken);
+                    formData.append('_csrf-frontend', effectiveCsrfToken);
                 }
 
-                const apiBase = getErpBase();
-                const headers = {
+                const headers = buildErpHeaders({
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-Requested-With': 'XMLHttpRequest',
                     'Pragma': 'no-cache',
                     'Cache-Control': 'no-cache',
                     'Referer': 'https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput'
-                };
-                if (apiBase) {
-                    const cookie = getStoredErpCookies();
-                    if (cookie) headers['x-erp-cookie'] = cookie;
-                }
-                if (csrfToken) {
-                    headers['X-CSRF-Token'] = csrfToken;
+                });
+                if (effectiveCsrfToken) {
+                    headers['X-CSRF-Token'] = effectiveCsrfToken;
                 }
 
-                let response = await fetch(`${apiBase}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
+                let response = await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
                     method: 'POST',
                     headers,
                     body: formData,

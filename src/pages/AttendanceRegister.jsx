@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { BookOpen, Calendar, LogOut, ArrowLeft } from 'lucide-react';
 import { erpService } from '../services/erpService';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
+
 
 // Component weights matching the extension: L=100, T=100, P=50, S=25
 const WEIGHTS = { L: 100, T: 100, P: 50, S: 25 };
@@ -150,6 +151,30 @@ const AttendanceRegister = () => {
     const [fetchError, setFetchError] = useState(null);
     const [showDashboard, setShowDashboard] = useState(false);
     const navigate = useNavigate();
+    const location = useLocation();
+
+    // Listen for "Change Selection" from Navbar or cross-component reset
+    useEffect(() => {
+        const handleReset = () => {
+            setShowDashboard(false);
+            setSubjects([]);
+            setFetchError(null);
+            setDebugHtml(null);
+        };
+        window.addEventListener('kl_reset_selection', handleReset);
+        return () => window.removeEventListener('kl_reset_selection', handleReset);
+    }, []);
+
+    // Check manual_sem_reset on route navigation
+    useEffect(() => {
+        if (sessionStorage.getItem('manual_sem_reset') === 'true') {
+            sessionStorage.removeItem('manual_sem_reset');
+            setShowDashboard(false);
+            setSubjects([]);
+            setFetchError(null);
+            setDebugHtml(null);
+        }
+    }, [location]);
 
     useEffect(() => {
         const html = localStorage.getItem('erpDashboardHtml');
@@ -179,10 +204,10 @@ const AttendanceRegister = () => {
             }
             // Auto-select active year and semester if not manually chosen yet
             if (sessionData.selectedYear) {
-                const yrVal = sessionData.selectedYear.text || sessionData.selectedYear.value;
+                const yrVal = sessionData.selectedYear.value || sessionData.selectedYear.text;
                 setYear(prev => prev || yrVal);
             } else {
-                setYear(prev => prev || '2026-2027');
+                setYear(prev => prev || '18');
             }
             if (sessionData.selectedSemester) {
                 const sText = sessionData.selectedSemester.text.toLowerCase();
@@ -237,8 +262,6 @@ const AttendanceRegister = () => {
         setSubjects([]);
         setDebugHtml(null);
         setFetchError(null);
-        setYear('');
-        setSemester('');
         if (activeId) {
             localStorage.removeItem(`kleData_${activeId}`);
         }
@@ -256,6 +279,9 @@ const AttendanceRegister = () => {
 
     // ── DASHBOARD VIEW ──────────────────────────────────────────────
     if (showDashboard) {
+        const displayYearText = availableYears.find(y => y.value === year)?.text || (year === '18' ? '2026-2027' : year);
+        const displaySemesterText = availableSemesters.find(s => s.value === semester)?.text || semester;
+
         return (
             <div className="min-h-screen bg-slate-50 pt-20 pb-6 px-4 sm:px-6 font-sans">
                 <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30" />
@@ -267,14 +293,14 @@ const AttendanceRegister = () => {
                             Attendance <span className="text-indigo-600">Dashboard</span>
                         </h1>
                         <p className="text-slate-400 text-sm mt-0.5 font-medium">
-                            {year && semester ? `${year} · ${semester} Semester` : 'Current Session'}
+                            {year && semester ? `${displayYearText} · ${displaySemesterText} Semester` : 'Current Session'}
                         </p>
                     </div>
                     <div className="flex gap-2 w-full sm:w-auto">
-                        <button onClick={handleBack} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl hover:bg-indigo-100 hover:text-indigo-800 transition-colors text-sm font-bold shadow-sm flex items-center justify-center gap-2">
-                            <ArrowLeft className="w-4 h-4" /> Back to Selection
+                        <button onClick={handleBack} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl hover:bg-indigo-100 hover:text-indigo-800 transition-colors text-sm font-bold shadow-sm flex items-center justify-center gap-2 cursor-pointer">
+                            <ArrowLeft className="w-4 h-4" /> Change Selection
                         </button>
-                        <button onClick={handleLogoutAction} className="flex-1 sm:flex-none px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-100 text-sm font-bold">
+                        <button onClick={handleLogoutAction} className="flex-1 sm:flex-none px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-100 text-sm font-bold cursor-pointer">
                             <LogOut className="w-4 h-4" />Logout
                         </button>
                     </div>
@@ -416,21 +442,21 @@ const AttendanceRegister = () => {
                                     {availableYears.length > 0 ? (
                                         (() => {
                                             const list = [...availableYears];
-                                            if (!list.some(y => (y.text || '').includes('2026-2027') || (y.text || '').includes('26-27'))) {
+                                            if (!list.some(y => (y.text || '').includes('2026-2027') || (y.text || '').includes('26-27') || y.value === '18')) {
                                                 list.unshift({ value: '18', text: '2026-2027 (26-27)' });
                                             }
                                             return list.map(y => (
-                                                <option key={y.value} value={y.text || y.value}>
+                                                <option key={y.value} value={y.value}>
                                                     {y.text}
                                                 </option>
                                             ));
                                         })()
                                     ) : (
                                         <>
-                                            <option value="2026-2027">2026-2027 (26-27)</option>
-                                            <option value="2025-2026">2025-2026 (25-26)</option>
-                                            <option value="2024-2025">2024-2025 (24-25)</option>
-                                            <option value="2023-2024">2023-2024 (23-24)</option>
+                                            <option value="18">2026-2027 (26-27)</option>
+                                            <option value="17">2025-2026 (25-26)</option>
+                                            <option value="16">2024-2025 (24-25)</option>
+                                            <option value="15">2023-2024 (23-24)</option>
                                         </>
                                     )}
                                 </select>

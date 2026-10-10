@@ -47,14 +47,55 @@ export default defineConfig({
         target: 'https://newerp.kluniversity.in',
         changeOrigin: true,
         secure: false,
-        cookieDomainRewrite: { "*": "" }, // Crucial for session cookies to be saved locally regardless of IP/localhost
-        configure: (proxy, _options) => {
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
+        autoRewrite: true,
+        cookieDomainRewrite: { "*": "" },
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
             proxyReq.setHeader('origin', 'https://newerp.kluniversity.in');
             proxyReq.setHeader('referer', 'https://newerp.kluniversity.in/');
-            // Forward IP to simulate real requester
             const clientIp = req.socket?.remoteAddress || '192.168.1.1';
             proxyReq.setHeader('x-forwarded-for', clientIp);
+
+            // Forward client-provided x-erp-cookie to ERP Cookie header with deduplication
+            const erpCookie = req.headers['x-erp-cookie'];
+            if (erpCookie) {
+              const currentCookie = proxyReq.getHeader('cookie') || '';
+              const map = new Map();
+              if (currentCookie) {
+                currentCookie.split(';').forEach(p => {
+                  const [k, ...v] = p.split('=');
+                  if (k && k.trim()) map.set(k.trim(), v.join('=').trim());
+                });
+              }
+              // Authoritative client ERP cookie overrides any conflicting browser cookie
+              erpCookie.split(';').forEach(p => {
+                const [k, ...v] = p.split('=');
+                if (k && k.trim()) map.set(k.trim(), v.join('=').trim());
+              });
+              const mergedCookie = Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+              proxyReq.setHeader('cookie', mergedCookie);
+            }
+          });
+
+          proxy.on('proxyRes', (proxyRes, req, res) => {
+            // Rewrite 302 location to relative URL to prevent browser CORS blocks
+            if (proxyRes.headers.location) {
+              proxyRes.headers.location = proxyRes.headers.location.replace(/^https?:\/\/newerp\.kluniversity\.in/i, '');
+            }
+
+            // Expose Set-Cookie and strip Secure for HTTP localhost compatibility
+            if (proxyRes.headers['set-cookie']) {
+              const sc = Array.isArray(proxyRes.headers['set-cookie'])
+                ? proxyRes.headers['set-cookie']
+                : [proxyRes.headers['set-cookie']];
+              proxyRes.headers['set-cookie'] = sc.map(c =>
+                c.replace(/;\s*Secure/gi, '').replace(/;\s*SameSite=Strict/gi, '; SameSite=Lax')
+              );
+              const cookieStr = sc.map(c => c.split(';')[0]).join('; ');
+              proxyRes.headers['x-set-erp-cookie'] = cookieStr;
+            }
+
+            res.setHeader('Access-Control-Expose-Headers', 'x-set-erp-cookie, location, set-cookie');
           });
         }
       },

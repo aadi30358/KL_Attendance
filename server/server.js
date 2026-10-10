@@ -434,23 +434,17 @@ app.get('/api/session-init', async (req, res) => {
 app.get('/api/refresh-captcha', async (req, res) => {
     try {
         const clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
-        const refreshUrl = 'https://newerp.kluniversity.in/index.php?r=site%2Fcaptcha&refresh=1';
-        const refreshResp = await fetch(refreshUrl, {
-            headers: {
-                'cookie': clientCookie,
-                'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                'host': 'newerp.kluniversity.in',
-                'referer': 'https://newerp.kluniversity.in/'
-            }
-        });
+
+        // If client has no session cookie, redirect to session-init
+        if (!clientCookie) {
+            return res.redirect(307, '/api/session-init');
+        }
 
         const cookieMap = new Map();
-        if (clientCookie) {
-            clientCookie.split(';').forEach(p => {
-                const [k, ...v] = p.split('=');
-                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
-            });
-        }
+        clientCookie.split(';').forEach(p => {
+            const [k, ...v] = p.split('=');
+            if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+        });
 
         const collectCookies = (r) => {
             let sc = [];
@@ -469,10 +463,66 @@ app.get('/api/refresh-captcha', async (req, res) => {
             });
         };
 
+        const refreshUrl = 'https://newerp.kluniversity.in/index.php?r=site%2Fcaptcha&refresh=1';
+        let refreshResp = await fetch(refreshUrl, {
+            headers: {
+                'cookie': Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; '),
+                'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'host': 'newerp.kluniversity.in',
+                'referer': 'https://newerp.kluniversity.in/'
+            }
+        });
+
         collectCookies(refreshResp);
 
-        const data = await refreshResp.json();
-        let targetImg = data && data.url ? data.url : '/index.php?r=site%2Fcaptcha';
+        let targetImg = null;
+        if (refreshResp.ok) {
+            const data = await refreshResp.json().catch(() => null);
+            if (data && data.url) {
+                targetImg = data.url;
+            }
+        }
+
+        let freshCsrf = '';
+        if (!targetImg) {
+            const fallbackResp = await fetch('https://newerp.kluniversity.in/index.php', {
+                headers: {
+                    'cookie': Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; '),
+                    'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                    'referer': 'https://newerp.kluniversity.in/'
+                }
+            });
+            collectCookies(fallbackResp);
+            const fbHtml = await fallbackResp.text();
+            const cm = fbHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) || 
+                       fbHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                       fbHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                       fbHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+            if (cm) freshCsrf = cm[1];
+            const im = fbHtml.match(/id=["']loginFormCaptcha-image["']\s+src=["']([^"']+)["']/i) ||
+                       fbHtml.match(/src=["']([^"']+)["']\s+id=["']loginFormCaptcha-image["']/i);
+            targetImg = im ? im[1].replace(/&amp;/g, '&') : '/index.php?r=site%2Fcaptcha';
+        } else {
+            // Also fetch fresh CSRF token for the session from index.php
+            try {
+                const pageResp = await fetch('https://newerp.kluniversity.in/index.php', {
+                    headers: {
+                        'cookie': Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; '),
+                        'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                    }
+                });
+                collectCookies(pageResp);
+                const pageHtml = await pageResp.text();
+                const cm = pageHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) || 
+                           pageHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                           pageHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                           pageHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+                if (cm) freshCsrf = cm[1];
+            } catch (e) {
+                console.warn("[Refresh Captcha] Notice retrieving CSRF:", e.message);
+            }
+        }
+
         if (!targetImg.startsWith('http')) {
             targetImg = 'https://newerp.kluniversity.in' + (targetImg.startsWith('/') ? '' : '/') + targetImg;
         }
@@ -505,7 +555,8 @@ app.get('/api/refresh-captcha', async (req, res) => {
         res.json({
             success: true,
             captchaUrl: captchaBase64,
-            cookies: finalCookies
+            cookies: finalCookies,
+            csrfToken: freshCsrf
         });
     } catch (e) {
         console.error("refresh-captcha error:", e);
@@ -906,7 +957,7 @@ app.get('/api/logins', (req, res) => {
 app.post('/api/fast-login', authLimiter, async (req, res) => {
     try {
         const { username, password, captcha, csrfToken } = req.body;
-        const clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
+        const rawClientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
 
         if (!username || !password || !captcha) {
             return res.status(400).json({ success: false, error: 'Student ID, Password, and Captcha code are required.' });
@@ -923,8 +974,44 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
             return res.status(400).json({ success: false, error: 'Invalid Student ID characters.' });
         }
 
+        // Deduplicate cookies to prevent duplicate or stale PHPSESSID keys
+        const cookieMap = new Map();
+        if (rawClientCookie) {
+            rawClientCookie.split(';').forEach(p => {
+                const [k, ...v] = p.split('=');
+                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+            });
+        }
+        const clientCookie = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+
+        console.log(`[Fast Login] Attempt for student: ${username.trim()} (Captcha: "${captcha.trim()}")`);
+        console.log(`[Fast Login] Client Cookie: "${clientCookie.slice(0, 100)}...", csrfToken: "${csrfToken?.slice(0, 40)}..."`);
+
+        let effectiveCsrf = csrfToken;
+        if (!effectiveCsrf && clientCookie) {
+            console.warn("[Fast Login] Client did not provide CSRF token. Fetching fresh CSRF from ERP...");
+            try {
+                const initResp = await fetch('https://newerp.kluniversity.in/index.php', {
+                    headers: {
+                        'cookie': clientCookie,
+                        'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                        'referer': 'https://newerp.kluniversity.in/'
+                    }
+                });
+                collectCookies(initResp);
+                const initHtml = await initResp.text();
+                const m = initHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) || 
+                          initHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                          initHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                          initHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+                if (m) effectiveCsrf = m[1];
+            } catch (e) {
+                console.warn("[Fast Login] Notice recovering CSRF:", e.message);
+            }
+        }
+
         const formData = new URLSearchParams();
-        if (csrfToken) formData.append('_csrf', csrfToken);
+        if (effectiveCsrf) formData.append('_csrf', effectiveCsrf);
         formData.append('LoginForm[username]', username.trim());
         formData.append('LoginForm[password]', password);
         formData.append('LoginForm[rememberMe]', '0');
@@ -938,23 +1025,13 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
                 'content-type': 'application/x-www-form-urlencoded',
                 'cookie': clientCookie,
                 'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                'host': 'newerp.kluniversity.in',
                 'origin': 'https://newerp.kluniversity.in',
                 'referer': 'https://newerp.kluniversity.in/',
-                'x-csrf-token': csrfToken || ''
+                'x-csrf-token': effectiveCsrf || ''
             },
             body: formData.toString(),
             redirect: 'manual'
         });
-
-        // Collect cookies from login response
-        const cookieMap = new Map();
-        if (clientCookie) {
-            clientCookie.split(';').forEach(p => {
-                const [k, ...v] = p.split('=');
-                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
-            });
-        }
 
         const collectCookies = (r) => {
             let sc = [];
@@ -974,6 +1051,8 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
         };
 
         collectCookies(loginResp);
+
+        console.log(`[Fast Login] ERP response status: ${loginResp.status}, Location: ${loginResp.headers.get('location') || 'none'}`);
 
         // If status is 302, authentication succeeded or redirected
         if (loginResp.status === 302) {
@@ -1016,6 +1095,8 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
                     else if (cleanMsg(anyMatch?.[1])) errorMsg = cleanMsg(anyMatch[1]);
                     else if (cleanMsg(alertMatch?.[1])) errorMsg = cleanMsg(alertMatch[1]);
 
+                    console.warn(`[Fast Login] Redirected back to login form. Parsed error: "${errorMsg}"`);
+
                     return res.status(401).json({
                         success: false,
                         error: errorMsg,
@@ -1023,7 +1104,6 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
                         csrfToken: freshFailCsrf
                     });
                 } catch {
-                    // Fallback to default message
                     return res.status(401).json({
                         success: false,
                         error: errorMsg,
@@ -1071,25 +1151,41 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
             }
 
             const allCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-            const dashHtml = finalResp ? await finalResp.text() : '';
+            let dashHtml = finalResp ? await finalResp.text() : '';
 
-            // Authentication verification: Check genuine student dashboard presence
+            // Authentication verification: Only reject if redirect landed back on login form
             const isLoginForm = dashHtml.includes('id="login-form"') || dashHtml.includes('loginFormUserNameID');
-            const hasAuthProof = dashHtml.includes('site%2Flogout') || 
-                                 dashHtml.includes('site/logout') || 
-                                 dashHtml.includes('indexindi') || 
-                                 dashHtml.includes('logout') || 
-                                 dashHtml.includes('profile') || 
-                                 dashHtml.includes('student') || 
-                                 dashHtml.includes(username.trim());
-
-            if (isLoginForm || !hasAuthProof) {
-                console.warn("[Fast Login] Dashboard HTML returned login-form or lacks auth proof. Rejecting unverified login.");
+            if (isLoginForm) {
+                console.warn("[Fast Login] Final landing page has login-form. Rejecting unverified login.");
                 return res.status(401).json({
                     success: false,
                     error: 'Incorrect username or password. Please verify your credentials.',
                     cookies: allCookies
                 });
+            }
+
+            // Ensure rich dashboard HTML is available for student attendance discovery
+            if (!dashHtml || (!dashHtml.includes('logout') && !dashHtml.includes('student') && !dashHtml.includes('indexindi'))) {
+                try {
+                    console.log("[Fast Login] Fetching student dashboard HTML from student/indexindi...");
+                    const indiResp = await fetch('https://newerp.kluniversity.in/index.php?r=student%2Findexindi', {
+                        headers: {
+                            'cookie': allCookies,
+                            'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                            'host': 'newerp.kluniversity.in',
+                            'referer': 'https://newerp.kluniversity.in/index.php'
+                        }
+                    });
+                    collectCookies(indiResp);
+                    if (indiResp.ok) {
+                        const indiHtml = await indiResp.text();
+                        if (indiHtml && !indiHtml.includes('id="login-form"')) {
+                            dashHtml = indiHtml;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("[Fast Login] Optional indexindi fetch notice:", e.message);
+                }
             }
 
             // Extract fresh post-login CSRF token directly from dashboard HTML
@@ -1099,6 +1195,8 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
             res.setHeader('x-set-erp-cookie', allCookies);
             const rewrittenCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}; path=/; SameSite=None; Secure; Partitioned`);
             res.setHeader('Set-Cookie', rewrittenCookies);
+
+            console.log(`[Fast Login] Login successful & verified for student: ${username.trim()}`);
 
             return res.json({
                 success: true,
@@ -1140,6 +1238,14 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
         } else if (cleanMsg(alertMatch?.[1])) {
             errorMsg = cleanMsg(alertMatch[1]);
         }
+
+        if (loginResp.status === 400 && errorMsg === 'Incorrect username or password. Please verify your credentials.') {
+            errorMsg = 'Session verification timed out. Please enter the new captcha to sign in.';
+        } else if (loginResp.status === 429) {
+            errorMsg = 'Too many attempts on ERP. Please wait 1-2 minutes and try again.';
+        }
+
+        console.warn(`[Fast Login] ERP login rejected (status ${loginResp.status}). Parsed error: "${errorMsg}". Snippet: ${failHtml.slice(0, 300).replace(/\s+/g, ' ')}`);
 
         return res.status(401).json({
             success: false,
