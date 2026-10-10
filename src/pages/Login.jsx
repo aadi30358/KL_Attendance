@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogIn, RefreshCcw, Loader2, Check, Sparkles, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { LogIn, RefreshCcw, Loader2, Check, Sparkles, Eye, EyeOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { erpService } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
@@ -41,7 +41,6 @@ const Login = () => {
         return () => window.removeEventListener('resetPWA', handleResetPWA);
     }, []);
 
-    const [syncStatus, setSyncStatus] = useState("Verifying Credentials…");
     const navigate = useNavigate();
     const captchaUrlRef = useRef('');
     const csrfTokenRef = useRef('');
@@ -154,7 +153,6 @@ const Login = () => {
 
         isSubmittingRef.current = true;
         setIsLoading(true);
-        setSyncStatus("Verifying Credentials…");
         setError('');
 
         try {
@@ -162,8 +160,6 @@ const Login = () => {
             const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken);
 
             if (loginResult.success) {
-                setSyncStatus("Opening Academic Year & Semester…");
-
                 localStorage.setItem('erpDashboardHtml', loginResult.html);
                 localStorage.removeItem('kleData');
                 localStorage.setItem('userUniversity', 'klu');
@@ -197,106 +193,6 @@ const Login = () => {
 
     return (
         <div className="min-h-screen pt-32 pb-12 overflow-hidden bg-[#FAFAFA] flex items-center justify-center px-4 relative font-sans selection:bg-indigo-500 selection:text-white">
-
-            {/* Full-screen Login Loading Overlay */}
-            <AnimatePresence>
-                {isLoading && (
-                    <motion.div
-                        key="login-overlay"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.15 }}
-                        className="fixed inset-0 z-[9999] flex flex-col items-center justify-center"
-                        style={{ background: 'rgba(15, 15, 30, 0.85)', backdropFilter: 'blur(12px)' }}
-                    >
-                        {/* Orbiting ring */}
-                        <div className="relative flex items-center justify-center" style={{ width: 200, height: 200 }}>
-                            {/* Spinning conic glow ring behind image */}
-                            <div style={{
-                                position: 'absolute',
-                                inset: 0,
-                                borderRadius: '50%',
-                                background: 'conic-gradient(from 0deg, #6366f1, #8b5cf6, #ec4899, #06b6d4, #6366f1)',
-                                animation: 'spin 3s linear infinite',
-                                zIndex: 1,
-                            }} />
-
-                            {/* Dark gap between ring and image */}
-                            <div style={{
-                                position: 'absolute',
-                                inset: 4,
-                                borderRadius: '50%',
-                                background: 'rgba(15,15,30,0.9)',
-                                zIndex: 2,
-                            }} />
-
-                            {/* Academic Verification Shield Emblem - Centered */}
-                            <div style={{
-                                position: 'absolute',
-                                inset: 8,
-                                borderRadius: '50%',
-                                background: 'radial-gradient(circle at center, #1e1b4b 0%, #0f172a 100%)',
-                                border: '2px solid rgba(129, 140, 248, 0.4)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                boxShadow: '0 0 35px rgba(99,102,241,0.5), inset 0 0 25px rgba(99,102,241,0.25)',
-                                zIndex: 3,
-                            }}>
-                                <ShieldCheck className="w-16 h-16 text-indigo-400 animate-pulse" />
-                            </div>
-
-                            {/* Orbiting dots */}
-                            {[...Array(8)].map((_, i) => {
-                                const colors = ['#6366f1', '#8b5cf6', '#ec4899', '#06b6d4', '#f59e0b', '#10b981', '#ef4444', '#f97316'];
-                                return (
-                                    <div
-                                        key={i}
-                                        className="absolute rounded-full"
-                                        style={{
-                                            width: 12,
-                                            height: 12,
-                                            background: colors[i],
-                                            boxShadow: `0 0 10px ${colors[i]}, 0 0 20px ${colors[i]}66`,
-                                            top: '50%',
-                                            left: '50%',
-                                            marginTop: -6,
-                                            marginLeft: -6,
-                                            transformOrigin: '6px 6px',
-                                            animation: `orbitDot 2.5s linear infinite`,
-                                            animationDelay: `${-(i / 8) * 2.5}s`
-                                        }}
-                                    />
-                                );
-                            })}
-                        </div>
-
-                        <motion.p
-                            key={syncStatus} // Animate on text change
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -10 }}
-                            className="mt-8 text-white text-base font-bold tracking-wide text-center"
-                        >
-                            {syncStatus}
-                        </motion.p>
-                        <p className="text-slate-400 text-xs mt-1">Connecting to KL ERP Server…</p>
-
-                        {/* Keyframes injected inline */}
-                        <style>{`
-                            @keyframes orbitDot {
-                                from { transform: rotate(0deg) translateX(90px); }
-                                to   { transform: rotate(360deg) translateX(90px); }
-                            }
-                            @keyframes spin {
-                                from { transform: rotate(0deg); }
-                                to   { transform: rotate(360deg); }
-                            }
-                        `}</style>
-                    </motion.div>
-                )}
-            </AnimatePresence>
             {/* Ambient Background */}
             <div className="fixed inset-0 pointer-events-none">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
@@ -453,7 +349,7 @@ const Login = () => {
                         >
                             {isLoading ? (
                                 <>
-                                    <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+                                    <Loader2 className="w-5 h-5 animate-spin text-white" />
                                     <span>Verifying Credentials…</span>
                                 </>
                             ) : (
