@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogIn, RefreshCcw, Loader2, Check, Sparkles, Eye, EyeOff } from 'lucide-react';
+import { LogIn, RefreshCcw, Loader2, Check, Sparkles, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { erpService } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
@@ -41,7 +41,7 @@ const Login = () => {
         return () => window.removeEventListener('resetPWA', handleResetPWA);
     }, []);
 
-    const [syncStatus, setSyncStatus] = useState("Signing you in…");
+    const [syncStatus, setSyncStatus] = useState("Verifying Credentials…");
     const navigate = useNavigate();
     const captchaUrlRef = useRef('');
     const csrfTokenRef = useRef('');
@@ -154,14 +154,15 @@ const Login = () => {
 
         isSubmittingRef.current = true;
         setIsLoading(true);
+        setSyncStatus("Verifying Credentials…");
         setError('');
 
         try {
-            const activeToken = sessionStorage.getItem('erp_csrf_token') || localStorage.getItem('erp_csrf_token') || csrfTokenRef.current || csrfToken || '';
+            const activeToken = csrfTokenRef.current || sessionStorage.getItem('erp_csrf_token') || localStorage.getItem('erp_csrf_token') || csrfToken || '';
             const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken);
 
             if (loginResult.success) {
-                setSyncStatus("Finalizing Profile…");
+                setSyncStatus("Opening Academic Year & Semester…");
 
                 localStorage.setItem('erpDashboardHtml', loginResult.html);
                 localStorage.removeItem('kleData');
@@ -230,16 +231,20 @@ const Login = () => {
                                 zIndex: 2,
                             }} />
 
-                            {/* Profile picture - centered on top */}
+                            {/* Academic Verification Shield Emblem - Centered */}
                             <div style={{
                                 position: 'absolute',
                                 inset: 8,
                                 borderRadius: '50%',
-                                overflow: 'hidden',
-                                boxShadow: '0 0 30px rgba(99,102,241,0.6)',
+                                background: 'radial-gradient(circle at center, #1e1b4b 0%, #0f172a 100%)',
+                                border: '2px solid rgba(129, 140, 248, 0.4)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                boxShadow: '0 0 35px rgba(99,102,241,0.5), inset 0 0 25px rgba(99,102,241,0.25)',
                                 zIndex: 3,
                             }}>
-                                <img src="/owner.jpg" alt="Owner" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <ShieldCheck className="w-16 h-16 text-indigo-400 animate-pulse" />
                             </div>
 
                             {/* Orbiting dots */}
@@ -272,11 +277,11 @@ const Login = () => {
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -10 }}
-                            className="mt-8 text-white text-base font-semibold tracking-wide text-center"
+                            className="mt-8 text-white text-base font-bold tracking-wide text-center"
                         >
                             {syncStatus}
                         </motion.p>
-                        <p className="text-slate-400 text-xs mt-1">Please wait a moment</p>
+                        <p className="text-slate-400 text-xs mt-1">Connecting to KL ERP Server…</p>
 
                         {/* Keyframes injected inline */}
                         <style>{`
@@ -438,16 +443,19 @@ const Login = () => {
                             </div>
                         </div>
 
-                        {/* Submit */}
+                        {/* Submit Button */}
                         <motion.button
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
                             type="submit"
                             disabled={isLoading}
-                            className={`w-full bg-slate-900 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-slate-900/20 hover:bg-slate-800 transition-all mt-2 ${isLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+                            className={`w-full bg-slate-900 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-slate-900/20 hover:bg-slate-800 transition-all mt-2 ${isLoading ? 'opacity-90 cursor-wait' : ''}`}
                         >
                             {isLoading ? (
-                                <Loader2 className="w-5 h-5 animate-spin" />
+                                <>
+                                    <Loader2 className="w-5 h-5 animate-spin text-indigo-400" />
+                                    <span>Verifying Credentials…</span>
+                                </>
                             ) : (
                                 <>
                                     <LogIn className="w-5 h-5" />
