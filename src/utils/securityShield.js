@@ -166,26 +166,7 @@ export function initSecurityShield() {
         // ignore
     }
 
-    // 5. Anti-DevTools Keybinding Interception (blocks F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+U)
-    try {
-        window.addEventListener('keydown', (e) => {
-            const isF12 = e.key === 'F12';
-            const isInspect = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c');
-            const isViewSource = (e.ctrlKey || e.metaKey) && (e.key === 'U' || e.key === 'u');
-
-            if (isF12 || isInspect || isViewSource) {
-                // If in admin dashboard or on production, block inspection shortcut
-                if (window.location.pathname.startsWith('/admin') || import.meta.env.PROD) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-            }
-        }, { capture: true });
-    } catch {
-        // ignore
-    }
-
-    // 6. Right-Click Context Menu Protection on Admin and Sensitive Views
+    // 5. Context menu protection on Admin panel only
     try {
         window.addEventListener('contextmenu', (e) => {
             if (window.location.pathname.startsWith('/admin')) {
@@ -194,21 +175,5 @@ export function initSecurityShield() {
         }, { capture: true });
     } catch {
         // ignore
-    }
-
-    // 7. In production, suppress verbose debugging logs to prevent sensitive info leakage
-    if (import.meta.env.PROD) {
-        try {
-            const originalWarn = console.warn;
-            const originalError = console.error;
-            console.log = () => {};
-            console.debug = () => {};
-            console.info = () => {};
-            // Keep error and critical warn for troubleshooting
-            console.warn = originalWarn;
-            console.error = originalError;
-        } catch {
-            // ignore
-        }
     }
 }

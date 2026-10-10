@@ -1,6 +1,7 @@
 /**
  * Developer Console Portfolio & Social Links Easter Egg
- * Displays portfolio, socials, and interactive helper commands in the browser console.
+ * Displays developer info, socials, and interactive helper commands in the browser console.
+ * Handles F12 to directly launch the portfolio and ask for Instagram, LinkedIn, GitHub, or Telegram.
  */
 
 const DEFAULT_PORTFOLIO = 'https://garlapatiyaswanthadithya.web.app/';
@@ -27,10 +28,13 @@ export const setPortfolioUrl = (url) => {
     }
 };
 
+/**
+ * Prints the exact requested Developer Info banner in Console
+ */
 export const printConsolePortfolio = () => {
     const portfolioUrl = getPortfolioUrl();
 
-    const titleStyle = 'background: linear-gradient(90deg, #4f46e5, #7c3aed, #db2777); color: white; padding: 6px 12px; border-radius: 8px; font-weight: 900; font-size: 13px; text-shadow: 1px 1px 2px rgba(0,0,0,0.4);';
+    const titleStyle = 'background: linear-gradient(90deg, #4f46e5, #7c3aed, #db2777); color: white; padding: 6px 14px; border-radius: 8px; font-weight: 900; font-size: 13px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5);';
     const labelStyle = 'color: #38bdf8; font-weight: 700; font-size: 12px;';
     const valueStyle = 'color: #f1f5f9; font-weight: 600; font-size: 12px;';
     const linkStyle = 'color: #f472b6; text-decoration: underline; font-weight: 700; font-size: 12px;';
@@ -57,28 +61,33 @@ export const printConsolePortfolio = () => {
 };
 
 export const initConsolePortfolio = () => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined') return () => {};
 
-    // Define interactive console functions
+    // Expose interactive console functions for direct execution in DevTools
     window.portfolio = () => {
         const url = getPortfolioUrl();
-        window.open(url, '_blank');
+        window.open(url, '_blank', 'noopener,noreferrer');
         return `Opening Portfolio: ${url}`;
     };
 
     window.github = () => {
-        window.open(GITHUB_URL, '_blank');
+        window.open(GITHUB_URL, '_blank', 'noopener,noreferrer');
         return `Opening GitHub: ${GITHUB_URL}`;
     };
 
     window.linkedin = () => {
-        window.open(LINKEDIN_URL, '_blank');
+        window.open(LINKEDIN_URL, '_blank', 'noopener,noreferrer');
         return `Opening LinkedIn: ${LINKEDIN_URL}`;
     };
 
     window.instagram = () => {
-        window.open(INSTAGRAM_URL, '_blank');
+        window.open(INSTAGRAM_URL, '_blank', 'noopener,noreferrer');
         return `Opening Instagram: ${INSTAGRAM_URL}`;
+    };
+
+    window.telegram = () => {
+        window.open(TELEGRAM_URL, '_blank', 'noopener,noreferrer');
+        return `Opening Telegram: ${TELEGRAM_URL}`;
     };
 
     window.links = () => {
@@ -86,12 +95,44 @@ export const initConsolePortfolio = () => {
         return 'All developer links printed above!';
     };
 
-    // Print to console after window stabilizes
-    const printTimer = setTimeout(() => {
+    // Print immediately and once more after DOM settling
+    printConsolePortfolio();
+    const timer = setTimeout(() => {
         printConsolePortfolio();
-    }, 1200);
+    }, 600);
 
-    // DevTools open detection
+    // F12 Keybinding Handler:
+    // Opens portfolio directly in a new tab AND displays the selection modal for Instagram / LinkedIn / GitHub / Telegram
+    const handleKeydown = (e) => {
+        const isF12 = e.key === 'F12';
+        const isInspect = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j');
+
+        if (isF12 || isInspect) {
+            // Print fresh developer info banner in console
+            printConsolePortfolio();
+
+            // Attempt to directly open Portfolio
+            let openedDirectly = false;
+            try {
+                const url = getPortfolioUrl();
+                const win = window.open(url, '_blank', 'noopener,noreferrer');
+                if (win) {
+                    openedDirectly = true;
+                }
+            } catch {
+                openedDirectly = false;
+            }
+
+            // Also open on-screen dialog asking for Instagram, LinkedIn, GitHub, or Telegram
+            window.dispatchEvent(new CustomEvent('kl_open_dev_modal', {
+                detail: { openedPortfolio: openedDirectly }
+            }));
+        }
+    };
+
+    window.addEventListener('keydown', handleKeydown);
+
+    // Fallback detection when DevTools panel opens
     let devtoolsOpen = false;
     const checkDevTools = () => {
         const threshold = 160;
@@ -101,16 +142,6 @@ export const initConsolePortfolio = () => {
             if (!devtoolsOpen) {
                 devtoolsOpen = true;
                 printConsolePortfolio();
-                // Attempt to auto-open portfolio on first DevTools inspection
-                try {
-                    const url = getPortfolioUrl();
-                    const win = window.open(url, '_blank');
-                    if (!win) {
-                        console.log('%c[Notice] Popup blocked by browser policy. Click the portfolio link above or execute portfolio() in this console.', 'color: #fbbf24; font-size: 11px;');
-                    }
-                } catch {
-                    // Browser pop-up blocker handled gracefully
-                }
             }
         } else {
             devtoolsOpen = false;
@@ -120,7 +151,8 @@ export const initConsolePortfolio = () => {
     window.addEventListener('resize', checkDevTools, { passive: true });
 
     return () => {
-        clearTimeout(printTimer);
+        clearTimeout(timer);
+        window.removeEventListener('keydown', handleKeydown);
         window.removeEventListener('resize', checkDevTools);
     };
 };
