@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Download, X, Smartphone, WifiOff, Share } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+let pwaDismissedInMemory = false;
+
 export const InstallPwaPrompt = () => {
     const [deferredPrompt, setDeferredPrompt] = useState(null);
     const [showBanner, setShowBanner] = useState(false);
@@ -42,10 +44,7 @@ export const InstallPwaPrompt = () => {
 
         // Pop up small whenever website opens (after 1.2s) if not already installed
         const timer = setTimeout(() => {
-            const dismissedThisSession = sessionStorage.getItem('kl_pwa_dismissed_session');
-            const dismissedTime = localStorage.getItem('kl_pwa_dismissed_time');
-            const dismissedRecently = dismissedTime && (Date.now() - parseInt(dismissedTime, 10) < 24 * 60 * 60 * 1000);
-            if (!checkStandalone && !dismissedThisSession && !dismissedRecently) {
+            if (!checkStandalone && !pwaDismissedInMemory) {
                 setShowBanner(true);
             }
         }, 1200);
@@ -81,12 +80,7 @@ export const InstallPwaPrompt = () => {
     const handleDismiss = () => {
         setShowBanner(false);
         setShowIosGuide(false);
-        try {
-            sessionStorage.setItem('kl_pwa_dismissed_session', 'true');
-            localStorage.setItem('kl_pwa_dismissed_time', Date.now().toString());
-        } catch {
-            // ignore
-        }
+        pwaDismissedInMemory = true;
     };
 
     // If running inside the installed standalone PWA, don't show the prompt

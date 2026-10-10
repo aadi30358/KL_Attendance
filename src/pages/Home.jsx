@@ -280,13 +280,7 @@ const BATCH_COUNTDOWNS = [
 
 // --- Countdown Component ---
 const ExamCountdownSection = () => {
-    const [activeBatchId, setActiveBatchId] = useState(() => {
-        try {
-            return localStorage.getItem('kl_countdown_batch') || 'y24';
-        } catch {
-            return 'y24';
-        }
-    });
+    const [activeBatchId, setActiveBatchId] = useState('y24');
     const [currentTime, setCurrentTime] = useState(new Date());
     const [selectedCard, setSelectedCard] = useState(null);
 
@@ -298,11 +292,6 @@ const ExamCountdownSection = () => {
     const handleBatchChange = (batchId) => {
         setActiveBatchId(batchId);
         setSelectedCard(null);
-        try {
-            localStorage.setItem('kl_countdown_batch', batchId);
-        } catch {
-            // Ignore private storage error
-        }
     };
 
     const calcTime = (target) => {
@@ -475,14 +464,7 @@ import { subscribeCrossDomainSync } from '../services/crossDomainSync';
 export default function Home() {
     const [plutoMaintenanceModal, setPlutoMaintenanceModal] = useState(false);
     const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false);
-    const [maintenanceConfig, setMaintenanceConfig] = useState(() => {
-        try {
-            const raw = localStorage.getItem('kl_erp_maintenance');
-            return raw ? JSON.parse(raw) : { enabled: false };
-        } catch {
-            return { enabled: false };
-        }
-    });
+    const [maintenanceConfig, setMaintenanceConfig] = useState({ enabled: false });
 
     useEffect(() => {
         let unsub = null;
@@ -491,11 +473,6 @@ export default function Home() {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     setMaintenanceConfig(data);
-                    try {
-                        localStorage.setItem('kl_erp_maintenance', JSON.stringify(data));
-                    } catch {
-                        // ignore
-                    }
                 } else {
                     setMaintenanceConfig({ enabled: false });
                 }
@@ -507,11 +484,6 @@ export default function Home() {
         const unsubCross = subscribeCrossDomainSync((event) => {
             if (event.type === 'MAINTENANCE_UPDATE' && event.data) {
                 setMaintenanceConfig(event.data);
-                try {
-                    localStorage.setItem('kl_erp_maintenance', JSON.stringify(event.data));
-                } catch {
-                    // ignore
-                }
             }
         });
 

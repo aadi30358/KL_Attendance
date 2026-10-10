@@ -10,21 +10,15 @@ const LINKEDIN_URL = 'https://www.linkedin.com/in/garlapati-yaswanth-adithya-red
 const INSTAGRAM_URL = 'https://www.instagram.com/adithyareddy.7/';
 const TELEGRAM_URL = 'https://t.me/kl2400030358';
 
+let inMemoryPortfolioUrl = DEFAULT_PORTFOLIO;
+
 export const getPortfolioUrl = () => {
-    try {
-        return localStorage.getItem('developer_portfolio_url') || DEFAULT_PORTFOLIO;
-    } catch {
-        return DEFAULT_PORTFOLIO;
-    }
+    return inMemoryPortfolioUrl || DEFAULT_PORTFOLIO;
 };
 
 export const setPortfolioUrl = (url) => {
-    try {
-        if (url) {
-            localStorage.setItem('developer_portfolio_url', url.trim());
-        }
-    } catch {
-        // ignore
+    if (url) {
+        inMemoryPortfolioUrl = url.trim();
     }
 };
 

@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth, signInAnonymously } from "firebase/auth";
+import { initializeAuth, inMemoryPersistence } from "firebase/auth";
 
 const firebaseConfig = {
     apiKey: "AIzaSyD43vdxh1aaOQryt1eFLIWUrrzdEAJYapk",
@@ -15,18 +15,10 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize services
+// Initialize services with in-memory persistence to keep client storage (IndexedDB) 100% clean
 export const db = getFirestore(app);
-export const auth = getAuth(app);
-
-// Sign in anonymously if enabled in Firebase Console (Authentication > Sign-in method > Anonymous)
-signInAnonymously(auth).catch(err => {
-    if (err.code === 'auth/configuration-not-found' || err.code === 'auth/admin-restricted-operation') {
-        // Safe fallback if Anonymous sign-in provider is disabled in Firebase Console
-        console.warn("Firebase Anonymous Auth is not enabled in Firebase Console (Authentication > Sign-in method > Anonymous). Continuing in guest mode.");
-    } else {
-        console.warn("Firebase Anonymous Auth notice:", err.message || err);
-    }
+export const auth = initializeAuth(app, {
+    persistence: inMemoryPersistence
 });
 
 export default app;

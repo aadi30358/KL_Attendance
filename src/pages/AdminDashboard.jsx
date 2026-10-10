@@ -297,39 +297,16 @@ export default function AdminDashboard() {
 
     // Traffic Analytics & Time Range
     const [trafficRange, setTrafficRange] = useState('daily'); // 'daily' or 'monthly'
-    const [totalVisits, setTotalVisits] = useState(() => {
-        const val = parseInt(localStorage.getItem('kl_total_visits') || '0', 10);
-        return (val === 1284 || val === 120) ? 0 : val;
-    });
+    const [totalVisits, setTotalVisits] = useState(0);
     const [dailyTraffic, setDailyTraffic] = useState({});
 
-    // Feedbacks State (Only 100% real student feedbacks)
-    const [feedbacks, setFeedbacks] = useState(() => {
-        try {
-            const local = JSON.parse(localStorage.getItem('kl_user_feedbacks') || '[]');
-            if (Array.isArray(local)) {
-                return local.filter(f => !f.id?.startsWith('seed_') && !f.id?.startsWith('fb_sim_'));
-            }
-            return [];
-        } catch {
-            return [];
-        }
-    });
+    // Feedbacks State (Populated via real-time Firestore stream)
+    const [feedbacks, setFeedbacks] = useState([]);
     const [feedbackFilter, setFeedbackFilter] = useState('all');
     const [feedbackSearch, setFeedbackSearch] = useState('');
 
-    // User Logins State (100% Real Logins - Fast synchronous initialization)
-    const [userLogins, setUserLogins] = useState(() => {
-        try {
-            const local = JSON.parse(localStorage.getItem('kl_user_login_history') || '[]');
-            if (Array.isArray(local) && local.length > 0) {
-                return cleanAndDeduplicateLogins([...INITIAL_STATIC_LOGINS, ...local]);
-            }
-            return INITIAL_STATIC_LOGINS;
-        } catch {
-            return INITIAL_STATIC_LOGINS;
-        }
-    });
+    // User Logins State (Populated via real-time Firestore stream)
+    const [userLogins, setUserLogins] = useState(INITIAL_STATIC_LOGINS);
     const [loginSearch, setLoginSearch] = useState('');
     const [loginDateFilter, setLoginDateFilter] = useState('all'); // 'all', 'today', 'month', 'year'
 
@@ -467,7 +444,6 @@ export default function AdminDashboard() {
 
     // Handle Logout with instant UI response and instant return to website
     const handleLogout = () => {
-        sessionStorage.setItem('adminLoggedOut', 'true');
         sessionStorage.removeItem('admin_token');
         localStorage.removeItem('admin_token');
         localStorage.removeItem('isAdminAuthenticated');
@@ -490,24 +466,17 @@ export default function AdminDashboard() {
 
 
 
-    // Clean up any lingering simulated, seed, or corrupted duplicate items from localStorage on initial mount
+    // Clean up any lingering storage items on initial mount to keep client storage clean
     useEffect(() => {
         try {
-            const savedVisits = localStorage.getItem('kl_total_visits');
-            if (savedVisits === '1284' || savedVisits === '120') {
-                localStorage.setItem('kl_total_visits', '0');
-            }
-            const localFb = JSON.parse(localStorage.getItem('kl_user_feedbacks') || '[]');
-            if (Array.isArray(localFb)) {
-                const cleanFb = localFb.filter(f => !f.id?.startsWith('seed_') && !f.id?.startsWith('fb_sim_'));
-                localStorage.setItem('kl_user_feedbacks', JSON.stringify(cleanFb));
-            }
-            const localLogs = JSON.parse(localStorage.getItem('kl_user_login_history') || '[]');
-            if (Array.isArray(localLogs)) {
-                const cleanLogs = cleanAndDeduplicateLogins(localLogs);
-                localStorage.setItem('kl_user_login_history', JSON.stringify(cleanLogs));
-            }
+            localStorage.removeItem('kl_total_visits');
+            localStorage.removeItem('kl_user_feedbacks');
+            localStorage.removeItem('kl_user_login_history');
             localStorage.removeItem('kl_user_login_counts');
+            localStorage.removeItem('kl_admin_tasks');
+            localStorage.removeItem('kl_erp_maintenance');
+            localStorage.removeItem('kl_announcement');
+            localStorage.removeItem('kl_ltps_weights');
         } catch {
             // ignore
         }
@@ -553,7 +522,6 @@ export default function AdminDashboard() {
                     if (mData.message) setMaintenanceMessage(mData.message);
                     if (mData.eta !== undefined) setMaintenanceEta(mData.eta);
                     if (mData.allowAdminBypass !== undefined) setAllowAdminBypass(mData.allowAdminBypass);
-                    localStorage.setItem('kl_erp_maintenance', JSON.stringify(mData));
                 }
             }, (err) => console.warn('Maintenance sync notice:', err));
         } catch {
@@ -576,25 +544,8 @@ export default function AdminDashboard() {
                 setFeedbacks(list);
             }, (err) => {
                 console.warn('Feedback real-time listener notice:', err);
-                const local = JSON.parse(localStorage.getItem('kl_user_feedbacks') || '[]');
-                const real = Array.isArray(local)
-                    ? local.filter(f => !f.id?.startsWith('seed_') && !f.id?.startsWith('fb_sim_'))
-                    : [];
-                setFeedbacks(real);
+                setFeedbacks([]);
             });
-        } catch {
-            // ignore
-        }
-
-        // Merge recent local storage logins so local test logins or same-browser logins are never lost
-        try {
-            const rawLocal = localStorage.getItem('kl_user_login_history');
-            if (rawLocal) {
-                const parsedLocal = JSON.parse(rawLocal);
-                if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
-                    setUserLogins(prev => cleanAndDeduplicateLogins([...parsedLocal, ...prev]));
-                }
-            }
         } catch {
             // ignore
         }
@@ -612,14 +563,7 @@ export default function AdminDashboard() {
                     .map(d => ({ id: d.id, ...d.data() }));
 
                 setUserLogins(prev => {
-                    let localHistory = [];
-                    try {
-                        const raw = localStorage.getItem('kl_user_login_history');
-                        localHistory = raw ? JSON.parse(raw) : [];
-                    } catch {
-                        localHistory = [];
-                    }
-                    const combined = [...fsList, ...(Array.isArray(localHistory) ? localHistory : []), ...prev, ...(gsheetLoginsData || [])];
+                    const combined = [...fsList, ...prev, ...(gsheetLoginsData || [])];
                     return cleanAndDeduplicateLogins(combined);
                 });
             }, (err) => {
@@ -685,7 +629,6 @@ export default function AdminDashboard() {
                     const data = docSnap.data();
                     if (typeof data.totalVisits === 'number') {
                         setTotalVisits(data.totalVisits);
-                        localStorage.setItem('kl_total_visits', data.totalVisits.toString());
                     }
                     
                     const extractedDaily = {};
@@ -707,8 +650,7 @@ export default function AdminDashboard() {
                     setDailyTraffic(extractedDaily);
                 }
             }, () => {
-                const val = parseInt(localStorage.getItem('kl_total_visits') || '0', 10);
-                setTotalVisits((val === 1284 || val === 120) ? 0 : val);
+                setTotalVisits(0);
             });
         } catch {
             // ignore
@@ -1371,7 +1313,6 @@ export default function AdminDashboard() {
         const currentFeedbacks = [...feedbacks];
         setFeedbacks([]);
         try {
-            localStorage.setItem('kl_user_feedbacks', JSON.stringify([]));
             for (const fb of currentFeedbacks) {
                 if (fb.id) {
                     await deleteDoc(doc(db, 'feedback', fb.id)).catch(() => {});
@@ -1393,21 +1334,9 @@ export default function AdminDashboard() {
     };
 
     // Delete single login record
-    const handleDeleteLogin = async (id, studentId) => {
+    const handleDeleteLogin = async (id) => {
         setUserLogins(prev => prev.filter(item => item.id !== id));
         try {
-            const history = JSON.parse(localStorage.getItem('kl_user_login_history') || '[]');
-            const updated = history.filter(item => item.id !== id);
-            localStorage.setItem('kl_user_login_history', JSON.stringify(updated));
-
-            if (studentId) {
-                const counts = JSON.parse(localStorage.getItem('kl_user_login_counts') || '{}');
-                if (counts[studentId] && counts[studentId] > 0) {
-                    counts[studentId] -= 1;
-                    if (counts[studentId] === 0) delete counts[studentId];
-                    localStorage.setItem('kl_user_login_counts', JSON.stringify(counts));
-                }
-            }
             if (id) {
                 await deleteDoc(doc(db, 'userLogins', id));
             }
@@ -1421,8 +1350,6 @@ export default function AdminDashboard() {
         if (!window.confirm('Are you sure you want to delete all login history records?')) return;
         const toDelete = [...userLogins];
         setUserLogins([]);
-        localStorage.removeItem('kl_user_login_history');
-        localStorage.removeItem('kl_user_login_counts');
         try {
             for (const item of toDelete) {
                 if (item.id) {
@@ -1437,12 +1364,6 @@ export default function AdminDashboard() {
     // Save Announcement (< 1 second cross-domain sync, 0ms local response)
     const handleSaveAnnouncement = async () => {
         setSavingAnnouncement(true);
-        try {
-            localStorage.setItem('kl_announcement', announcement);
-            sessionStorage.setItem('kl_announcement', announcement);
-        } catch {
-            // ignore
-        }
         publishCrossDomainEvent('ANNOUNCEMENT_CHANGE', { announcement, portfolioUrl });
         setAnnouncementSuccess(true);
         setTimeout(() => setAnnouncementSuccess(false), 2500);
@@ -1460,11 +1381,6 @@ export default function AdminDashboard() {
     // Save Weights (< 1 second cross-domain sync, 0ms local response)
     const handleSaveWeights = async () => {
         setSavingWeights(true);
-        try {
-            localStorage.setItem('kl_ltps_weights', JSON.stringify(ltpsWeights));
-        } catch {
-            // ignore
-        }
         publishCrossDomainEvent('WEIGHTS_CHANGE', ltpsWeights);
         setWeightsSuccess(true);
         setTimeout(() => setWeightsSuccess(false), 2500);
@@ -1488,12 +1404,7 @@ export default function AdminDashboard() {
             updatedAt: new Date().toISOString()
         };
 
-        // 1. Instant local persistence & Cross-domain broadcast (< 1s sync across all domains) - 0ms
-        try {
-            localStorage.setItem('kl_erp_maintenance', JSON.stringify(payload));
-        } catch {
-            // ignore
-        }
+        // 1. Instant cross-domain broadcast (< 1s sync across all domains)
         publishCrossDomainEvent('MAINTENANCE_UPDATE', payload);
 
         setMaintenanceSuccess(true);

@@ -72,25 +72,6 @@ export async function recordStudentLogin(studentId, customTimestamp = null) {
     // Real KLU student ID validation (8 to 12 digits)
     if (!/^\d{8,12}$/.test(cleanId)) return;
 
-    // Check last login in localStorage to debounce accidental double-clicks within 3 seconds
-    try {
-        const rawHistory = localStorage.getItem('kl_user_login_history');
-        if (rawHistory) {
-            const localHistory = JSON.parse(rawHistory);
-            if (Array.isArray(localHistory)) {
-                const recentLog = localHistory.find(
-                    l => l.studentId === cleanId && Math.abs(Date.now() - new Date(l.timestamp || 0).getTime()) < 3000
-                );
-                if (recentLog) {
-                    // Accidental immediate duplicate trigger within 3 seconds, ignore
-                    return recentLog;
-                }
-            }
-        }
-    } catch {
-        // continue
-    }
-
     const now = customTimestamp ? new Date(customTimestamp) : new Date();
     const timestamp = customTimestamp || now.toISOString();
     let dateKey = timestamp.slice(0, 10);
@@ -121,22 +102,6 @@ export async function recordStudentLogin(studentId, customTimestamp = null) {
         device,
         userAgent: ua
     };
-
-    // 1. Synchronously save to local storage history (only real records)
-    try {
-        const rawHistory = localStorage.getItem('kl_user_login_history');
-        const localHistory = (rawHistory ? JSON.parse(rawHistory) : [])
-            .filter(l => l && l.studentId && /^\d{8,12}$/.test(l.studentId) && !l.id?.startsWith('seed_'));
-        localHistory.push(loginRecord);
-        localStorage.setItem('kl_user_login_history', JSON.stringify(localHistory.slice(-2000)));
-
-        const rawCounts = localStorage.getItem('kl_user_login_counts');
-        const userCounts = rawCounts ? JSON.parse(rawCounts) : {};
-        userCounts[cleanId] = (userCounts[cleanId] || 0) + 1;
-        localStorage.setItem('kl_user_login_counts', JSON.stringify(userCounts));
-    } catch {
-        // Ignore storage quota
-    }
 
     // 2. Broadcast in real-time to open admin tabs and across domains (instant < 1s update)
     try {

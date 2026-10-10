@@ -16,12 +16,24 @@ export const getErpBase = () => {
     return FALLBACK_ERP_BASE;
 };
 
+// Pure in-memory session persistence to prevent credentials/tokens appearing in DevTools Application tab
+let inMemoryErpCookies = '';
+let inMemoryCsrfToken = '';
+
 export const getStoredErpCookies = () => {
-    try {
-        return sessionStorage.getItem('erp_session_cookie') || localStorage.getItem('erp_session_cookie') || '';
-    } catch {
-        return '';
-    }
+    return inMemoryErpCookies || '';
+};
+
+export const setStoredErpCookies = (val) => {
+    inMemoryErpCookies = val || '';
+};
+
+export const getStoredCsrfToken = () => {
+    return inMemoryCsrfToken || '';
+};
+
+export const setStoredCsrfToken = (val) => {
+    inMemoryCsrfToken = val || '';
 };
 
 const IGNORED_COOKIE_ATTRS = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned']);
@@ -51,8 +63,7 @@ export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true } 
                 }
             });
             const merged = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-            sessionStorage.setItem('erp_session_cookie', merged);
-            localStorage.setItem('erp_session_cookie', merged);
+            inMemoryErpCookies = merged;
         }
     } catch (e) {
         console.warn("[ERP] Failed to persist cookies:", e);
@@ -60,6 +71,8 @@ export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true } 
 };
 
 export const clearStoredErpCookies = () => {
+    inMemoryErpCookies = '';
+    inMemoryCsrfToken = '';
     try {
         sessionStorage.removeItem('erp_session_cookie');
         localStorage.removeItem('erp_session_cookie');
@@ -104,12 +117,10 @@ export const erpService = {
                 if (data && data.success && data.csrfToken) {
                     saveErpCookiesFromResponse(resp, { forceAuthUpdate: true });
                     if (data.cookies) {
-                        sessionStorage.setItem('erp_session_cookie', data.cookies);
-                        localStorage.setItem('erp_session_cookie', data.cookies);
+                        setStoredErpCookies(data.cookies);
                     }
                     if (data.csrfToken) {
-                        sessionStorage.setItem('erp_csrf_token', data.csrfToken);
-                        localStorage.setItem('erp_csrf_token', data.csrfToken);
+                        setStoredCsrfToken(data.csrfToken);
                     }
                     return {
                         csrfToken: data.csrfToken,
@@ -132,12 +143,10 @@ export const erpService = {
                     const data = await resp.json().catch(() => null);
                     if (data && data.success && data.csrfToken) {
                         if (data.cookies) {
-                            sessionStorage.setItem('erp_session_cookie', data.cookies);
-                            localStorage.setItem('erp_session_cookie', data.cookies);
+                            setStoredErpCookies(data.cookies);
                         }
                         if (data.csrfToken) {
-                            sessionStorage.setItem('erp_csrf_token', data.csrfToken);
-                            localStorage.setItem('erp_csrf_token', data.csrfToken);
+                            setStoredCsrfToken(data.csrfToken);
                         }
                         return {
                             csrfToken: data.csrfToken,
@@ -168,8 +177,7 @@ export const erpService = {
         const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
                           doc.querySelector('input[name="_csrf"]')?.getAttribute('value');
         if (csrfToken) {
-            sessionStorage.setItem('erp_csrf_token', csrfToken);
-            localStorage.setItem('erp_csrf_token', csrfToken);
+            setStoredCsrfToken(csrfToken);
         }
 
         const captchaImg = doc.querySelector('#loginFormCaptcha-image')?.getAttribute('src');
@@ -208,12 +216,10 @@ export const erpService = {
                 if (data && data.success && data.captchaUrl) {
                     saveErpCookiesFromResponse(resp, { forceAuthUpdate: true });
                     if (data.cookies) {
-                        sessionStorage.setItem('erp_session_cookie', data.cookies);
-                        localStorage.setItem('erp_session_cookie', data.cookies);
+                        setStoredErpCookies(data.cookies);
                     }
                     if (data.csrfToken) {
-                        sessionStorage.setItem('erp_csrf_token', data.csrfToken);
-                        localStorage.setItem('erp_csrf_token', data.csrfToken);
+                        setStoredCsrfToken(data.csrfToken);
                     }
                     return { dataUrl: data.captchaUrl, csrfToken: data.csrfToken };
                 }
@@ -233,12 +239,10 @@ export const erpService = {
                     if (data && data.success && data.captchaUrl) {
                         saveErpCookiesFromResponse(resp, { forceAuthUpdate: true });
                         if (data.cookies) {
-                            sessionStorage.setItem('erp_session_cookie', data.cookies);
-                            localStorage.setItem('erp_session_cookie', data.cookies);
+                            setStoredErpCookies(data.cookies);
                         }
                         if (data.csrfToken) {
-                            sessionStorage.setItem('erp_csrf_token', data.csrfToken);
-                            localStorage.setItem('erp_csrf_token', data.csrfToken);
+                            setStoredCsrfToken(data.csrfToken);
                         }
                         return { dataUrl: data.captchaUrl, csrfToken: data.csrfToken };
                     }
@@ -286,7 +290,7 @@ export const erpService = {
     async login(username, password, captcha, csrfToken) {
         const apiBase = getErpBase();
 
-        let token = csrfToken || sessionStorage.getItem('erp_csrf_token') || localStorage.getItem('erp_csrf_token');
+        let token = csrfToken || getStoredCsrfToken();
         if (!token) {
             const initRes = await this.getInitialState();
             token = initRes?.csrfToken;
@@ -312,15 +316,12 @@ export const erpService = {
 
             if (data) {
                 if (data.cookies) {
-                    sessionStorage.setItem('erp_session_cookie', data.cookies);
-                    localStorage.setItem('erp_session_cookie', data.cookies);
+                    setStoredErpCookies(data.cookies);
                 }
                 if (data.csrfToken) {
-                    sessionStorage.setItem('erp_csrf_token', data.csrfToken);
-                    localStorage.setItem('erp_csrf_token', data.csrfToken);
+                    setStoredCsrfToken(data.csrfToken);
                 }
                 if (data.success) {
-                    sessionStorage.setItem('erp_authenticated', 'true');
                     return { success: true, html: data.html || '' };
                 }
                 if (data.error) {
@@ -409,12 +410,10 @@ export const erpService = {
         // Success detection: If we land away from login-form
         const loginForm = doc.getElementById('login-form');
         if (!loginForm) {
-            sessionStorage.setItem('erp_authenticated', 'true');
             const newCsrf = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
                             doc.querySelector('input[name="_csrf"]')?.getAttribute('value');
             if (newCsrf) {
-                sessionStorage.setItem('erp_csrf_token', newCsrf);
-                localStorage.setItem('erp_csrf_token', newCsrf);
+                setStoredCsrfToken(newCsrf);
             }
             return { success: true, html };
         } else {
@@ -463,7 +462,7 @@ export const erpService = {
     // Helper to get CSRF token from cached dashboard HTML
     getCachedCsrfToken() {
         try {
-            const token = sessionStorage.getItem('erp_csrf_token') || localStorage.getItem('erp_csrf_token');
+            const token = getStoredCsrfToken();
             if (token) return token;
 
             const dashboardHtml = localStorage.getItem('erpDashboardHtml');
@@ -959,5 +958,3 @@ export const erpService = {
         return `${apiBase}/api/captcha?v=${Math.random().toString(36).substring(7)}`;
     }
 };
-
-export const getStoredCsrfToken = () => erpService.getCachedCsrfToken();

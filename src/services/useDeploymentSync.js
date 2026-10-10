@@ -37,9 +37,16 @@ export function useDeploymentSync() {
             const current = Number(CURRENT_BUILD_TIME);
             // Require remoteVersion to be strictly newer by at least 1500ms to avoid build-jitter reloads
             if (remoteVersion > current + 1500) {
-                const reloadKey = `kl_reloaded_${remoteVersion}`;
-                if (sessionStorage.getItem(reloadKey)) return;
-                sessionStorage.setItem(reloadKey, 'true');
+                const lastSynced = sessionStorage.getItem('kl_last_synced_version');
+                if (lastSynced === String(remoteVersion)) return;
+                sessionStorage.setItem('kl_last_synced_version', String(remoteVersion));
+                try {
+                    Object.keys(sessionStorage).forEach(k => {
+                        if (k.startsWith('kl_reloaded_')) sessionStorage.removeItem(k);
+                    });
+                } catch {
+                    // ignore
+                }
 
                 console.log(`[DeploymentSync] Newer deployment detected (${remoteVersion} > ${current}). Updating application...`);
 

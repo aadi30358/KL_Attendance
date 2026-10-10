@@ -12,21 +12,8 @@ import { subscribeCrossDomainSync } from '../services/crossDomainSync';
 const Navbar = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [scrolled, setScrolled] = useState(false);
-    const [announcement, setAnnouncement] = useState(() => {
-        try {
-            return localStorage.getItem('kl_announcement') || sessionStorage.getItem('kl_announcement') || "";
-        } catch {
-            return "";
-        }
-    });
-    const [maintenanceConfig, setMaintenanceConfig] = useState(() => {
-        try {
-            const raw = localStorage.getItem('kl_erp_maintenance');
-            return raw ? JSON.parse(raw) : { enabled: false, title: 'ERP Login is Under Maintenance' };
-        } catch {
-            return { enabled: false, title: 'ERP Login is Under Maintenance' };
-        }
-    });
+    const [announcement, setAnnouncement] = useState("");
+    const [maintenanceConfig, setMaintenanceConfig] = useState({ enabled: false, title: 'ERP Login is Under Maintenance' });
 
     const { currentUser, erpUser, setErpUser, logout } = useAuth(); // Import erpUser here
     const location = useLocation();
@@ -46,7 +33,7 @@ const Navbar = () => {
             localStorage.removeItem('erpDashboardHtml');
             localStorage.removeItem('kleData');
             sessionStorage.removeItem('erp_authenticated');
-            sessionStorage.setItem('adminLoggedOut', 'true');
+            sessionStorage.removeItem('adminLoggedOut');
             window.dispatchEvent(new Event('storage'));
             setIsOpen(false);
             navigate('/login');
@@ -89,12 +76,6 @@ const Navbar = () => {
                     const data = snap.data();
                     const text = data.announcement || data.text || "";
                     setAnnouncement(text);
-                    try { 
-                        sessionStorage.setItem('kl_announcement', text); 
-                        localStorage.setItem('kl_announcement', text);
-                    } catch {
-                        // ignore storage quota
-                    }
                 }
             }, () => {
                 // Fallback to config/announcements if config/global is not used
@@ -120,11 +101,6 @@ const Navbar = () => {
                 if (snapshot.exists()) {
                     const data = snapshot.data();
                     setMaintenanceConfig(data);
-                    try { 
-                        localStorage.setItem('kl_erp_maintenance', JSON.stringify(data)); 
-                    } catch {
-                        // ignore storage quota
-                    }
                 } else {
                     setMaintenanceConfig({ enabled: false });
                 }
@@ -135,45 +111,18 @@ const Navbar = () => {
             console.warn("[Navbar] Maintenance listener error:", err);
         }
 
-        // 3. Storage event for multi-tab sync
-        const handleStorage = (e) => {
-            if (e.key === 'kl_erp_maintenance') {
-                try {
-                    setMaintenanceConfig(e.newValue ? JSON.parse(e.newValue) : { enabled: false });
-                } catch {
-                    // ignore parse error
-                }
-            }
-            if (e.key === 'kl_announcement') {
-                setAnnouncement(e.newValue || "");
-            }
-        };
-        window.addEventListener('storage', handleStorage);
-
-        // 4. Sub-second Cross-Domain, Window Event, and BroadcastChannel instant sync (0ms)
+        // 3. Sub-second Cross-Domain, Window Event, and BroadcastChannel instant sync (0ms)
         const unsubCrossSync = subscribeCrossDomainSync((event) => {
             if (event.type === 'MAINTENANCE_UPDATE' && event.data) {
                 setMaintenanceConfig(event.data);
-                try {
-                    localStorage.setItem('kl_erp_maintenance', JSON.stringify(event.data));
-                } catch {
-                    // ignore
-                }
             } else if (event.type === 'ANNOUNCEMENT_CHANGE' && event.data) {
                 const text = event.data.announcement || event.data.text || "";
                 setAnnouncement(text);
-                try {
-                    localStorage.setItem('kl_announcement', text);
-                    sessionStorage.setItem('kl_announcement', text);
-                } catch {
-                    // ignore
-                }
             }
         });
 
         return () => {
             window.removeEventListener('scroll', handleScroll);
-            window.removeEventListener('storage', handleStorage);
             if (unsubAnnounce) unsubAnnounce();
             if (unsubMaintenance) unsubMaintenance();
             if (unsubCrossSync) unsubCrossSync();

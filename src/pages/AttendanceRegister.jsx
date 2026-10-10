@@ -289,7 +289,7 @@ const AttendanceRegister = () => {
             localStorage.removeItem('erpDashboardHtml');
             localStorage.removeItem('kleData');
             sessionStorage.removeItem('erp_authenticated');
-            sessionStorage.setItem('adminLoggedOut', 'true');
+            sessionStorage.removeItem('adminLoggedOut');
             window.dispatchEvent(new Event('storage'));
             navigate('/login');
         } catch (e) {

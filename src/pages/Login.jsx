@@ -86,11 +86,6 @@ const Login = () => {
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     setMaintenanceConfig(data);
-                    try {
-                        localStorage.setItem('kl_erp_maintenance', JSON.stringify(data));
-                    } catch {
-                        // ignore
-                    }
                 } else {
                     setMaintenanceConfig({ enabled: false });
                 }
@@ -102,11 +97,6 @@ const Login = () => {
         const unsubCross = subscribeCrossDomainSync((event) => {
             if (event.type === 'MAINTENANCE_UPDATE' && event.data) {
                 setMaintenanceConfig(event.data);
-                try {
-                    localStorage.setItem('kl_erp_maintenance', JSON.stringify(event.data));
-                } catch {
-                    // ignore
-                }
             }
         });
 
@@ -274,7 +264,7 @@ const Login = () => {
         setError('');
 
         try {
-            const activeToken = csrfTokenRef.current || sessionStorage.getItem('erp_csrf_token') || localStorage.getItem('erp_csrf_token') || csrfToken || '';
+            const activeToken = csrfTokenRef.current || erpService.getStoredCsrfToken() || csrfToken || '';
             const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken);
 
             if (loginResult.success) {

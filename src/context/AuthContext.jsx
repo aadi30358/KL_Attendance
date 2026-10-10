@@ -37,7 +37,7 @@ export function AuthProvider({ children }) {
         }
 
         // Aggressively clear all ERP session data synchronously
-        sessionStorage.setItem('adminLoggedOut', 'true');
+        sessionStorage.removeItem('adminLoggedOut');
         sessionStorage.removeItem('erp_authenticated');
         sessionStorage.removeItem('admin_token');
         sessionStorage.removeItem('manual_sem_reset');

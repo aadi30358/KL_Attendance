@@ -75,16 +75,7 @@ export default function FeedbackWidget() {
         setMessage('');
         setError('');
 
-        // 2. Save to local storage synchronously
-        try {
-            const stored = JSON.parse(localStorage.getItem('kl_user_feedbacks') || '[]');
-            stored.unshift(feedbackRecord);
-            localStorage.setItem('kl_user_feedbacks', JSON.stringify(stored.slice(0, 100)));
-        } catch {
-            // Ignore storage quota errors
-        }
-
-        // 3. Broadcast in real-time to open Admin tabs and across domains (instant < 1s update)
+        // 2. Broadcast in real-time to open Admin tabs and across domains (instant < 1s update)
         try {
             if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('kl_new_feedback', { detail: feedbackRecord }));

@@ -122,19 +122,14 @@ const AppWithAuth = () => {
     if (isAdminPage) return;
     const track = () => {
       try {
-        const sessionMarker = 'kl_visit_counted';
-        if (!sessionStorage.getItem(sessionMarker)) {
-          sessionStorage.setItem(sessionMarker, 'true');
+        if (!window.__kl_visit_counted) {
+          window.__kl_visit_counted = true;
           const todayStr = new Date().toISOString().slice(0, 10);
-          const currentLocal = parseInt(localStorage.getItem('kl_total_visits') || '0', 10) + 1;
-          localStorage.setItem('kl_total_visits', currentLocal.toString());
           setDoc(doc(db, 'analytics', 'traffic'), {
             totalVisits: increment(1),
             [`daily.${todayStr}`]: increment(1),
             lastVisitAt: new Date().toISOString()
-          }, { merge: true }).catch(err => {
-            console.warn('Analytics ping notice:', err);
-          });
+          }, { merge: true }).catch(() => {});
         }
       } catch {
         // Ignore

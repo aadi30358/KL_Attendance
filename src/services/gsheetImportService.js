@@ -449,22 +449,7 @@ export async function importGoogleSheetLogins(parsedRecords, existingLogins = []
         return { importedCount: 0, duplicateCount, totalParsed: parsedRecords.length, newLogins: [] };
     }
 
-    // 1. Update localStorage synchronously
-    try {
-        const rawHistory = localStorage.getItem('kl_user_login_history');
-        const localHistory = rawHistory ? JSON.parse(rawHistory) : [];
-        const mergedHistory = [...localHistory, ...newLogins];
-        localStorage.setItem('kl_user_login_history', JSON.stringify(mergedHistory.slice(-2000)));
-
-        const rawCounts = localStorage.getItem('kl_user_login_counts');
-        const userCounts = rawCounts ? JSON.parse(rawCounts) : {};
-        newLogins.forEach(l => {
-            userCounts[l.studentId] = (userCounts[l.studentId] || 0) + 1;
-        });
-        localStorage.setItem('kl_user_login_counts', JSON.stringify(userCounts));
-    } catch (e) {
-        console.warn('localStorage sync notice:', e);
-    }
+    // Commit directly to Firestore in chunks of up to 400
 
     // 2. Batch commit to Firestore in chunks of up to 400
     try {

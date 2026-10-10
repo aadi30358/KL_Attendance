@@ -122,10 +122,110 @@ export function sanitizeInput(input) {
 }
 
 /**
+ * Aggressively purges any sensitive or internal keys from browser storage (LocalStorage,
+ * SessionStorage, IndexedDB, and Cache Storage) to ensure zero data is exposed in DevTools.
+ */
+export function scrubExposedStorageData() {
+    if (typeof window === 'undefined') return;
+
+    // 1. Scrub sensitive & internal keys from LocalStorage
+    const sensitiveLocalKeys = [
+        'kl_user_feedbacks',
+        'kl_user_login_history',
+        'kl_user_login_counts',
+        'kl_admin_tasks',
+        'kl_total_visits',
+        'erp_session_cookie',
+        'erp_csrf_token',
+        'kl_countdown_batch',
+        'kl_countdown_filter',
+        'kl_erp_maintenance',
+        'kl_announcement',
+        'kl_ltps_weights',
+        'kl_pwa_dismissed',
+        'kl_pwa_dismissed_time',
+        'userCredentials',
+        'userCredentials_enc',
+        'sessionCookie',
+        'userProfile',
+        'adminLoggedOut',
+        'kl_theme',
+        'developer_portfolio_url'
+    ];
+
+    try {
+        sensitiveLocalKeys.forEach(k => {
+            try { localStorage.removeItem(k); } catch { /* ignore */ }
+        });
+
+        // Clear any dynamic timestamped clutter or simulated keys
+        const localKeys = Object.keys(localStorage);
+        for (const k of localKeys) {
+            if (k.startsWith('kl_reloaded_') || k.startsWith('fb_sim_') || k.startsWith('seed_')) {
+                try { localStorage.removeItem(k); } catch { /* ignore */ }
+            }
+        }
+    } catch {
+        // ignore
+    }
+
+    // 2. Scrub sensitive & clutter keys from SessionStorage
+    const sensitiveSessionKeys = [
+        'adminLoggedOut',
+        'erp_session_cookie',
+        'erp_csrf_token',
+        'kl_pwa_dismissed_session',
+        'kl_visit_counted',
+        'manual_sem_reset'
+    ];
+
+    try {
+        sensitiveSessionKeys.forEach(k => {
+            try { sessionStorage.removeItem(k); } catch { /* ignore */ }
+        });
+
+        const sessionKeys = Object.keys(sessionStorage);
+        for (const k of sessionKeys) {
+            if (k.startsWith('kl_reloaded_')) {
+                try { sessionStorage.removeItem(k); } catch { /* ignore */ }
+            }
+        }
+    } catch {
+        // ignore
+    }
+
+    // 3. Purge IndexedDB databases created by Firebase Auth or SDK
+    try {
+        if (window.indexedDB && typeof window.indexedDB.deleteDatabase === 'function') {
+            window.indexedDB.deleteDatabase('firebaseLocalStorageDb');
+            window.indexedDB.deleteDatabase('firebase-heartbeat-database');
+        }
+    } catch {
+        // ignore
+    }
+
+    // 4. Purge Cache Storage to leave DevTools Cache Storage 100% clean
+    try {
+        if (typeof window !== 'undefined' && 'caches' in window) {
+            caches.keys().then(keys => {
+                keys.forEach(k => {
+                    try { caches.delete(k); } catch { /* ignore */ }
+                });
+            }).catch(() => {});
+        }
+    } catch {
+        // ignore
+    }
+}
+
+/**
  * Initializes the Anti-Tamper Shield
  */
 export function initSecurityShield() {
     if (typeof window === 'undefined') return;
+
+    // Run active storage cleaner first
+    scrubExposedStorageData();
 
     // 1. Clickjacking / Iframe Defense (Frame-Busting)
     try {
@@ -168,14 +268,31 @@ export function initSecurityShield() {
         // ignore
     }
 
-    // 4. Storage Tampering Shield: Intercept unauthorized localStorage/sessionStorage privilege injections
+    // 4. Storage Shield: Intercept and silently drop sensitive keys to prevent public DevTools exposure
     try {
         const originalLocalSetItem = Storage.prototype.setItem;
+        const BLOCKED_STORAGE_KEYS = new Set([
+            'kl_user_feedbacks',
+            'kl_user_login_history',
+            'kl_user_login_counts',
+            'kl_admin_tasks',
+            'kl_total_visits',
+            'erp_session_cookie',
+            'erp_csrf_token',
+            'kl_countdown_filter',
+            'adminLoggedOut',
+            'developer_portfolio_url'
+        ]);
+
         Storage.prototype.setItem = function(key, value) {
+            // Drop any attempts to write internal/sensitive data
+            if (BLOCKED_STORAGE_KEYS.has(key) || key.startsWith('kl_reloaded_')) {
+                return;
+            }
+
             // Block fake privilege escalation attempts via console
             if (key === 'isAdminAuthenticated' && value === 'true') {
                 const caller = new Error().stack || '';
-                // If set from console (not from trusted admin service file)
                 if (caller.includes('<anonymous>') || caller.includes('console')) {
                     console.warn('[Security Shield] Blocked unauthorized console attempt to elevate admin privilege in Storage.');
                     return;
