@@ -1,26 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Download, X, Smartphone, WifiOff, Share } from 'lucide-react';
+import { Download, X, Smartphone, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import {
+    openInstallModal,
+    isStandaloneMode,
+    isMarkedInstalled
+} from '../services/pwaInstallManager';
 
 let pwaDismissedInMemory = false;
 
 export const InstallPwaPrompt = () => {
-    const [deferredPrompt, setDeferredPrompt] = useState(null);
     const [showBanner, setShowBanner] = useState(false);
-    const [isIOS] = useState(() => {
-        if (typeof window === 'undefined') return false;
-        return /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
-    });
-    const [isStandalone] = useState(() => {
-        if (typeof window === 'undefined') return false;
-        return (
-            window.matchMedia('(display-mode: standalone)').matches ||
-            window.navigator.standalone === true ||
-            document.referrer.includes('android-app://')
-        );
-    });
     const [isOffline, setIsOffline] = useState(!navigator.onLine);
-    const [showIosGuide, setShowIosGuide] = useState(false);
+    const isStandalone = isStandaloneMode();
 
     useEffect(() => {
         // Detect offline/online state
@@ -29,22 +21,14 @@ export const InstallPwaPrompt = () => {
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
 
-        const checkStandalone = isStandalone;
-
-        // Listen for beforeinstallprompt (Android / Chrome / Edge)
-        const handleBeforeInstall = (e) => {
-            e.preventDefault();
-            setDeferredPrompt(e);
-            if (!checkStandalone) {
-                setShowBanner(true);
-            }
+        const handleInstalled = () => {
+            setShowBanner(false);
         };
-
-        window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+        window.addEventListener('kl_app_installed_event', handleInstalled);
 
         // Pop up small whenever website opens (after 1.2s) if not already installed
         const timer = setTimeout(() => {
-            if (!checkStandalone && !pwaDismissedInMemory) {
+            if (!isStandalone && !pwaDismissedInMemory && !isMarkedInstalled()) {
                 setShowBanner(true);
             }
         }, 1200);
@@ -53,33 +37,17 @@ export const InstallPwaPrompt = () => {
             clearTimeout(timer);
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
-            window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+            window.removeEventListener('kl_app_installed_event', handleInstalled);
         };
     }, [isStandalone]);
 
-    const handleInstallClick = async () => {
-        if (deferredPrompt) {
-            deferredPrompt.prompt();
-            const { outcome } = await deferredPrompt.userChoice;
-            if (outcome === 'accepted') {
-                setShowBanner(false);
-                setDeferredPrompt(null);
-            }
-            return;
-        }
-
-        if (isIOS) {
-            setShowIosGuide(true);
-            return;
-        }
-
-        // Generic fallback instruction
-        alert("To install KL Attendance:\nTap your browser menu (⋮) and select 'Install app' or 'Add to Home screen'.");
+    const handleInstallClick = () => {
+        // Open the unified 2-question Install Modal
+        openInstallModal('choose');
     };
 
     const handleDismiss = () => {
         setShowBanner(false);
-        setShowIosGuide(false);
         pwaDismissedInMemory = true;
     };
 
@@ -142,43 +110,6 @@ export const InstallPwaPrompt = () => {
                     </motion.div>
                 )}
             </AnimatePresence>
-
-            {/* iOS Mini Guide Modal */}
-            <AnimatePresence>
-                {showIosGuide && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-xs"
-                        onClick={() => setShowIosGuide(false)}
-                    >
-                        <motion.div
-                            initial={{ y: 50, scale: 0.95 }}
-                            animate={{ y: 0, scale: 1 }}
-                            exit={{ y: 50, scale: 0.95 }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 text-center"
-                        >
-                            <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3">
-                                <Share className="w-6 h-6" />
-                            </div>
-                            <h3 className="text-base font-black text-slate-900 mb-1">Install on iPhone & iPad</h3>
-                            <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                                1. Tap the <span className="font-bold text-slate-800">Share</span> button at the bottom of Safari.<br />
-                                2. Scroll down and tap <span className="font-bold text-indigo-600">&apos;Add to Home Screen&apos;</span>.
-                            </p>
-                            <button
-                                onClick={() => setShowIosGuide(false)}
-                                className="w-full py-2.5 bg-slate-900 text-white font-bold text-xs rounded-xl shadow cursor-pointer"
-                            >
-                                Got it
-                            </button>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
         </>
     );
 };
-

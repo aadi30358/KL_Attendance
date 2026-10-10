@@ -10,6 +10,7 @@ import { initConsolePortfolio } from './services/consolePortfolio';
 import { AuthProvider } from './context/AuthContext';
 import { AttendanceProvider } from './context/AttendanceContext';
 import { InstallPwaPrompt } from './components/InstallPwaPrompt';
+import { InstallModal } from './components/InstallModal';
 import { DeveloperModal } from './components/DeveloperModal';
 
 // ─── Lazy-loaded pages (only loaded when the user navigates to that route) ───
@@ -189,6 +190,7 @@ const AppWithAuth = () => {
       </main>
 
       <DeveloperModal />
+      <InstallModal />
       <InstallPwaPrompt />
       <Suspense fallback={null}><FeedbackWidget /></Suspense>
 

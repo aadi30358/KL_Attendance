@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, Bell, LogOut } from 'lucide-react';
+import { Menu, X, Bell, LogOut, Download, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { useAuth } from '../context/useAuth';
@@ -8,12 +8,14 @@ import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { db } from '../firebase';
 import { cn } from '../lib/utils';
 import { subscribeCrossDomainSync } from '../services/crossDomainSync';
+import { openInstallModal, isMarkedInstalled } from '../services/pwaInstallManager';
 
 const Navbar = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [scrolled, setScrolled] = useState(false);
     const [announcement, setAnnouncement] = useState("");
     const [maintenanceConfig, setMaintenanceConfig] = useState({ enabled: false, title: 'ERP Login is Under Maintenance' });
+    const [isAppInstalled, setIsAppInstalled] = useState(() => isMarkedInstalled());
 
     const { currentUser, erpUser, setErpUser, logout } = useAuth(); // Import erpUser here
     const location = useLocation();
@@ -121,8 +123,15 @@ const Navbar = () => {
             }
         });
 
+        // 4. Instant synchronization for app install status
+        const handleInstalledSync = () => {
+            setIsAppInstalled(isMarkedInstalled());
+        };
+        window.addEventListener('kl_app_installed_event', handleInstalledSync);
+
         return () => {
             window.removeEventListener('scroll', handleScroll);
+            window.removeEventListener('kl_app_installed_event', handleInstalledSync);
             if (unsubAnnounce) unsubAnnounce();
             if (unsubMaintenance) unsubMaintenance();
             if (unsubCrossSync) unsubCrossSync();
@@ -142,6 +151,11 @@ const Navbar = () => {
         { name: 'BUNK SIMULATOR', path: '/bunk-simulator' },
         { name: 'ATTENDANCE WHEN ABSENT', path: '/attendance' },
         { name: 'ACADEMIC CALENDAR', path: '/calendar' },
+        {
+            name: isAppInstalled ? 'INSTALLED' : 'INSTALL APP',
+            isInstall: true,
+            isInstalled: isAppInstalled
+        },
         ...(!isErpLoggedIn ? [{
             name: maintenanceConfig?.enabled ? 'ERP (MAINTENANCE)' : 'ERP LOGIN',
             path: '/login',
@@ -235,7 +249,30 @@ const Navbar = () => {
                         {/* Desktop Menu */}
                         <div className="hidden lg:flex items-center gap-6">
                             {navItems.filter(item => !item.isMobileOnly).map((item) => (
-                                item.comingSoon ? (
+                                item.isInstall ? (
+                                    <button
+                                        key="desktop-install-item"
+                                        onClick={() => openInstallModal(item.isInstalled ? 'already' : 'choose')}
+                                        title={item.isInstalled ? "KL Attendance is Installed" : "Install KL Attendance Web App"}
+                                        className={cn(
+                                            "px-3 py-2 text-[11px] lg:text-xs font-black tracking-wider uppercase rounded-xl transition-all duration-300 whitespace-nowrap lg:whitespace-normal text-center leading-tight max-w-[125px] flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-95",
+                                            scrolled
+                                                ? (item.isInstalled
+                                                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100"
+                                                    : "bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60")
+                                                : (item.isInstalled
+                                                    ? "bg-white/20 hover:bg-white/30 text-emerald-100 border border-emerald-300/40"
+                                                    : "bg-white/20 hover:bg-white/30 text-white border border-white/40 shadow-sm")
+                                        )}
+                                    >
+                                        {item.isInstalled ? (
+                                            <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                        ) : (
+                                            <Download className="w-3.5 h-3.5 text-sky-200 shrink-0 animate-bounce" />
+                                        )}
+                                        <span>{item.name}</span>
+                                    </button>
+                                ) : item.comingSoon ? (
                                     <div
                                         key={item.path}
                                         className={cn(
@@ -315,6 +352,28 @@ const Navbar = () => {
 
                         {/* Mobile Menu Button */}
                         <div className="lg:hidden flex items-center gap-2">
+                            {/* Quick Install Button on Mobile Header */}
+                            <button
+                                onClick={() => openInstallModal(isAppInstalled ? 'already' : 'choose')}
+                                title={isAppInstalled ? "KL Attendance is Installed" : "Install KL Attendance"}
+                                className={cn(
+                                    "flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all cursor-pointer shadow-xs active:scale-95",
+                                    scrolled
+                                        ? (isAppInstalled
+                                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
+                                            : "bg-indigo-600 hover:bg-indigo-700 text-white")
+                                        : (isAppInstalled
+                                            ? "bg-white/20 text-emerald-100 border border-emerald-300/40"
+                                            : "bg-white hover:bg-white/90 text-[#2196F3] shadow-sm")
+                                )}
+                            >
+                                {isAppInstalled ? (
+                                    <Check className="w-3.5 h-3.5" />
+                                ) : (
+                                    <Download className="w-3.5 h-3.5 animate-bounce" />
+                                )}
+                                <span>{isAppInstalled ? "Installed" : "Install"}</span>
+                            </button>
 
                             {showLogout && (
                                 <button
@@ -365,7 +424,36 @@ const Navbar = () => {
                                     </div>
                                 )}
                                 {navItems.filter(item => !item.hiddenOnMobile).map((item) => (
-                                    item.comingSoon ? (
+                                    item.isInstall ? (
+                                        <button
+                                            key="mobile-nav-install"
+                                            onClick={() => {
+                                                setIsOpen(false);
+                                                openInstallModal(item.isInstalled ? 'already' : 'choose');
+                                            }}
+                                            className={cn(
+                                                "w-full text-left px-4 py-3 rounded-xl text-sm font-black tracking-widest uppercase transition-all flex items-center justify-between cursor-pointer active:scale-[0.99]",
+                                                item.isInstalled
+                                                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                                                    : "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-indigo-600/20"
+                                            )}
+                                        >
+                                            <div className="flex items-center gap-2.5">
+                                                {item.isInstalled ? (
+                                                    <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                                                ) : (
+                                                    <Download className="w-4 h-4 text-white animate-bounce" />
+                                                )}
+                                                <span>{item.name}</span>
+                                            </div>
+                                            <span className={cn(
+                                                "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider",
+                                                item.isInstalled ? "bg-emerald-200 dark:bg-emerald-850 text-emerald-900 dark:text-emerald-200" : "bg-white/20 text-white"
+                                            )}>
+                                                {item.isInstalled ? "Ready" : "0.1s Fast"}
+                                            </span>
+                                        </button>
+                                    ) : item.comingSoon ? (
                                         <div
                                             key={item.path}
                                             className="block px-4 py-3 rounded-xl text-sm font-bold tracking-widest uppercase transition-all text-slate-400 dark:text-slate-600 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed flex justify-between items-center"
