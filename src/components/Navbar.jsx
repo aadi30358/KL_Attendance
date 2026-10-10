@@ -257,18 +257,14 @@ const Navbar = () => {
                                         className={cn(
                                             "px-3.5 py-2 text-[11px] lg:text-xs font-black tracking-wider uppercase rounded-xl transition-all duration-300 whitespace-nowrap lg:whitespace-normal text-center leading-tight max-w-[130px] flex items-center justify-center gap-1.5 cursor-pointer shadow-md active:scale-95",
                                             scrolled
-                                                ? (item.isInstalled
-                                                    ? "bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-emerald-500 shadow-emerald-500/20"
-                                                    : "bg-indigo-600 hover:bg-indigo-700 text-white border-2 border-indigo-500 shadow-indigo-500/20")
-                                                : (item.isInstalled
-                                                    ? "bg-emerald-600 hover:bg-emerald-700 text-white border-2 border-white/60 shadow-lg"
-                                                    : "bg-white hover:bg-slate-100 text-[#103580] border-2 border-white shadow-lg")
+                                                ? "bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm"
+                                                : "bg-white/15 hover:bg-white/25 text-white border border-white/40 shadow-sm"
                                         )}
                                     >
                                         {item.isInstalled ? (
-                                            <Check className="w-4 h-4 text-white stroke-[3.5] shrink-0" />
+                                            <Check className="w-4 h-4 stroke-[3] shrink-0" />
                                         ) : (
-                                            <Download className={cn("w-4 h-4 shrink-0 animate-bounce stroke-[2.5]", scrolled ? "text-white" : "text-[#2196F3]")} />
+                                            <Download className="w-4 h-4 shrink-0 stroke-[2.5]" />
                                         )}
                                         <span className="font-black drop-shadow-xs">{item.name}</span>
                                     </button>
@@ -357,20 +353,16 @@ const Navbar = () => {
                                 onClick={() => openInstallModal()}
                                 title={isAppInstalled ? "KL Attendance is Installed" : "Install KL Attendance"}
                                 className={cn(
-                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all cursor-pointer shadow-md active:scale-95",
+                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95",
                                     scrolled
-                                        ? (isAppInstalled
-                                            ? "bg-emerald-600 text-white border-2 border-emerald-500 shadow-emerald-500/20"
-                                            : "bg-indigo-600 hover:bg-indigo-700 text-white border-2 border-indigo-500 shadow-indigo-500/20")
-                                        : (isAppInstalled
-                                            ? "bg-emerald-600 text-white border-2 border-white/60 shadow-lg"
-                                            : "bg-white hover:bg-slate-100 text-[#103580] border-2 border-white shadow-lg")
+                                        ? "bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700"
+                                        : "bg-white/15 hover:bg-white/25 text-white border border-white/40"
                                 )}
                             >
                                 {isAppInstalled ? (
-                                    <Check className="w-3.5 h-3.5 text-white stroke-[3.5]" />
+                                    <Check className="w-3.5 h-3.5 stroke-[3] shrink-0" />
                                 ) : (
-                                    <Download className={cn("w-3.5 h-3.5 animate-bounce stroke-[2.5]", scrolled ? "text-white" : "text-[#2196F3]")} />
+                                    <Download className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
                                 )}
                                 <span className="font-black drop-shadow-xs">{isAppInstalled ? "INSTALLED" : "INSTALL"}</span>
                             </button>
@@ -432,21 +424,19 @@ const Navbar = () => {
                                                 openInstallModal();
                                             }}
                                             className={cn(
-                                                "w-full text-left px-4 py-3 rounded-xl text-sm font-black tracking-widest uppercase transition-all flex items-center justify-between cursor-pointer active:scale-[0.99] shadow-sm",
-                                                item.isInstalled
-                                                    ? "bg-emerald-600 text-white border-2 border-emerald-500 shadow-emerald-500/20"
-                                                    : "bg-indigo-600 hover:bg-indigo-700 text-white border-2 border-indigo-500 shadow-indigo-500/20"
+                                                "w-full text-left px-4 py-3 rounded-xl text-sm font-black tracking-widest uppercase transition-all flex items-center justify-between cursor-pointer active:scale-[0.99] border shadow-xs",
+                                                "bg-blue-50/80 dark:bg-slate-800/80 text-[#2196F3] dark:text-indigo-400 border-blue-200/80 dark:border-slate-700 hover:bg-blue-100 dark:hover:bg-slate-800"
                                             )}
                                         >
                                             <div className="flex items-center gap-2.5">
                                                 {item.isInstalled ? (
-                                                    <Check className="w-4 h-4 text-white stroke-[3.5]" />
+                                                    <Check className="w-4 h-4 stroke-[3]" />
                                                 ) : (
-                                                    <Download className="w-4 h-4 text-white animate-bounce stroke-[2.5]" />
+                                                    <Download className="w-4 h-4 stroke-[2.5]" />
                                                 )}
                                                 <span className="font-black drop-shadow-xs">{item.name}</span>
                                             </div>
-                                            <span className="text-[10px] px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider bg-white/20 text-white">
+                                            <span className="text-[10px] px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider bg-blue-100 dark:bg-slate-700 text-[#103580] dark:text-indigo-300">
                                                 {item.isInstalled ? "Ready" : "0.1s Fast"}
                                             </span>
                                         </button>

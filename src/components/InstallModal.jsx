@@ -168,7 +168,7 @@ export const InstallModal = () => {
                                     <div className="flex items-start gap-3.5">
                                         <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-indigo-600/30 group-hover:scale-110 transition-transform">
                                             {downloaded ? (
-                                                <Check className="w-5 h-5 text-emerald-300 stroke-[3]" />
+                                                <Check className="w-5 h-5 text-sky-200 stroke-[3]" />
                                             ) : (
                                                 <Download className="w-5 h-5" />
                                             )}
@@ -199,7 +199,7 @@ export const InstallModal = () => {
                                     </div>
                                     <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                                         {downloaded ? (
-                                            <Check className="w-4 h-4 text-emerald-600 group-hover:text-white" />
+                                            <Check className="w-4 h-4 text-indigo-600 group-hover:text-white" />
                                         ) : (
                                             <ArrowRight className="w-4 h-4" />
                                         )}
@@ -210,11 +210,11 @@ export const InstallModal = () => {
                             {/* Option 2: Already Installed -> Comeback to Home Screen */}
                             <div
                                 onClick={handleAlreadyInstalledClick}
-                                className="group relative p-4 sm:p-5 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-emerald-500/60 dark:hover:border-emerald-500/50 bg-white dark:bg-slate-900/80 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/10 transition-all cursor-pointer shadow-xs hover:shadow-md hover:scale-[1.01] active:scale-[0.99]"
+                                className="group relative p-4 sm:p-5 rounded-2xl border-2 border-slate-200 dark:border-slate-800 hover:border-blue-500/60 dark:hover:border-blue-500/50 bg-white dark:bg-slate-900/80 hover:bg-blue-50/30 dark:hover:bg-blue-950/20 transition-all cursor-pointer shadow-xs hover:shadow-md hover:scale-[1.01] active:scale-[0.99]"
                             >
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="flex items-start gap-3.5">
-                                        <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                                        <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-950/70 text-[#2196F3] dark:text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
                                             <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
                                         </div>
                                         <div>
@@ -223,7 +223,7 @@ export const InstallModal = () => {
                                                     Already Installed
                                                 </span>
                                                 {isMarkedInstalled() && (
-                                                    <span className="text-[10px] font-black bg-emerald-600 text-white px-2 py-0.5 rounded-full tracking-wider uppercase">
+                                                    <span className="text-[10px] font-black bg-[#2196F3] text-white px-2 py-0.5 rounded-full tracking-wider uppercase">
                                                         Active
                                                     </span>
                                                 )}
@@ -233,7 +233,7 @@ export const InstallModal = () => {
                                             </p>
                                         </div>
                                     </div>
-                                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center shrink-0 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 flex items-center justify-center shrink-0 group-hover:bg-[#2196F3] group-hover:text-white transition-colors">
                                         <ArrowRight className="w-4 h-4" />
                                     </div>
                                 </div>

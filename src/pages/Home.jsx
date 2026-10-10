@@ -111,16 +111,65 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
 };
 
 // --- Responsive Animated Typewriter Text ---
-const TypewriterText = ({ text, delay = 0 }) => {
+const TypewriterText = ({
+    text,
+    speed = 50,
+    delay = 150,
+    className = "",
+    cursorClassName = "bg-indigo-600 dark:bg-indigo-400",
+    hideCursorOnComplete = false,
+}) => {
+    const [displayedText, setDisplayedText] = useState("");
+    const [showCursor, setShowCursor] = useState(true);
+
+    useEffect(() => {
+        let intervalId = null;
+        let cursorTimeoutId = null;
+        let currentIndex = 0;
+
+        setDisplayedText("");
+        setShowCursor(true);
+
+        const timeoutId = setTimeout(() => {
+            intervalId = setInterval(() => {
+                currentIndex++;
+                setDisplayedText(text.slice(0, currentIndex));
+
+                if (currentIndex >= text.length) {
+                    clearInterval(intervalId);
+                    intervalId = null;
+
+                    if (hideCursorOnComplete) {
+                        cursorTimeoutId = setTimeout(() => {
+                            setShowCursor(false);
+                        }, 1200);
+                    }
+                }
+            }, speed);
+        }, delay);
+
+        return () => {
+            clearTimeout(timeoutId);
+            if (intervalId) clearInterval(intervalId);
+            if (cursorTimeoutId) clearTimeout(cursorTimeoutId);
+        };
+    }, [text, speed, delay, hideCursorOnComplete]);
+
     return (
-        <motion.span
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, ease: "easeOut", delay }}
-            className="inline-block px-2 text-center"
-        >
-            {text}
-        </motion.span>
+        <span className={`inline-block relative ${className}`}>
+            <span>{displayedText}</span>
+            {showCursor && (
+                <motion.span
+                    animate={{ opacity: [1, 0, 1] }}
+                    transition={{
+                        duration: 0.65,
+                        repeat: Infinity,
+                        ease: "linear",
+                    }}
+                    className={`inline-block w-[2.5px] sm:w-[3.5px] h-[0.85em] ml-1 sm:ml-1.5 rounded-xs align-baseline ${cursorClassName}`}
+                />
+            )}
+        </span>
     );
 };
 
@@ -600,8 +649,15 @@ export default function Home() {
                     </motion.div>
 
                     <h1 className="text-3xl sm:text-6xl lg:text-8xl font-black text-slate-900 dark:text-white tracking-tight leading-tight sm:leading-[0.9] mb-6 sm:mb-8 relative perspective-1000 flex flex-col items-center px-2">
-                        <div className="mb-1 sm:mb-2">
-                            <StaggeredText text="Master Your" className="text-slate-900 dark:text-white" delay={0.2} />
+                        <div className="mb-1 sm:mb-2 min-h-[1.15em] flex items-center justify-center">
+                            <TypewriterText
+                                text="Master Your"
+                                delay={150}
+                                speed={70}
+                                hideCursorOnComplete={true}
+                                className="text-slate-900 dark:text-white"
+                                cursorClassName="bg-slate-900 dark:bg-white"
+                            />
                         </div>
                         <div className="relative inline-block">
                             <StaggeredText
@@ -619,8 +675,14 @@ export default function Home() {
                         </div>
                     </h1>
 
-                    <div className="text-sm sm:text-xl text-slate-500 dark:text-slate-400 font-medium max-w-xl leading-relaxed mb-8 sm:mb-12 px-3 text-center">
-                        <TypewriterText text="The next-generation academic suite for KLU students." delay={0.5} />
+                    <div className="text-sm sm:text-xl text-slate-500 dark:text-slate-400 font-medium max-w-xl leading-relaxed mb-8 sm:mb-12 px-3 text-center min-h-[2.5rem] sm:min-h-[3.2rem] flex items-center justify-center">
+                        <TypewriterText
+                            text="The next-generation academic suite for KLU students."
+                            delay={950}
+                            speed={32}
+                            className="text-slate-500 dark:text-slate-400"
+                            cursorClassName="bg-indigo-600 dark:bg-indigo-400"
+                        />
                     </div>
 
                     <div className="flex flex-row flex-wrap justify-center gap-3 sm:gap-4 w-full max-w-lg px-3">
