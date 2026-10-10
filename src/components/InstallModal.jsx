@@ -182,16 +182,16 @@ export const InstallModal = () => {
                                                     {downloaded ? "Downloaded ✓" : downloading ? "Downloading..." : "Auto-Download"}
                                                 </span>
                                             </div>
-                                            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
+                                            <p className="text-xs text-slate-700 dark:text-slate-200 font-medium mt-1 leading-relaxed">
                                                 Automatically download and install on Mobile or PC for fast 0.1s instant offline access.
                                             </p>
-                                            <div className="flex items-center gap-3 mt-2 text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                                            <div className="flex items-center gap-3 mt-2 text-[11px] font-bold text-indigo-700 dark:text-indigo-400">
                                                 <span className="flex items-center gap-1">
-                                                    <Zap className="w-3 h-3 text-amber-500" /> Fast 0.1s offline
+                                                    <Zap className="w-3.5 h-3.5 text-amber-500" /> Fast 0.1s offline
                                                 </span>
                                                 <span>•</span>
                                                 <span className="flex items-center gap-1">
-                                                    {isDesktop ? <Monitor className="w-3 h-3" /> : <Smartphone className="w-3 h-3" />}
+                                                    {isDesktop ? <Monitor className="w-3.5 h-3.5" /> : <Smartphone className="w-3.5 h-3.5" />}
                                                     {isDesktop ? 'PC Desktop' : isIOS ? 'iPhone / iPad' : 'Android'}
                                                 </span>
                                             </div>
@@ -215,7 +215,7 @@ export const InstallModal = () => {
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="flex items-start gap-3.5">
                                         <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                                            <CheckCircle2 className="w-5 h-5" />
+                                            <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
                                         </div>
                                         <div>
                                             <div className="flex items-center gap-2">
@@ -228,7 +228,7 @@ export const InstallModal = () => {
                                                     </span>
                                                 )}
                                             </div>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                                            <p className="text-xs text-slate-700 dark:text-slate-300 font-medium mt-1 leading-relaxed">
                                                 Already have the app? Tap here to come back to the home screen.
                                             </p>
                                         </div>
