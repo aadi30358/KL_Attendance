@@ -54,15 +54,21 @@ const Login = () => {
         setCaptcha('');
         setError('');
         try {
-            const { blob } = await erpService.refreshCaptcha();
-            if (blob) {
+            const res = await erpService.refreshCaptcha();
+            if (res?.dataUrl) {
                 if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
                     URL.revokeObjectURL(captchaUrlRef.current);
                 }
-                const objectUrl = URL.createObjectURL(blob);
+                captchaUrlRef.current = res.dataUrl;
+                setCaptchaUrl(res.dataUrl);
+            } else if (res?.blob) {
+                if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
+                    URL.revokeObjectURL(captchaUrlRef.current);
+                }
+                const objectUrl = URL.createObjectURL(res.blob);
                 captchaUrlRef.current = objectUrl;
                 setCaptchaUrl(objectUrl);
-                setRawCaptchaBlob(blob);
+                setRawCaptchaBlob(res.blob);
             }
         } catch (err) {
             console.error("Failed to refresh captcha", err);
@@ -80,10 +86,13 @@ const Login = () => {
             try {
                 const res = await erpService.getInitialState();
                 if (!isMounted) return;
-                if (res.csrfToken) {
+                if (res?.csrfToken) {
                     setCsrfToken(res.csrfToken);
                 }
-                if (res.captchaBlob) {
+                if (res?.captchaUrl) {
+                    captchaUrlRef.current = res.captchaUrl;
+                    setCaptchaUrl(res.captchaUrl);
+                } else if (res?.captchaBlob) {
                     if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
                         URL.revokeObjectURL(captchaUrlRef.current);
                     }
@@ -91,10 +100,13 @@ const Login = () => {
                     captchaUrlRef.current = objectUrl;
                     setCaptchaUrl(objectUrl);
                     setRawCaptchaBlob(res.captchaBlob);
+                } else {
+                    refreshCaptcha();
                 }
             } catch (err) {
                 console.error("Failed to init login", err);
                 hasInitRan.current = false;
+                refreshCaptcha();
             }
         };
         init();
@@ -393,7 +405,15 @@ const Login = () => {
                                 </div>
                                 <div className="w-[110px] h-[56px] bg-slate-100 rounded-2xl flex items-center justify-center overflow-hidden relative shrink-0">
                                     {captchaUrl ? (
-                                        <img src={captchaUrl} alt="Captcha" className="h-10 object-contain mix-blend-multiply opacity-80" />
+                                        <img 
+                                            src={captchaUrl} 
+                                            alt="Captcha" 
+                                            onError={() => {
+                                                console.warn("Captcha image failed to render, refreshing...");
+                                                refreshCaptcha();
+                                            }}
+                                            className="h-10 object-contain mix-blend-multiply opacity-80" 
+                                        />
                                     ) : (
                                         <div className="animate-pulse bg-slate-200 w-full h-full" />
                                     )}
