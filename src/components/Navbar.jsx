@@ -236,14 +236,22 @@ const Navbar = () => {
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center">
                         {/* Logo Section */}
-                        <Link to="/" className="flex items-center space-x-3 group">
-                            <img
-                                src="/Koneru%20Lakshmaiah%20University%20Logo%20Banner.png"
-                                alt="Koneru Lakshmaiah University Logo Banner"
-                                className={cn(
-                                    "h-8 lg:h-12 w-auto object-contain transition-all duration-300 group-hover:scale-105"
-                                )}
-                            />
+                        <Link to="/" className="flex items-center space-x-3 group shrink-0">
+                            <picture>
+                                <source srcSet="/Koneru%20Lakshmaiah%20University%20Logo%20Banner.webp" type="image/webp" />
+                                <img
+                                    src="/Koneru%20Lakshmaiah%20University%20Logo%20Banner.png"
+                                    alt="Koneru Lakshmaiah University Logo Banner"
+                                    width="121"
+                                    height="48"
+                                    loading="eager"
+                                    fetchpriority="high"
+                                    decoding="sync"
+                                    className={cn(
+                                        "h-8 lg:h-12 w-auto object-contain transition-all duration-300 group-hover:scale-105"
+                                    )}
+                                />
+                            </picture>
                         </Link>
 
                         {/* Desktop Menu */}
