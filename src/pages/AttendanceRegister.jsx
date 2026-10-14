@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, RefreshCw, Sparkles, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { BookOpen, Calendar, Sparkles, CheckCircle2, X } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -344,13 +344,21 @@ const AttendanceRegister = () => {
         };
 
         doPing();
-        const pingInterval = setInterval(doPing, 4 * 60 * 1000);
+        const pingInterval = setInterval(doPing, 90 * 1000);
         return () => {
             isMounted = false;
             clearInterval(pingInterval);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showDashboard]);
+
+    // Automatically log out before or upon university ERP session expiration
+    useEffect(() => {
+        if (sessionStatus === 'expired') {
+            handleLogoutAction('session_expired');
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sessionStatus]);
 
     // Live background auto-check (always active while viewing dashboard)
     useEffect(() => {
@@ -553,15 +561,6 @@ const AttendanceRegister = () => {
                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                                     Live
                                 </span>
-                                <button
-                                    onClick={() => handleRefresh(false)}
-                                    disabled={refreshing || loading}
-                                    title="Refresh attendance data from ERP"
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs transition-all cursor-pointer active:scale-95 disabled:opacity-60"
-                                >
-                                    <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin text-indigo-600' : 'text-slate-500'}`} />
-                                    <span>{refreshing ? 'Checking...' : 'Check Attendance'}</span>
-                                </button>
                             </div>
                         </div>
                     </div>
@@ -608,25 +607,6 @@ const AttendanceRegister = () => {
                             <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
                             <span>{justCheckedNotice}</span>
                         </motion.div>
-                    )}
-
-                    {/* Session Expired Banner */}
-                    {sessionStatus === 'expired' && (
-                        <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
-                            <div className="flex items-center gap-3">
-                                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-                                <div>
-                                    <p className="font-black text-sm text-amber-900">University ERP Session Timed Out</p>
-                                    <p className="text-xs font-medium text-amber-800">Your session has expired on the university server after inactivity. Cached attendance is shown above.</p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => navigate('/login')}
-                                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow cursor-pointer shrink-0"
-                            >
-                                Sign In to Refresh
-                            </button>
-                        </div>
                     )}
                 </div>
 

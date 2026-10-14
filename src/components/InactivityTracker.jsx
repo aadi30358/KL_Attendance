@@ -4,10 +4,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, LogOut, CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 
-// Inactivity configuration: 5 minutes total (warning shown during last 60 seconds)
-const INACTIVITY_LIMIT_MS = 5 * 60 * 1000;
-const WARNING_WINDOW_MS = 60 * 1000;
-const WARNING_THRESHOLD_MS = INACTIVITY_LIMIT_MS - WARNING_WINDOW_MS; // 4 minutes
+// Proactive Inactivity Configuration:
+// University ERP sessions expire around 5 minutes of inactivity on the server.
+// Auto-logout is strictly enforced at 4 minutes (with a 45-second advance warning)
+// to guarantee the student is securely logged out BEFORE the server session drops.
+const INACTIVITY_LIMIT_MS = 4 * 60 * 1000; // 4 minutes
+const WARNING_WINDOW_MS = 45 * 1000; // 45 seconds warning
+const WARNING_THRESHOLD_MS = INACTIVITY_LIMIT_MS - WARNING_WINDOW_MS; // 3 minutes 15 seconds
+
+const getStoredLastActive = () => {
+    try {
+        const stored = sessionStorage.getItem('kl_last_active_ts');
+        if (stored) {
+            const val = parseInt(stored, 10);
+            if (!isNaN(val) && val > 0) return val;
+        }
+    } catch {
+        // ignore
+    }
+    return Date.now();
+};
 
 export const InactivityTracker = () => {
     const { erpUser, logout } = useAuth();
@@ -15,9 +31,9 @@ export const InactivityTracker = () => {
     const location = useLocation();
 
     const [showWarning, setShowWarning] = useState(false);
-    const [secondsLeft, setSecondsLeft] = useState(60);
+    const [secondsLeft, setSecondsLeft] = useState(45);
 
-    const lastActiveRef = useRef(Date.now());
+    const lastActiveRef = useRef(getStoredLastActive());
     const isLoggingOutRef = useRef(false);
 
     // Check if user is logged into ERP
@@ -31,6 +47,7 @@ export const InactivityTracker = () => {
 
         try {
             sessionStorage.setItem('kl_logout_reason', 'inactivity');
+            sessionStorage.removeItem('kl_last_active_ts');
             const activeId = localStorage.getItem('activeErpUser');
             if (activeId) {
                 localStorage.removeItem(`kleData_${activeId}`);
@@ -57,10 +74,16 @@ export const InactivityTracker = () => {
     }, [logout, navigate]);
 
     const resetTimer = useCallback(() => {
-        lastActiveRef.current = Date.now();
+        const now = Date.now();
+        lastActiveRef.current = now;
+        try {
+            sessionStorage.setItem('kl_last_active_ts', String(now));
+        } catch {
+            // ignore
+        }
         if (showWarning) {
             setShowWarning(false);
-            setSecondsLeft(60);
+            setSecondsLeft(45);
         }
     }, [showWarning]);
 
@@ -80,10 +103,16 @@ export const InactivityTracker = () => {
                 throttleTimer = null;
             }, 1000);
 
-            lastActiveRef.current = Date.now();
+            const now = Date.now();
+            lastActiveRef.current = now;
+            try {
+                sessionStorage.setItem('kl_last_active_ts', String(now));
+            } catch {
+                // ignore
+            }
             if (showWarning) {
                 setShowWarning(false);
-                setSecondsLeft(60);
+                setSecondsLeft(45);
             }
         };
 
@@ -93,7 +122,8 @@ export const InactivityTracker = () => {
 
         const onVisibilityChange = () => {
             if (document.visibilityState === 'visible') {
-                const idleTime = Date.now() - lastActiveRef.current;
+                const stored = getStoredLastActive();
+                const idleTime = Date.now() - Math.max(lastActiveRef.current, stored);
                 if (idleTime >= INACTIVITY_LIMIT_MS) {
                     handleAutoLogout();
                 }
@@ -116,7 +146,8 @@ export const InactivityTracker = () => {
 
         const interval = setInterval(() => {
             const now = Date.now();
-            const elapsed = now - lastActiveRef.current;
+            const stored = getStoredLastActive();
+            const elapsed = now - Math.max(lastActiveRef.current, stored);
 
             if (elapsed >= INACTIVITY_LIMIT_MS) {
                 handleAutoLogout();
@@ -127,7 +158,7 @@ export const InactivityTracker = () => {
             } else {
                 if (showWarning) {
                     setShowWarning(false);
-                    setSecondsLeft(60);
+                    setSecondsLeft(45);
                 }
             }
         }, 1000);
