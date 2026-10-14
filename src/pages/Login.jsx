@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogIn, RefreshCcw, Loader2, Check, Sparkles, Eye, EyeOff, Wrench, ShieldAlert, Clock, ArrowLeft, AlertTriangle, ShieldCheck, Lock, Key, X } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
-import { erpService } from '../services/erpService';
+import { erpService, isVerifiedErpDashboard } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
 import { saveCredentialsToSheet } from '../services/gsheetsService';
 import { recordStudentLogin } from '../services/loginTracker';
@@ -267,7 +267,8 @@ const Login = () => {
             const activeToken = csrfTokenRef.current || erpService.getStoredCsrfToken() || csrfToken || '';
             const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken);
 
-            if (loginResult.success) {
+            // STRICT: ONLY record and navigate if ERP authentication is 100% verified and confirmed
+            if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, cleanId)) {
                 localStorage.setItem('erpDashboardHtml', loginResult.html);
                 localStorage.removeItem('kleData');
                 localStorage.setItem('userUniversity', 'klu');
@@ -282,7 +283,7 @@ const Login = () => {
                     localStorage.removeItem('rememberedPassword');
                 }
 
-                // Await login recording so Firestore (users, students, userLogins) and Google Sheet are 100% saved before route transition
+                // STRICT: ONLY record login AFTER ERP login is confirmed and verified
                 try {
                     await Promise.allSettled([
                         typeof recordStudentLogin === 'function' ? recordStudentLogin(cleanId) : Promise.resolve(),
@@ -293,6 +294,8 @@ const Login = () => {
                 }
 
                 navigate('/attendance-register');
+            } else {
+                throw new Error("Incorrect Student ID, Password, or Captcha.");
             }
         } catch (err) {
             console.error("Login attempt failed:", err);

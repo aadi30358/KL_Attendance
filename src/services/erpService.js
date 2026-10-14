@@ -81,6 +81,46 @@ export const setStoredCsrfToken = (val) => {
     }
 };
 
+/**
+ * Validates that an ERP response HTML is genuine, authenticated student portal content.
+ * Prevents recording logins if ERP rejected credentials, returned login-form, or encountered an error.
+ */
+export function isVerifiedErpDashboard(html, username = '') {
+    if (!html || typeof html !== 'string') return false;
+
+    // 1. If it contains the ERP login form or login input fields, it is NEVER an authenticated session
+    if (
+        html.includes('id="login-form"') || 
+        html.includes('id="loginFormID"') || 
+        html.includes('loginFormUserNameID') || 
+        html.includes('loginFormPasswordID') ||
+        html.includes('loginFormCaptcha-image') ||
+        html.includes('name="LoginForm') ||
+        html.includes('LoginForm[')
+    ) {
+        return false;
+    }
+
+    // 2. If it contains explicit login error / failure messages
+    if (
+        html.includes('The above error occurred while the Web server was processing your request') ||
+        html.includes('Incorrect username or password') ||
+        html.includes('The verification code is incorrect') ||
+        html.includes('Enter Username') ||
+        html.includes('Enter Password')
+    ) {
+        return false;
+    }
+
+    // 3. Positive verification: Must contain proof of an active ERP student session
+    const hasLogout = html.includes('logout') || html.includes('site%2Flogout') || html.includes('site/logout');
+    const hasStudentModule = html.includes('student') || html.includes('indexindi') || html.includes('attendance') || html.includes('academicyear') || html.includes('courselist');
+    const cleanUser = username ? String(username).trim() : '';
+    const hasUsername = cleanUser ? html.includes(cleanUser) : false;
+
+    return Boolean(hasLogout || hasStudentModule || hasUsername);
+}
+
 const IGNORED_COOKIE_ATTRS = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned']);
 
 export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true } = {}) => {
@@ -367,7 +407,11 @@ export const erpService = {
                     setStoredCsrfToken(data.csrfToken);
                 }
                 if (data.success) {
-                    return { success: true, html: data.html || '' };
+                    if (isVerifiedErpDashboard(data.html, username)) {
+                        return { success: true, verified: true, html: data.html || '' };
+                    } else {
+                        throw new Error(data.error || "Incorrect Student ID, Password, or Captcha.");
+                    }
                 }
                 if (data.error) {
                     throw new Error(data.error);
@@ -452,21 +496,18 @@ export const erpService = {
             }
         }
 
-        // Success detection: If we land away from login-form
-        const loginForm = doc.getElementById('login-form');
-        if (!loginForm) {
+        // Success detection: strictly require confirmed authenticated ERP session
+        if (isVerifiedErpDashboard(html, username)) {
             const newCsrf = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
                             doc.querySelector('input[name="_csrf"]')?.getAttribute('value');
             if (newCsrf) {
                 setStoredCsrfToken(newCsrf);
             }
-            return { success: true, html };
+            return { success: true, verified: true, html };
         } else {
-            const alertDanger = doc.querySelector('.alert-danger, .callout-danger');
-            if (alertDanger && alertDanger.textContent.trim()) {
-                throw new Error(alertDanger.textContent.trim());
-            }
-            throw new Error("Incorrect Student ID, Password, or Captcha.");
+            const alertDanger = doc.querySelector('.alert-danger, .callout-danger, .site-error, .help-block-error');
+            const alertText = alertDanger?.textContent?.trim();
+            throw new Error(alertText || "Incorrect Student ID, Password, or Captcha.");
         }
     },
 

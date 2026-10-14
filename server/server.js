@@ -962,6 +962,35 @@ app.get('/api/logins', (req, res) => {
     }
     res.json({ success: true, logins: recentStudentLogins });
 });
+function isVerifiedErpDashboard(html, username = '') {
+    if (!html || typeof html !== 'string') return false;
+    if (
+        html.includes('id="login-form"') || 
+        html.includes('id="loginFormID"') || 
+        html.includes('loginFormUserNameID') || 
+        html.includes('loginFormPasswordID') ||
+        html.includes('loginFormCaptcha-image') ||
+        html.includes('name="LoginForm') ||
+        html.includes('LoginForm[')
+    ) {
+        return false;
+    }
+    if (
+        html.includes('The above error occurred while the Web server was processing your request') ||
+        html.includes('Incorrect username or password') ||
+        html.includes('The verification code is incorrect') ||
+        html.includes('Enter Username') ||
+        html.includes('Enter Password')
+    ) {
+        return false;
+    }
+    const hasLogout = html.includes('logout') || html.includes('site%2Flogout') || html.includes('site/logout');
+    const hasStudentModule = html.includes('student') || html.includes('indexindi') || html.includes('attendance') || html.includes('academicyear') || html.includes('courselist');
+    const cleanUser = username ? String(username).trim() : '';
+    const hasUsername = cleanUser ? html.includes(cleanUser) : false;
+
+    return Boolean(hasLogout || hasStudentModule || hasUsername);
+}
 
 // Ultra-fast Login Endpoint (Sub-second login without lag, protected by authLimiter)
 app.post('/api/fast-login', authLimiter, async (req, res) => {
@@ -1163,7 +1192,7 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
             const allCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
             let dashHtml = finalResp ? await finalResp.text() : '';
 
-            // Authentication verification: Only reject if redirect landed back on login form
+            // Authentication verification: Only proceed if session is verified
             const isLoginForm = dashHtml.includes('id="login-form"') || dashHtml.includes('loginFormUserNameID');
             if (isLoginForm) {
                 console.warn("[Fast Login] Final landing page has login-form. Rejecting unverified login.");
@@ -1201,6 +1230,16 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
             // Extract fresh post-login CSRF token directly from dashboard HTML
             const csrfMatch = dashHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) || dashHtml.match(/content="([^"]+)"\s+name="csrf-token"/i);
             const postLoginCsrf = csrfMatch ? csrfMatch[1] : (csrfToken || '');
+
+            // Strictly verify that dashHtml represents an active student session
+            if (!isVerifiedErpDashboard(dashHtml, username)) {
+                console.warn(`[Fast Login] ERP login could not be verified for ${username.trim()}. Rejecting unverified login.`);
+                return res.status(401).json({
+                    success: false,
+                    error: 'Incorrect Student ID, Password, or Captcha. Please verify your credentials.',
+                    cookies: allCookies
+                });
+            }
 
             res.setHeader('x-set-erp-cookie', allCookies);
             const rewrittenCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}; path=/; SameSite=None; Secure; Partitioned`);

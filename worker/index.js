@@ -494,6 +494,41 @@ export default {
                                           dashHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i);
                     const postLoginCsrf = postCsrfMatch ? postCsrfMatch[1] : (effectiveCsrf || '');
 
+                    // Strictly verify that dashHtml represents an active authenticated student session
+                    const isVerifiedAuth = Boolean(
+                        dashHtml &&
+                        !dashHtml.includes('id="login-form"') &&
+                        !dashHtml.includes('id="loginFormID"') &&
+                        !dashHtml.includes('loginFormUserNameID') &&
+                        !dashHtml.includes('loginFormPasswordID') &&
+                        !dashHtml.includes('loginFormCaptcha-image') &&
+                        !dashHtml.includes('name="LoginForm') &&
+                        !dashHtml.includes('LoginForm[') &&
+                        !dashHtml.includes('Incorrect username or password') &&
+                        !dashHtml.includes('The verification code is incorrect') &&
+                        (
+                            dashHtml.includes('logout') ||
+                            dashHtml.includes('site%2Flogout') ||
+                            dashHtml.includes('site/logout') ||
+                            dashHtml.includes('student') ||
+                            dashHtml.includes('indexindi') ||
+                            dashHtml.includes('attendance') ||
+                            dashHtml.includes('academicyear') ||
+                            dashHtml.includes(String(username).trim())
+                        )
+                    );
+
+                    if (!isVerifiedAuth) {
+                        return new Response(JSON.stringify({
+                            success: false,
+                            error: 'Incorrect Student ID, Password, or Captcha. Please verify your credentials.',
+                            cookies: allCookies
+                        }), {
+                            status: 401,
+                            headers: { ...cors, 'Content-Type': 'application/json', 'x-set-erp-cookie': allCookies }
+                        });
+                    }
+
                     return new Response(JSON.stringify({
                         success: true,
                         verified: true,
