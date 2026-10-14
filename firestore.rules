@@ -16,10 +16,10 @@ service cloud.firestore {
       allow write: if true;
     }
 
-    // User profiles - allows real student roll numbers (8-12 digits) or authenticated owner/admin
+    // User profiles - allows real student roll numbers (6-16 alphanumeric) or authenticated owner/admin
     match /users/{userId} {
       allow read: if true;
-      allow create, update: if userId.matches('^[0-9]{8,12}$') || (request.auth != null && (request.auth.uid == userId || isAdmin()));
+      allow create, update: if userId.matches('^[0-9A-Za-z]{6,16}$') || (request.auth != null && (request.auth.uid == userId || isAdmin()));
       allow delete: if isAdmin();
     }
 
@@ -36,14 +36,14 @@ service cloud.firestore {
     match /userLogins/{loginId} {
       allow read: if true;
       allow create: if request.resource.data.studentId is string && 
-                       request.resource.data.studentId.matches('^[0-9]{8,12}$');
+                       request.resource.data.studentId.matches('^[0-9A-Za-z]{6,16}$');
       allow update, delete: if true;
     }
 
     // Registered students summary - validated student ID, public read for admin users tab
     match /students/{studentId} {
       allow read: if true;
-      allow create, update: if studentId.matches('^[0-9]{8,12}$');
+      allow create, update: if studentId.matches('^[0-9A-Za-z]{6,16}$');
       allow delete: if true;
     }
 

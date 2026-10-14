@@ -110,16 +110,16 @@ const cleanAndDeduplicateLogins = (rawList = []) => {
         if (!sId && item.id) {
             const strId = String(item.id).trim().toUpperCase();
             const parts = strId.split('_');
-            const roll = parts.find(p => /^\d{8,12}$/.test(p));
+            const roll = parts.find(p => /^[0-9A-Z]{6,16}$/i.test(p));
             if (roll) sId = roll;
         } else if (sId.includes('_')) {
             const parts = sId.split('_');
-            const roll = parts.find(p => /^\d{8,12}$/.test(p));
+            const roll = parts.find(p => /^[0-9A-Z]{6,16}$/i.test(p));
             if (roll) sId = roll;
         }
 
-        // Strictly real KLU student ID format (8 to 12 digits)
-        if (!sId || !/^\d{8,12}$/.test(sId)) continue;
+        // Strictly valid student roll number format (6 to 16 alphanumeric characters)
+        if (!sId || !/^[0-9A-Z]{6,16}$/i.test(sId)) continue;
 
         // Skip exact duplicate record IDs
         if (item.id && seenExactIds.has(item.id)) continue;
@@ -705,6 +705,7 @@ export default function AdminDashboard() {
         };
 
         syncLiveSources();
+        const liveSyncInterval = setInterval(syncLiveSources, 15000);
 
         // 4. Real-time visitor traffic listener
         let unsubTraffic = null;
@@ -811,6 +812,7 @@ export default function AdminDashboard() {
         });
 
         return () => {
+            clearInterval(liveSyncInterval);
             if (unsubMaintenance) unsubMaintenance();
             if (unsubAnnounce) unsubAnnounce();
             if (unsubWeights) unsubWeights();
@@ -855,10 +857,10 @@ export default function AdminDashboard() {
             let sId = String(log.studentId || '').trim().toUpperCase();
             if (sId.includes('_')) {
                 const parts = sId.split('_');
-                const roll = parts.find(p => /^\d{8,12}$/.test(p));
+                const roll = parts.find(p => /^[0-9A-Z]{6,16}$/i.test(p));
                 if (roll) sId = roll;
             }
-            if (!sId || !/^\d{8,12}$/.test(sId)) return;
+            if (!sId || !/^[0-9A-Z]{6,16}$/i.test(sId)) return;
 
             const ts = log.timestamp ? new Date(log.timestamp).getTime() : 0;
             const d = log.date && /^\d{4}-\d{2}-\d{2}$/.test(log.date) ? log.date : (log.timestamp ? getISTDateStr(log.timestamp) : '');
@@ -921,7 +923,7 @@ export default function AdminDashboard() {
         if (Array.isArray(firestoreStudents)) {
             firestoreStudents.forEach(st => {
                 const sId = String(st.studentId || st.id || '').trim().toUpperCase();
-                if (!sId || !/^\d{8,12}$/.test(sId)) return;
+                if (!sId || !/^[0-9A-Z]{6,16}$/i.test(sId)) return;
                 const count = Math.max(1, Number(st.loginCount) || 1);
                 const stLastTs = (st.lastLoginAt && typeof st.lastLoginAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(st.lastLoginAt.trim()) && !isNaN(new Date(st.lastLoginAt.trim()).getTime()))
                     ? new Date(st.lastLoginAt.trim()).getTime()
@@ -1836,124 +1838,170 @@ export default function AdminDashboard() {
 
             {/* 2. MAIN CONTENT AREA */}
             <div className="flex-1 flex flex-col min-w-0 overflow-y-auto relative z-10">
-                {/* TOP HEADER BAR */}
-                <header className="h-20 admin-website-header px-8 flex items-center justify-between sticky top-0 z-20 shadow-xs">
-                    <div>
-                        <div className="text-[10px] font-black uppercase tracking-widest text-indigo-600 flex items-center gap-1.5">
-                            <span>— SYSTEM OVERVIEW</span>
+                {/* UNIFIED TOP HEADER WITH ALWAYS-VISIBLE NAVIGATION BAR */}
+                <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-xs admin-website-header select-none">
+                    {/* Top Tier: Title, Status, Profile & Quick Actions */}
+                    <div className="px-4 sm:px-8 py-3 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100/80">
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-sm shrink-0 md:hidden">
+                                <Zap className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                                <div className="text-[10px] font-black uppercase tracking-widest text-indigo-600 flex items-center gap-1.5">
+                                    <span>— SYSTEM OVERVIEW</span>
+                                </div>
+                                <h1 className="text-lg sm:text-xl font-black tracking-tight text-slate-900">Control Center</h1>
+                            </div>
                         </div>
-                        <h1 className="text-xl font-black tracking-tight text-slate-900">Control Center</h1>
+
+                        <div className="flex items-center gap-2.5 sm:gap-3">
+                            <a
+                                href="/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 bg-white/80 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs"
+                            >
+                                <ExternalLink className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>VIEW LIVE SITE</span>
+                            </a>
+
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-bold shadow-2xs">
+                                <span className="text-slate-500 text-[10px] uppercase font-bold">STATUS</span>
+                                <span className="flex items-center gap-1.5 text-emerald-700 font-black">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_#10b981]" />
+                                    ONLINE
+                                </span>
+                            </div>
+
+                            {/* Admin Profile Pill */}
+                            <div className="flex items-center gap-2.5 pl-1">
+                                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white font-black text-xs sm:text-sm ring-2 ring-indigo-200 shadow-md shadow-indigo-500/20">
+                                    Y
+                                </div>
+                                <div className="hidden lg:block text-left leading-tight">
+                                    <p className="text-xs font-bold text-slate-900">Garlapati Yaswanth Adithya Reddy</p>
+                                    <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Administrator</p>
+                                </div>
+                            </div>
+
+                            {/* Prominent Header Logout Button */}
+                            <button
+                                onClick={handleLogout}
+                                title="Log out of Admin Panel"
+                                className="admin-logout-btn shadow-2xs cursor-pointer"
+                            >
+                                <LogOut className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Log Out</span>
+                            </button>
+                        </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                        <a
-                            href="/"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-slate-200 bg-white/80 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-2xs"
-                        >
-                            <ExternalLink className="w-3.5 h-3.5 text-indigo-600" />
-                            <span>VIEW LIVE SITE</span>
-                        </a>
-
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-bold shadow-2xs">
-                            <span className="text-slate-500 text-[10px] uppercase font-bold">STATUS</span>
-                            <span className="flex items-center gap-1.5 text-emerald-700 font-black">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_#10b981]" />
-                                ONLINE
-                            </span>
-                        </div>
-
-                        {/* Admin Profile Pill */}
-                        <div className="flex items-center gap-2.5 pl-1">
-                            <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white font-black text-sm ring-2 ring-indigo-200 shadow-md shadow-indigo-500/20">
-                                Y
-                            </div>
-                            <div className="hidden lg:block text-left leading-tight">
-                                <p className="text-xs font-bold text-slate-900">Garlapati Yaswanth Adithya Reddy</p>
-                                <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest">Administrator</p>
-                            </div>
-                        </div>
-
-                        {/* Prominent Header Logout Button */}
+                    {/* Navigation Tabs Bar — Always 100% visible, completely responsive, zero cut-off */}
+                    <div className="px-4 sm:px-8 py-2 overflow-x-auto flex items-center gap-2 bg-slate-50/70 border-t border-slate-100 no-scrollbar">
                         <button
-                            onClick={handleLogout}
-                            title="Log out of Admin Panel"
-                            className="admin-logout-btn shadow-2xs"
+                            onClick={() => setActiveTab('dashboard')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                activeTab === 'dashboard'
+                                    ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-500 font-black'
+                                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/80 shadow-2xs'
+                            }`}
                         >
-                            <LogOut className="w-3.5 h-3.5" />
-                            <span>Log Out</span>
+                            <LayoutDashboard className="w-3.5 h-3.5" />
+                            <span>Dashboard</span>
+                        </button>
+
+                        {/* Dedicated Tab: Users (Deduplicated Unique Student Directory) */}
+                        <button
+                            onClick={() => setActiveTab('users')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
+                                activeTab === 'users'
+                                    ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-500 font-black'
+                                    : 'bg-white hover:bg-indigo-50/70 text-slate-800 border border-indigo-200/90 shadow-2xs'
+                            }`}
+                        >
+                            <UserCheck className={`w-3.5 h-3.5 ${activeTab === 'users' ? 'text-white' : 'text-indigo-600'}`} />
+                            <span>Users</span>
+                            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black font-mono ${
+                                activeTab === 'users' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
+                            }`}>
+                                {uniqueUsersData.totalUnique}
+                            </span>
+                        </button>
+
+                        {/* Dedicated Tab: Users & Login (Student Logins & Authentication History) */}
+                        <button
+                            onClick={() => setActiveTab('logins')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
+                                activeTab === 'logins'
+                                    ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-500 font-black'
+                                    : 'bg-white hover:bg-emerald-50/70 text-slate-800 border border-emerald-200/90 shadow-2xs'
+                            }`}
+                        >
+                            <Users className={`w-3.5 h-3.5 ${activeTab === 'logins' ? 'text-white' : 'text-emerald-600'}`} />
+                            <span>Users & Login</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                activeTab === 'logins' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+                            }`}>
+                                {computedLogins.todayCount} today
+                            </span>
+                        </button>
+
+                        <button
+                            onClick={() => setActiveTab('inbox')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                activeTab === 'inbox'
+                                    ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-500 font-black'
+                                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/80 shadow-2xs'
+                            }`}
+                        >
+                            <Mail className="w-3.5 h-3.5" />
+                            <span>Inbox</span>
+                            {feedbacks.length > 0 && (
+                                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
+                                    activeTab === 'inbox' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
+                                }`}>
+                                    {feedbacks.length}
+                                </span>
+                            )}
+                        </button>
+
+                        <button
+                            onClick={() => setActiveTab('controls')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                activeTab === 'controls'
+                                    ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-500 font-black'
+                                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/80 shadow-2xs'
+                            }`}
+                        >
+                            <Sliders className="w-3.5 h-3.5" />
+                            <span>Controls</span>
+                        </button>
+
+                        <button
+                            onClick={() => setActiveTab('calendar')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                activeTab === 'calendar'
+                                    ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-500 font-black'
+                                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/80 shadow-2xs'
+                            }`}
+                        >
+                            <CalendarDays className="w-3.5 h-3.5" />
+                            <span>Calendars</span>
+                        </button>
+
+                        <button
+                            onClick={() => setActiveTab('profile')}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                                activeTab === 'profile'
+                                    ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-500 font-black'
+                                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200/80 shadow-2xs'
+                            }`}
+                        >
+                            <UserCheck className="w-3.5 h-3.5" />
+                            <span>Profile</span>
                         </button>
                     </div>
                 </header>
-
-                {/* Mobile Responsive Tab Selector Bar */}
-                <div className="flex md:hidden px-4 py-2.5 overflow-x-auto gap-2 bg-white/95 backdrop-blur-md border-b border-slate-200 sticky top-20 z-10 no-scrollbar shadow-xs">
-                    <button
-                        onClick={() => setActiveTab('dashboard')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                            activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700'
-                        }`}
-                    >
-                        Dashboard
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('users')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all ${
-                            activeTab === 'users' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700'
-                        }`}
-                    >
-                        <span>Users</span>
-                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                            activeTab === 'users' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
-                        }`}>
-                            {uniqueUsersData.totalUnique}
-                        </span>
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('inbox')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all ${
-                            activeTab === 'inbox' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700'
-                        }`}
-                    >
-                        <span>Inbox</span>
-                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                            activeTab === 'inbox' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
-                        }`}>
-                            {feedbacks.length}
-                        </span>
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('logins')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all ${
-                            activeTab === 'logins' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700'
-                        }`}
-                    >
-                        <span>User Logins & History</span>
-                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-black ${
-                            activeTab === 'logins' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
-                        }`}>
-                            {computedLogins.todayCount} today
-                        </span>
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('controls')}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-                            activeTab === 'controls' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700'
-                        }`}
-                    >
-                        Controls
-                    </button>
-
-                    {/* Direct Mobile Logout Button */}
-                    <button
-                        onClick={handleLogout}
-                        className="px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1 bg-red-50 text-red-600 border border-red-200 cursor-pointer active:scale-95 shrink-0"
-                    >
-                        <LogOut className="w-3.5 h-3.5 text-red-500" />
-                        <span>Log Out</span>
-                    </button>
-                </div>
 
                 {/* TAB CONTENT VIEWS */}
                 <main className="p-4 sm:p-8 space-y-8 flex-1">
