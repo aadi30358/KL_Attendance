@@ -751,10 +751,10 @@ export const erpService = {
                 }
                 if (data && data.html) {
                     const parsed = this.parseSubjects(data.html);
-                    if (parsed.length > 0) {
-                        console.log(`[ERP] Fast-attendance successfully fetched ${parsed.length} courses!`);
-                        return parsed;
-                    }
+                    console.log(`[ERP] Fast-attendance query for year "${year}", sem "${semester}" returned ${parsed.length} courses.`);
+                    // Valid response received for the requested year & semester.
+                    // Return parsed directly (even if empty) — never fall through to other academic years!
+                    return parsed;
                 }
             }
         } catch (fastErr) {
@@ -809,9 +809,9 @@ export const erpService = {
                 matchedYearVal = valMatch.value;
             }
 
-            // If still unresolved and looking for current active academic year, default to first ERP option
-            if (!matchedYearVal && (reqYearStr === '18' || reqYearStr.includes('26') || !reqYearStr)) {
-                matchedYearVal = sessionInfo.years[0]?.value;
+            // If still unresolved and no year was provided, use ERP's selected or first option
+            if (!matchedYearVal && !reqYearStr) {
+                matchedYearVal = sessionInfo.selectedYear?.value || sessionInfo.years[0]?.value;
             }
         }
 
@@ -831,8 +831,10 @@ export const erpService = {
             if (semMatch) semId = semMatch.value;
         }
 
-        // 5. Candidate IDs to try (matched first, then standard 2026 mappings, then selected default)
-        const candidateYearIds = getCandidateYearIdsForYear(year, matchedYearVal, sessionInfo?.selectedYear?.value);
+        // 5. Candidate IDs to try (strictly restricted to the requested year)
+        const candidateYearIds = matchedYearVal
+            ? [matchedYearVal]
+            : getCandidateYearIdsForYear(year, null, null);
         console.log(`[ERP] Candidate Year IDs to query:`, candidateYearIds, `SemId:`, semId);
 
         let subjects = [];

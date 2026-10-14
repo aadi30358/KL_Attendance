@@ -170,9 +170,9 @@ const AttendanceRegister = () => {
 
     // Default clean academic years matching ERP's real option format
     const DEFAULT_YEARS = [
-        { value: '29', text: '2026-2027' },
         { value: '28', text: '2025-2026' },
         { value: '27', text: '2024-2025' },
+        { value: '29', text: '2026-2027' },
         { value: '26', text: '2023-2024' }
     ];
 
@@ -190,11 +190,18 @@ const AttendanceRegister = () => {
     };
 
     const [year, setYear] = useState(() => {
+        const manualYear = activeId ? localStorage.getItem(`manualYear_${activeId}`) : null;
+        if (manualYear) return manualYear;
         const savedYear = activeId ? localStorage.getItem(`activeYear_${activeId}`) : null;
-        if (savedYear && savedYear !== '18' && !savedYear.includes('(26-27)')) return savedYear;
-        return '29';
+        if (savedYear && savedYear !== '18' && savedYear !== '29' && !savedYear.includes('(26-27)')) return savedYear;
+        return '';
     });
-    const [semester, setSemester] = useState('Odd');
+    const [semester, setSemester] = useState(() => {
+        const manualSem = activeId ? localStorage.getItem(`manualSem_${activeId}`) : null;
+        if (manualSem) return manualSem;
+        const savedSem = activeId ? localStorage.getItem(`activeSem_${activeId}`) : null;
+        return savedSem || 'Even';
+    });
     const [availableYears, setAvailableYears] = useState(getInitialYears);
     const [availableSemesters, setAvailableSemesters] = useState([
         { value: 'Odd', text: 'Odd Sem' },
@@ -298,35 +305,26 @@ const AttendanceRegister = () => {
             if (sessionData.semesters && sessionData.semesters.length > 0) {
                 setAvailableSemesters(sessionData.semesters);
             }
-            // Auto-select active year and semester if not manually chosen or if using legacy default
-            if (sessionData.selectedYear?.value) {
-                const activeYrVal = sessionData.selectedYear.value;
-                setYear(prev => {
-                    if (!prev || prev === '18' || prev === '2026-2027' || prev.includes('(26-27)')) {
-                        return activeYrVal;
-                    }
-                    const exists = sessionData.years?.some(y => y.value === prev);
-                    return exists ? prev : activeYrVal;
-                });
+            // Auto-select active year and semester directly from ERP session
+            const userManualYear = activeId ? localStorage.getItem(`manualYear_${activeId}`) : null;
+            if (userManualYear && sessionData.years?.some(y => y.value === userManualYear)) {
+                setYear(userManualYear);
+            } else if (sessionData.selectedYear?.value) {
+                setYear(sessionData.selectedYear.value);
             } else if (sessionData.years && sessionData.years.length > 0) {
-                const firstYrVal = sessionData.years[0].value;
-                setYear(prev => {
-                    if (!prev || prev === '18' || prev === '2026-2027' || prev.includes('(26-27)')) {
-                        return firstYrVal;
-                    }
-                    const exists = sessionData.years?.some(y => y.value === prev);
-                    return exists ? prev : firstYrVal;
-                });
+                setYear(sessionData.years[0].value);
             }
-            if (sessionData.selectedSemester) {
+
+            const userManualSem = activeId ? localStorage.getItem(`manualSem_${activeId}`) : null;
+            if (userManualSem) {
+                setSemester(userManualSem);
+            } else if (sessionData.selectedSemester) {
                 const sText = sessionData.selectedSemester.text.toLowerCase();
                 const matched = sText.includes('even') ? 'Even'
                     : sText.includes('summer') ? 'Summer'
                     : sText.includes('term') ? 'Term3'
                     : 'Odd';
-                setSemester(prev => prev || matched);
-            } else {
-                setSemester(prev => prev || 'Odd');
+                setSemester(matched);
             }
         }).catch(err => {
             console.warn('[AttendanceRegister] Could not preload sessions:', err);
@@ -507,6 +505,8 @@ const AttendanceRegister = () => {
                 localStorage.removeItem(`kleData_${activeId}`);
                 localStorage.removeItem(`activeYear_${activeId}`);
                 localStorage.removeItem(`activeSem_${activeId}`);
+                localStorage.removeItem(`manualYear_${activeId}`);
+                localStorage.removeItem(`manualSem_${activeId}`);
                 localStorage.removeItem(`attendanceLastUpdated_${activeId}`);
             }
             localStorage.removeItem('activeErpUser');
@@ -728,8 +728,14 @@ const AttendanceRegister = () => {
                         </div>
                         <h2 className="text-2xl font-black text-slate-900 mb-2">No Courses Found</h2>
                         <p className="text-slate-500 font-medium max-w-sm mx-auto">
-                            We couldn&apos;t find any registered courses for the selected semester. Please verify your selection or check back later.
+                            We couldn&apos;t find any registered courses for {displayYearText} ({displaySemesterText} Semester) on KL ERP. If your current courses are in a different semester, please click below to change.
                         </p>
+                        <button
+                            onClick={handleBack}
+                            className="mt-6 inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-200 transition-all cursor-pointer"
+                        >
+                            Change Year / Semester
+                        </button>
                     </motion.div>
                 )}
             </div>
@@ -765,7 +771,12 @@ const AttendanceRegister = () => {
                         <div className="space-y-1.5">
                             <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
                             <div className="relative">
-                                <select value={year} onChange={e => setYear(e.target.value)}
+                                <select
+                                    value={year}
+                                    onChange={e => {
+                                        setYear(e.target.value);
+                                        if (activeId) localStorage.setItem(`manualYear_${activeId}`, e.target.value);
+                                    }}
                                     className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
                                     <option value="">Select Academic Year</option>
                                     {availableYears.length > 0 ? (
@@ -776,9 +787,9 @@ const AttendanceRegister = () => {
                                         ))
                                     ) : (
                                         <>
-                                            <option value="29">2026-2027</option>
                                             <option value="28">2025-2026</option>
                                             <option value="27">2024-2025</option>
+                                            <option value="29">2026-2027</option>
                                             <option value="26">2023-2024</option>
                                         </>
                                     )}
@@ -790,7 +801,12 @@ const AttendanceRegister = () => {
                         <div className="space-y-1.5">
                             <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Semester</label>
                             <div className="relative">
-                                <select value={semester} onChange={e => setSemester(e.target.value)}
+                                <select
+                                    value={semester}
+                                    onChange={e => {
+                                        setSemester(e.target.value);
+                                        if (activeId) localStorage.setItem(`manualSem_${activeId}`, e.target.value);
+                                    }}
                                     className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
                                     <option value="">Select Semester</option>
                                     {availableSemesters.length > 0 ? (

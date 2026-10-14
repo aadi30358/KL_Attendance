@@ -746,9 +746,9 @@ export default {
                                 matchedYear = availableYears.find(y => y.val === reqYearId || y.val === reqYearStr);
                             }
 
-                            // 5. If still no match and looking for current active academic year, default to first ERP option
-                            if (!matchedYear && (reqYearStr === '18' || reqYearStr.includes('26') || !reqYearStr)) {
-                                matchedYear = availableYears[0];
+                            // 5. If still no match and no year was requested, default to selected or first ERP option
+                            if (!matchedYear && !reqYearStr && !reqYearId) {
+                                matchedYear = availableYears.find(y => y.isSelected) || availableYears[0];
                             }
                         }
                         if (matchedYear) {
