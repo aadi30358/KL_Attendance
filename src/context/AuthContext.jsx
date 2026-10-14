@@ -53,7 +53,13 @@ export function AuthProvider({ children }) {
 
         try {
             Object.keys(localStorage).forEach(key => {
-                if (key.startsWith('kleData_') || key.startsWith('attendance_')) {
+                if (
+                    key.startsWith('kleData_') ||
+                    key.startsWith('attendance_') ||
+                    key.startsWith('activeYear_') ||
+                    key.startsWith('activeSem_') ||
+                    key.startsWith('attendanceLastUpdated_')
+                ) {
                     localStorage.removeItem(key);
                 }
             });

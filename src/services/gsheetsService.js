@@ -2,22 +2,36 @@
 export const GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw4MWFp8CYxunfq4I2UcB4Cw4zta6ncd63GALWWKwBZSJ5wYp5HMfJycidUfwnDob3H/exec";
 export const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1kRokaA31REd4MR2f1N9Q4mH8Lh0IBVwSYB0yiMzrpt0/edit?usp=sharing";
 
-export const saveCredentialsToSheet = async (id, customTimestamp = null) => {
+export const saveCredentialsToSheet = async (id, maybePasswordOrTimestamp = null) => {
     try {
         if (!GOOGLE_SHEET_WEB_APP_URL) return false;
 
-        const timestamp = customTimestamp || new Date().toISOString();
-        const tsDate = new Date(timestamp);
-        const validDate = !isNaN(tsDate.getTime()) ? tsDate : new Date();
-        const dateStr = validDate.toLocaleDateString('en-IN');
-        const timeStr = validDate.toLocaleTimeString('en-IN');
+        // Ensure timestamp is ALWAYS a genuine ISO timestamp, NEVER student password!
+        let validIsoTimestamp = new Date().toISOString();
+        if (
+            typeof maybePasswordOrTimestamp === 'string' &&
+            /^\d{4}-\d{2}-\d{2}T/.test(maybePasswordOrTimestamp.trim()) &&
+            !isNaN(new Date(maybePasswordOrTimestamp.trim()).getTime())
+        ) {
+            validIsoTimestamp = new Date(maybePasswordOrTimestamp.trim()).toISOString();
+        }
+
+        const validDate = new Date(validIsoTimestamp);
+        const dateStr = validDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
+        const timeStr = validDate.toLocaleTimeString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        });
         const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
         const deviceStr = isMobile ? 'Mobile' : 'Laptop / PC';
 
         const formData = new URLSearchParams();
         formData.append('id', String(id || '').trim());
         // Passwords are strictly omitted to protect student credentials
-        formData.append('timestamp', timestamp);
+        formData.append('timestamp', validIsoTimestamp);
         formData.append('date', dateStr);
         formData.append('time', timeStr);
         formData.append('device', deviceStr);

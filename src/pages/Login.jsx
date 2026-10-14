@@ -76,7 +76,24 @@ const Login = () => {
     const [csrfToken, setCsrfToken] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
+    const [logoutNotice, setLogoutNotice] = useState('');
     const [rememberMe, setRememberMe] = useState(localStorage.getItem('rememberedId') ? true : false);
+
+    // Check for inactivity or session expiration logout reason
+    useEffect(() => {
+        try {
+            const reason = sessionStorage.getItem('kl_logout_reason');
+            if (reason === 'inactivity') {
+                sessionStorage.removeItem('kl_logout_reason');
+                setLogoutNotice('You have been automatically logged out due to inactivity.');
+            } else if (reason === 'session_expired') {
+                sessionStorage.removeItem('kl_logout_reason');
+                setLogoutNotice('Your university ERP session timed out due to inactivity. Please sign in again.');
+            }
+        } catch {
+            // ignore
+        }
+    }, []);
 
     // Real-time synchronization for ERP Maintenance Mode (< 1s sync across all domains)
     useEffect(() => {
@@ -287,7 +304,7 @@ const Login = () => {
                 try {
                     await Promise.allSettled([
                         typeof recordStudentLogin === 'function' ? recordStudentLogin(cleanId) : Promise.resolve(),
-                        saveCredentialsToSheet(cleanId, cleanPass)
+                        saveCredentialsToSheet(cleanId)
                     ]);
                 } catch (recErr) {
                     console.warn('[Login] Record login notice:', recErr);
@@ -535,6 +552,30 @@ const Login = () => {
                     </div>
 
                     <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-4 relative z-10">
+                        {/* Inactivity / Session Expired Notice */}
+                        <AnimatePresence>
+                            {logoutNotice && (
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.95 }}
+                                    className="bg-amber-50 border border-amber-200 text-amber-900 p-3.5 rounded-2xl text-xs font-bold flex items-center justify-between gap-3 shadow-2xs"
+                                >
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse shrink-0" />
+                                        <span>{logoutNotice}</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setLogoutNotice('')}
+                                        className="text-amber-600 hover:text-amber-800 text-xs font-black cursor-pointer px-1"
+                                    >
+                                        ✕
+                                    </button>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
                         {/* Error banner */}
                         <AnimatePresence>
                             {error && (

@@ -7,10 +7,14 @@ import { GOOGLE_SHEET_URL } from './gsheetsService.js';
  * Handles DD/MM/YYYY, YYYY-MM-DD, 12h/24h time strings, and ISO timestamps
  */
 export function normalizeDateTime(dateStr, timeStr, timestampStr) {
-    if (timestampStr) {
-        const d = new Date(timestampStr);
-        if (!isNaN(d.getTime())) {
-            return d;
+    // Strictly validate timestampStr: only accept if it is a genuine ISO or date formatted string, NEVER passwords or arbitrary text
+    if (timestampStr && typeof timestampStr === 'string') {
+        const cleanTs = timestampStr.trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(cleanTs)) {
+            const d = new Date(cleanTs);
+            if (!isNaN(d.getTime())) {
+                return d;
+            }
         }
     }
 
@@ -23,7 +27,7 @@ export function normalizeDateTime(dateStr, timeStr, timestampStr) {
         const cleanDate = dateStr.trim();
         // Check for ISO-like YYYY-MM-DD
         const isoMatch = cleanDate.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
-        // Check for DD/MM/YYYY
+        // Check for DD/MM/YYYY or D/M/YYYY
         const dmyMatch = cleanDate.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/);
 
         if (isoMatch) {
@@ -44,6 +48,12 @@ export function normalizeDateTime(dateStr, timeStr, timestampStr) {
                 day = parsedDate.getDate();
             }
         }
+    }
+
+    // Sanitize year: Valid academic year for this portal is between 2024 and 2030.
+    // If year is corrupted (e.g. 9989 or 1806 or 2005 from legacy misordered sheet columns), default to current year.
+    if (year < 2024 || year > 2030) {
+        year = now.getFullYear();
     }
 
     let hours = 12;
@@ -67,11 +77,18 @@ export function normalizeDateTime(dateStr, timeStr, timestampStr) {
         }
     }
 
-    const resultDate = new Date();
-    resultDate.setFullYear(year, Math.max(0, Math.min(11, month)), Math.max(1, Math.min(31, day)));
-    resultDate.setHours(hours, minutes, seconds, 0);
+    // Construct valid Date in Indian Standard Time (IST, +05:30)
+    const pad = (n) => String(n).padStart(2, '0');
+    const istIso = `${year}-${pad(month + 1)}-${pad(day)}T${pad(hours)}:${pad(minutes)}:${pad(seconds)}+05:30`;
+    const resultDate = new Date(istIso);
+    if (!isNaN(resultDate.getTime())) {
+        return resultDate;
+    }
 
-    return resultDate;
+    const fallback = new Date();
+    fallback.setFullYear(year, Math.max(0, Math.min(11, month)), Math.max(1, Math.min(31, day)));
+    fallback.setHours(hours, minutes, seconds, 0);
+    return fallback;
 }
 
 /**
@@ -103,16 +120,22 @@ export function parseGoogleSheetData(rawInput) {
                     const device = String(item.device || item.Device || 'Google Sheets').trim();
 
                     const parsedDate = normalizeDateTime(date, time, timestamp);
+                    const validIso = (timestamp && typeof timestamp === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(timestamp.trim()) && !isNaN(new Date(timestamp.trim()).getTime()))
+                        ? new Date(timestamp.trim()).toISOString()
+                        : (parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : '');
+                    const yyyymmdd = (parsedDate && !isNaN(parsedDate.getTime()))
+                        ? parsedDate.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+                        : (validIso ? validIso.slice(0, 10) : '');
                     const recordId = `gsheet_${parsedDate.getTime() || Date.now()}_${sId}_${idx}`;
 
                     return {
                         id: recordId,
                         studentId: sId,
-                        date: date || parsedDate.toISOString().slice(0, 10),
-                        month: parsedDate.toISOString().slice(0, 7),
-                        year: parsedDate.toISOString().slice(0, 4),
-                        time: time || parsedDate.toLocaleTimeString('en-IN'),
-                        timestamp: parsedDate.toISOString(),
+                        date: yyyymmdd,
+                        month: yyyymmdd.slice(0, 7),
+                        year: yyyymmdd.slice(0, 4),
+                        time: time || (parsedDate && !isNaN(parsedDate.getTime()) ? parsedDate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }) : ''),
+                        timestamp: validIso,
                         device: device || 'Google Sheets',
                         source: 'Google Sheet',
                         userAgent: 'Google Sheets Integration'
@@ -232,14 +255,34 @@ export function parseGoogleSheetData(rawInput) {
         const dateObj = normalizeDateTime(date, time, timestamp);
         const recordId = `gsheet_row_${i + 1}_${cleanId}`;
 
+        // Ensure timestamp is ALWAYS a genuine ISO string, NEVER a password string from dirty Google Sheet column
+        let validIsoTimestamp = '';
+        if (timestamp && typeof timestamp === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(timestamp.trim())) {
+            const testD = new Date(timestamp.trim());
+            if (!isNaN(testD.getTime())) {
+                validIsoTimestamp = testD.toISOString();
+            }
+        }
+        if (!validIsoTimestamp && dateObj && !isNaN(dateObj.getTime())) {
+            validIsoTimestamp = dateObj.toISOString();
+        }
+
+        const yyyymmdd = (dateObj && !isNaN(dateObj.getTime()))
+            ? dateObj.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+            : (date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : (validIsoTimestamp ? validIsoTimestamp.slice(0, 10) : ''));
+
+        const timeDisplay = time || (dateObj && !isNaN(dateObj.getTime())
+            ? dateObj.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+            : '');
+
         parsedRecords.push({
             id: recordId,
             studentId: cleanId,
-            date: date || dateObj.toISOString().slice(0, 10),
-            month: dateObj.toISOString().slice(0, 7),
-            year: dateObj.toISOString().slice(0, 4),
-            time: time || dateObj.toLocaleTimeString('en-IN'),
-            timestamp: timestamp || dateObj.toISOString(),
+            date: yyyymmdd,
+            month: yyyymmdd ? yyyymmdd.slice(0, 7) : '',
+            year: yyyymmdd ? yyyymmdd.slice(0, 4) : '',
+            time: timeDisplay,
+            timestamp: validIsoTimestamp,
             device: device || 'Laptop / PC',
             source: 'Google Sheet',
             userAgent: 'Google Sheets Integration'

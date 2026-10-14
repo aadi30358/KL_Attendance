@@ -53,7 +53,8 @@ import {
 } from '../services/loginTracker';
 import {
     fetchAllGoogleSheetsCSV,
-    DEFAULT_GOOGLE_SHEET_URLS
+    DEFAULT_GOOGLE_SHEET_URLS,
+    normalizeDateTime
 } from '../services/gsheetImportService';
 import { APP_CONFIG } from '../config';
 import gsheetLoginsData from '../data/gsheetLoginsData.json';
@@ -124,11 +125,61 @@ const cleanAndDeduplicateLogins = (rawList = []) => {
         if (item.id && seenExactIds.has(item.id)) continue;
         if (item.id) seenExactIds.add(item.id);
 
-        const tsDate = item.timestamp ? new Date(item.timestamp) : new Date();
-        const validTime = !isNaN(tsDate.getTime()) ? tsDate.getTime() : Date.now();
-        const validTs = new Date(validTime).toISOString();
+        // Parse timestamp robustly:
+        let validTime = 0;
+        let validTs = '';
 
-        const istDate = getISTDateStr(tsDate);
+        if (item.timestamp && typeof item.timestamp === 'string') {
+            const cleanTs = item.timestamp.trim();
+            if (/^\d{4}-\d{2}-\d{2}/.test(cleanTs)) {
+                const tsDate = new Date(cleanTs);
+                if (!isNaN(tsDate.getTime())) {
+                    validTime = tsDate.getTime();
+                    validTs = tsDate.toISOString();
+                }
+            }
+        }
+
+        // Fallback 1: Parse from item.date and item.time if timestamp was missing or invalid
+        if (!validTime && item.date) {
+            const parsedFromDateTime = normalizeDateTime(item.date, item.time || '');
+            if (parsedFromDateTime && !isNaN(parsedFromDateTime.getTime()) && parsedFromDateTime.getTime() > 0) {
+                validTime = parsedFromDateTime.getTime();
+                validTs = parsedFromDateTime.toISOString();
+            }
+        }
+
+        // Fallback 2: Parse from item.id if it contains a unix millisecond timestamp (e.g. log_1791941681197_...)
+        if (!validTime && item.id && typeof item.id === 'string') {
+            const match = item.id.match(/_(\d{12,14})_/);
+            if (match && match[1]) {
+                const parsedIdTime = parseInt(match[1], 10);
+                if (!isNaN(parsedIdTime) && parsedIdTime > 1500000000000) {
+                    validTime = parsedIdTime;
+                    validTs = new Date(validTime).toISOString();
+                }
+            }
+        }
+
+        // Fallback 3: Use item.lastLoginAt or item.createdAt if present
+        if (!validTime && (item.lastLoginAt || item.createdAt)) {
+            const alt = item.lastLoginAt || item.createdAt;
+            if (typeof alt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(alt.trim())) {
+                const altDate = new Date(alt.trim());
+                if (!isNaN(altDate.getTime())) {
+                    validTime = altDate.getTime();
+                    validTs = altDate.toISOString();
+                }
+            }
+        }
+
+        // CRITICAL: If no valid historical timestamp can be determined, DO NOT default to Date.now()!
+        // Defaulting to Date.now() causes past logins to overwrite with the current admin page opening time!
+        if (!validTime) {
+            continue;
+        }
+
+        const istDate = getISTDateStr(new Date(validTime));
         const dateKey = item.date && /^\d{4}-\d{2}-\d{2}$/.test(item.date) ? item.date : istDate;
         const monthKey = item.month && /^\d{4}-\d{2}$/.test(item.month) ? item.month : dateKey.slice(0, 7);
         const yearKey = item.year && /^\d{4}$/.test(item.year) ? item.year : dateKey.slice(0, 4);
@@ -872,6 +923,13 @@ export default function AdminDashboard() {
                 const sId = String(st.studentId || st.id || '').trim().toUpperCase();
                 if (!sId || !/^\d{8,12}$/.test(sId)) return;
                 const count = Math.max(1, Number(st.loginCount) || 1);
+                const stLastTs = (st.lastLoginAt && typeof st.lastLoginAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(st.lastLoginAt.trim()) && !isNaN(new Date(st.lastLoginAt.trim()).getTime()))
+                    ? new Date(st.lastLoginAt.trim()).getTime()
+                    : 0;
+                const stFirstTs = (st.createdAt && typeof st.createdAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(st.createdAt.trim()) && !isNaN(new Date(st.createdAt.trim()).getTime()))
+                    ? new Date(st.createdAt.trim()).getTime()
+                    : stLastTs;
+
                 if (!userMap.has(sId)) {
                     userMap.set(sId, {
                         studentId: sId,
@@ -879,12 +937,12 @@ export default function AdminDashboard() {
                         todayLogins: 0,
                         monthLogins: 0,
                         yearLogins: 0,
-                        firstLoginTs: st.createdAt ? new Date(st.createdAt).getTime() : Date.now(),
-                        lastLoginTs: st.lastLoginAt ? new Date(st.lastLoginAt).getTime() : Date.now(),
-                        lastLoginFormatted: st.lastLoginAt || st.createdAt || '',
-                        firstLoginFormatted: st.createdAt || '',
+                        firstLoginTs: stFirstTs,
+                        lastLoginTs: stLastTs,
+                        lastLoginFormatted: st.lastLoginAt || (stLastTs ? new Date(stLastTs).toISOString() : ''),
+                        firstLoginFormatted: st.createdAt || (stFirstTs ? new Date(stFirstTs).toISOString() : ''),
                         devices: {},
-                        lastDevice: 'Web Browser',
+                        lastDevice: st.lastDevice || 'Web Browser',
                         activeToday: false,
                         activeThisMonth: false,
                         activeThisYear: false,
@@ -896,12 +954,12 @@ export default function AdminDashboard() {
                     if (count > entry.totalLogins) {
                         entry.totalLogins = count;
                     }
-                    if (st.lastLoginAt) {
-                        const lts = new Date(st.lastLoginAt).getTime();
-                        if (lts > entry.lastLoginTs) {
-                            entry.lastLoginTs = lts;
-                            entry.lastLoginFormatted = st.lastLoginAt;
-                        }
+                    if (stLastTs && stLastTs > entry.lastLoginTs) {
+                        entry.lastLoginTs = stLastTs;
+                        entry.lastLoginFormatted = new Date(stLastTs).toISOString();
+                    }
+                    if (st.lastDevice && !entry.lastDevice) {
+                        entry.lastDevice = st.lastDevice;
                     }
                 }
             });

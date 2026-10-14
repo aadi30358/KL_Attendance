@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, LogOut, ArrowLeft, RefreshCw, Sparkles, CheckCircle2, AlertCircle, Radio, X } from 'lucide-react';
+import { BookOpen, Calendar, LogOut, ArrowLeft, RefreshCw, Sparkles, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -206,13 +206,6 @@ const AttendanceRegister = () => {
             return null;
         }
     });
-    const [autoCheckEnabled, setAutoCheckEnabled] = useState(() => {
-        try {
-            return localStorage.getItem('kl_auto_check_attendance') !== 'false';
-        } catch {
-            return true;
-        }
-    });
     const [attendanceNotification, setAttendanceNotification] = useState(null);
     const [justCheckedNotice, setJustCheckedNotice] = useState(null);
     const [recentlyUpdatedCodes, setRecentlyUpdatedCodes] = useState(new Set());
@@ -341,8 +334,9 @@ const AttendanceRegister = () => {
                 if (!isMounted) return;
                 if (res?.sessionActive) {
                     setSessionStatus('active');
-                } else if (res?.reason === 'Session expired') {
-                    setSessionStatus('expired');
+                } else if (res?.reason === 'Session expired' || res?.sessionActive === false) {
+                    // Session is inactive or expired on university server -> auto logout
+                    handleLogoutAction('session_expired');
                 }
             } catch {
                 // ignore
@@ -357,13 +351,12 @@ const AttendanceRegister = () => {
         };
     }, [showDashboard]);
 
-
-
-    // Periodic auto-check when enabled
+    // Live background auto-check (always active while viewing dashboard)
     useEffect(() => {
-        if (!showDashboard || !autoCheckEnabled || !year || !semester) return;
+        if (!showDashboard || !year || !semester) return;
 
         const checkPeriodically = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
             handleRefresh(true); // background silent check
         };
 
@@ -373,7 +366,7 @@ const AttendanceRegister = () => {
         const autoTimer = setInterval(checkPeriodically, intervalMs);
         return () => clearInterval(autoTimer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showDashboard, autoCheckEnabled, year, semester]);
+    }, [showDashboard, year, semester]);
 
     const handleSearch = async (fetchYear = year, fetchSemester = semester) => {
         if (!fetchYear || !fetchSemester) { 
@@ -463,10 +456,9 @@ const AttendanceRegister = () => {
             }
         } catch (error) {
             if (error.message?.includes('expired') || error.message?.includes('sign in')) {
-                setSessionStatus('expired');
-                if (!isSilent) {
-                    setFetchError('Your university ERP session has expired. Please sign in again.');
-                }
+                // University ERP session expired -> auto logout immediately
+                handleLogoutAction('session_expired');
+                return;
             } else if (!isSilent) {
                 setFetchError(error.message || 'Failed to refresh attendance.');
             }
@@ -482,8 +474,13 @@ const AttendanceRegister = () => {
         setJustCheckedNotice(null);
     };
 
-    const handleLogoutAction = async () => {
+    const handleLogoutAction = async (reason = 'manual') => {
         try {
+            if (reason === 'session_expired') {
+                sessionStorage.setItem('kl_logout_reason', 'session_expired');
+            } else if (reason === 'inactivity') {
+                sessionStorage.setItem('kl_logout_reason', 'inactivity');
+            }
             await logout();
             if (activeId) {
                 localStorage.removeItem(`kleData_${activeId}`);
@@ -545,32 +542,15 @@ const AttendanceRegister = () => {
                                         <span className="text-indigo-600 font-bold">Last checked: {formatTimeAgo(lastUpdated)}</span>
                                     </>
                                 )}
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    Live
+                                </span>
                             </div>
                         </div>
 
                         {/* Controls Toolbar */}
                         <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-                            {/* Auto-check Toggle */}
-                            <button
-                                onClick={() => {
-                                    const next = !autoCheckEnabled;
-                                    setAutoCheckEnabled(next);
-                                    try { 
-                                        localStorage.setItem('kl_auto_check_attendance', String(next)); 
-                                    } catch {
-                                        // ignore storage error
-                                    }
-                                }}
-                                className={`px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all cursor-pointer ${
-                                    autoCheckEnabled
-                                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                                        : 'bg-slate-100 border-slate-200 text-slate-500 hover:text-slate-700'
-                                }`}
-                                title="Automatically checks for new attendance marks periodically and after period ends"
-                            >
-                                <Radio className={`w-3.5 h-3.5 ${autoCheckEnabled ? 'text-emerald-600 animate-pulse' : 'text-slate-400'}`} />
-                                <span>Auto-Check: {autoCheckEnabled ? 'ON' : 'OFF'}</span>
-                            </button>
 
                             {/* Check Attendance Button */}
                             <button

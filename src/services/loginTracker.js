@@ -72,8 +72,12 @@ export async function recordStudentLogin(studentId, customTimestamp = null) {
     // Real KLU student ID validation (8 to 12 digits)
     if (!/^\d{8,12}$/.test(cleanId)) return;
 
-    const now = customTimestamp ? new Date(customTimestamp) : new Date();
-    const timestamp = customTimestamp || now.toISOString();
+    const validCustomDate = (customTimestamp && typeof customTimestamp === 'string' && /^\d{4}-\d{2}-\d{2}/.test(customTimestamp.trim()) && !isNaN(new Date(customTimestamp.trim()).getTime()))
+        ? new Date(customTimestamp.trim())
+        : null;
+
+    const now = validCustomDate || new Date();
+    const timestamp = now.toISOString();
     let dateKey = timestamp.slice(0, 10);
     try {
         dateKey = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });

@@ -12,6 +12,7 @@ import { AttendanceProvider } from './context/AttendanceContext';
 import { InstallPwaPrompt } from './components/InstallPwaPrompt';
 import { InstallModal } from './components/InstallModal';
 import { DeveloperModal } from './components/DeveloperModal';
+import { InactivityTracker } from './components/InactivityTracker';
 
 // ─── Lazy-loaded pages (only loaded when the user navigates to that route) ───
 const Home             = lazy(() => import('./pages/Home'));
@@ -192,6 +193,7 @@ const AppWithAuth = () => {
       <DeveloperModal />
       <InstallModal />
       <InstallPwaPrompt />
+      <InactivityTracker />
       <Suspense fallback={null}><FeedbackWidget /></Suspense>
 
       <footer className="w-full py-6 text-center border-t border-slate-200/80 bg-white/60 backdrop-blur-md">
