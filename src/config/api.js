@@ -80,14 +80,16 @@ export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId
   let firstYear = parseInt(String(academicYear || '').split('-')[0], 10);
   if (!isNaN(firstYear) && firstYear < 100) firstYear += 2000;
 
-  if (firstYear === 2026) {
-    candidates.push('18', '22', '19', '17', '20', '21');
-  } else if (firstYear === 2025) {
-    candidates.push('17', '19', '18', '16');
-  } else if (firstYear === 2024) {
-    candidates.push('16', '15', '17');
-  } else if (firstYear === 2023) {
-    candidates.push('15', '14', '16');
+  // Real KL ERP database IDs (2026-2027 is 29, 2025-2026 is 28, 2024-2025 is 27, etc.)
+  const strYear = String(academicYear || '').trim();
+  if (firstYear === 2026 || strYear === '18' || strYear === '29' || strYear.includes('26')) {
+    candidates.push('29', '28', '22', '18', '19', '17', '20', '21');
+  } else if (firstYear === 2025 || strYear === '17' || strYear === '28' || strYear.includes('25')) {
+    candidates.push('28', '17', '19', '18', '16');
+  } else if (firstYear === 2024 || strYear === '16' || strYear === '27' || strYear.includes('24')) {
+    candidates.push('27', '16', '15', '17');
+  } else if (firstYear === 2023 || strYear === '15' || strYear === '26' || strYear.includes('23')) {
+    candidates.push('26', '15', '14', '16');
   } else {
     if (code) candidates.push(code);
   }

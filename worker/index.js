@@ -680,17 +680,40 @@ export default {
 
                         const reqYearStr = (year || '').toString().trim();
                         const reqYearId = (yearId || '').toString().trim();
+                        const cleanYearStr = reqYearStr.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+                        const legacyToYear = { '18': '2026', '17': '2025', '16': '2024', '15': '2023', '14': '2022' };
+                        const targetYearStart = legacyToYear[reqYearStr] || 
+                            (cleanYearStr.includes('-') ? cleanYearStr.split('-')[0].trim() : (cleanYearStr.match(/\b(20\d\d)\b/)?.[1] || ''));
+
                         let matchedYear = null;
                         if (availableYears.length > 0) {
-                            if (reqYearStr) {
-                                matchedYear = availableYears.find(y => y.text.trim().toLowerCase() === reqYearStr.trim().toLowerCase() || y.text.includes(reqYearStr));
+                            // 1. Direct ERP DB value match first (e.g. '29')
+                            const directId = (parseInt(reqYearStr, 10) > 20) ? reqYearStr : reqYearId;
+                            if (directId) {
+                                matchedYear = availableYears.find(y => y.val === directId);
                             }
-                            if (!matchedYear && reqYearStr.includes('-')) {
-                                const startY = reqYearStr.split('-')[0].trim();
-                                matchedYear = availableYears.find(y => y.text.startsWith(startY) || y.text.includes(startY));
+
+                            // 2. Exact or substring text match with clean text (e.g. "2026-2027")
+                            if (!matchedYear && cleanYearStr) {
+                                matchedYear = availableYears.find(y => {
+                                    const yt = y.text.toLowerCase().trim();
+                                    return yt === cleanYearStr || yt.includes(cleanYearStr) || cleanYearStr.includes(yt);
+                                });
                             }
-                            if (!matchedYear && reqYearId) {
-                                matchedYear = availableYears.find(y => y.val === reqYearId);
+
+                            // 3. Match starting year (e.g. "2026")
+                            if (!matchedYear && targetYearStart) {
+                                matchedYear = availableYears.find(y => y.text.includes(targetYearStart));
+                            }
+
+                            // 4. Fallback to direct val match
+                            if (!matchedYear && (reqYearId || reqYearStr)) {
+                                matchedYear = availableYears.find(y => y.val === reqYearId || y.val === reqYearStr);
+                            }
+
+                            // 5. If still no match and looking for current active academic year, default to first ERP option
+                            if (!matchedYear && (reqYearStr === '18' || reqYearStr.includes('26') || !reqYearStr)) {
+                                matchedYear = availableYears[0];
                             }
                         }
                         if (matchedYear) {
@@ -729,7 +752,11 @@ export default {
 
                 if (!resolvedYearId) {
                     const yStr = String(year || yearId || '').trim();
-                    resolvedYearId = yStr.startsWith('2026') ? '18' : yStr.startsWith('2025') ? '17' : yStr.startsWith('2024') ? '16' : (yStr || '18');
+                    if (yStr.startsWith('2026') || yStr === '18' || yStr.includes('26')) resolvedYearId = '29';
+                    else if (yStr.startsWith('2025') || yStr === '17' || yStr.includes('25')) resolvedYearId = '28';
+                    else if (yStr.startsWith('2024') || yStr === '16' || yStr.includes('24')) resolvedYearId = '27';
+                    else if (yStr.startsWith('2023') || yStr === '15' || yStr.includes('23')) resolvedYearId = '26';
+                    else resolvedYearId = (yStr || '29');
                 }
                 if (!resolvedSemId) {
                     const sStr = String(semester || semId || '').trim().toLowerCase();

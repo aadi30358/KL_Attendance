@@ -157,14 +157,32 @@ const AttendanceRegister = () => {
     const activeId = localStorage.getItem('activeErpUser');
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
-    const [year, setYear] = useState('18');
+    // Default clean academic years matching ERP's real option format
+    const DEFAULT_YEARS = [
+        { value: '29', text: '2026-2027' },
+        { value: '28', text: '2025-2026' },
+        { value: '27', text: '2024-2025' },
+        { value: '26', text: '2023-2024' }
+    ];
+
+    const getInitialYears = () => {
+        try {
+            const cached = localStorage.getItem('kl_erp_session_years');
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+        } catch {}
+        return DEFAULT_YEARS;
+    };
+
+    const [year, setYear] = useState(() => {
+        const savedYear = activeId ? localStorage.getItem(`activeYear_${activeId}`) : null;
+        if (savedYear && savedYear !== '18' && !savedYear.includes('(26-27)')) return savedYear;
+        return '29';
+    });
     const [semester, setSemester] = useState('Odd');
-    const [availableYears, setAvailableYears] = useState([
-        { value: '18', text: '2026-2027 (26-27)' },
-        { value: '17', text: '2025-2026 (25-26)' },
-        { value: '16', text: '2024-2025 (24-25)' },
-        { value: '15', text: '2023-2024 (23-24)' }
-    ]);
+    const [availableYears, setAvailableYears] = useState(getInitialYears);
     const [availableSemesters, setAvailableSemesters] = useState([
         { value: 'Odd', text: 'Odd Sem' },
         { value: 'Even', text: 'Even Sem' },
@@ -266,16 +284,32 @@ const AttendanceRegister = () => {
             if (!isMounted || !sessionData) return;
             if (sessionData.years && sessionData.years.length > 0) {
                 setAvailableYears(sessionData.years);
+                try {
+                    localStorage.setItem('kl_erp_session_years', JSON.stringify(sessionData.years));
+                } catch {}
             }
             if (sessionData.semesters && sessionData.semesters.length > 0) {
                 setAvailableSemesters(sessionData.semesters);
             }
-            // Auto-select active year and semester if not manually chosen yet
-            if (sessionData.selectedYear) {
-                const yrVal = sessionData.selectedYear.value || sessionData.selectedYear.text;
-                setYear(prev => prev || yrVal);
-            } else {
-                setYear(prev => prev || '18');
+            // Auto-select active year and semester if not manually chosen or if using legacy default
+            if (sessionData.selectedYear?.value) {
+                const activeYrVal = sessionData.selectedYear.value;
+                setYear(prev => {
+                    if (!prev || prev === '18' || prev === '2026-2027' || prev.includes('(26-27)')) {
+                        return activeYrVal;
+                    }
+                    const exists = sessionData.years?.some(y => y.value === prev);
+                    return exists ? prev : activeYrVal;
+                });
+            } else if (sessionData.years && sessionData.years.length > 0) {
+                const firstYrVal = sessionData.years[0].value;
+                setYear(prev => {
+                    if (!prev || prev === '18' || prev === '2026-2027' || prev.includes('(26-27)')) {
+                        return firstYrVal;
+                    }
+                    const exists = sessionData.years?.some(y => y.value === prev);
+                    return exists ? prev : firstYrVal;
+                });
             }
             if (sessionData.selectedSemester) {
                 const sText = sessionData.selectedSemester.text.toLowerCase();
@@ -477,7 +511,7 @@ const AttendanceRegister = () => {
 
     // ── DASHBOARD VIEW ──────────────────────────────────────────────
     if (showDashboard) {
-        const displayYearText = availableYears.find(y => y.value === year)?.text || (year === '18' ? '2026-2027' : year);
+        const displayYearText = availableYears.find(y => y.value === year)?.text || (year === '29' || year === '18' ? '2026-2027' : year);
         const displaySemesterText = availableSemesters.find(s => s.value === semester)?.text || semester;
 
         return (
@@ -786,23 +820,17 @@ const AttendanceRegister = () => {
                                     className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
                                     <option value="">Select Academic Year</option>
                                     {availableYears.length > 0 ? (
-                                        (() => {
-                                            const list = [...availableYears];
-                                            if (!list.some(y => (y.text || '').includes('2026-2027') || (y.text || '').includes('26-27') || y.value === '18')) {
-                                                list.unshift({ value: '18', text: '2026-2027 (26-27)' });
-                                            }
-                                            return list.map(y => (
-                                                <option key={y.value} value={y.value}>
-                                                    {y.text}
-                                                </option>
-                                            ));
-                                        })()
+                                        availableYears.map(y => (
+                                            <option key={y.value} value={y.value}>
+                                                {y.text}
+                                            </option>
+                                        ))
                                     ) : (
                                         <>
-                                            <option value="18">2026-2027 (26-27)</option>
-                                            <option value="17">2025-2026 (25-26)</option>
-                                            <option value="16">2024-2025 (24-25)</option>
-                                            <option value="15">2023-2024 (23-24)</option>
+                                            <option value="29">2026-2027</option>
+                                            <option value="28">2025-2026</option>
+                                            <option value="27">2024-2025</option>
+                                            <option value="26">2023-2024</option>
                                         </>
                                     )}
                                 </select>

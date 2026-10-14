@@ -728,26 +728,41 @@ app.post('/api/fast-attendance', async (req, res) => {
                 // Resolve target academic year with thorough matching - text match FIRST!
                 const reqYearStr = (year || '').toString().trim();
                 const reqYearId = (yearId || '').toString().trim();
+                const cleanYearStr = reqYearStr.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+                const legacyToYear = { '18': '2026', '17': '2025', '16': '2024', '15': '2023', '14': '2022' };
+                const targetYearStart = legacyToYear[reqYearStr] || 
+                    (cleanYearStr.includes('-') ? cleanYearStr.split('-')[0].trim() : (cleanYearStr.match(/\b(20\d\d)\b/)?.[1] || ''));
+
                 let matchedYear = null;
 
                 if (availableYears.length > 0) {
-                    // 1. Exact or substring text match FIRST (ground truth)
-                    if (reqYearStr) {
-                        matchedYear = availableYears.find(y => y.text.trim().toLowerCase() === reqYearStr.trim().toLowerCase() || y.text.includes(reqYearStr));
+                    // 1. Direct ERP DB value match first (e.g. '29')
+                    const directId = (parseInt(reqYearStr, 10) > 20) ? reqYearStr : reqYearId;
+                    if (directId) {
+                        matchedYear = availableYears.find(y => (y.val || y.value) === directId);
                     }
-                    // 2. Normalized whitespace match
-                    if (!matchedYear && reqYearStr) {
-                        const cleanReq = reqYearStr.replace(/\s+/g, '');
-                        matchedYear = availableYears.find(y => y.text.replace(/\s+/g, '').includes(cleanReq));
+
+                    // 2. Exact or substring text match with clean text (e.g. "2026-2027")
+                    if (!matchedYear && cleanYearStr) {
+                        matchedYear = availableYears.find(y => {
+                            const yt = y.text.toLowerCase().trim();
+                            return yt === cleanYearStr || yt.includes(cleanYearStr) || cleanYearStr.includes(yt);
+                        });
                     }
-                    // 3. Starting year match (e.g. "2024" in "2024-2025")
-                    if (!matchedYear && reqYearStr.includes('-')) {
-                        const startY = reqYearStr.split('-')[0].trim();
-                        matchedYear = availableYears.find(y => y.text.startsWith(startY) || y.text.includes(startY));
+
+                    // 3. Match starting year (e.g. "2026")
+                    if (!matchedYear && targetYearStart) {
+                        matchedYear = availableYears.find(y => y.text.includes(targetYearStart));
                     }
-                    // 4. Direct val match fallback only if text didn't match
-                    if (!matchedYear && reqYearId) {
-                        matchedYear = availableYears.find(y => y.val === reqYearId);
+
+                    // 4. Fallback to direct val match
+                    if (!matchedYear && (reqYearId || reqYearStr)) {
+                        matchedYear = availableYears.find(y => (y.val || y.value) === reqYearId || (y.val || y.value) === reqYearStr);
+                    }
+
+                    // 5. If still no match and looking for current active academic year, default to first ERP option
+                    if (!matchedYear && (reqYearStr === '18' || reqYearStr.includes('26') || !reqYearStr)) {
+                        matchedYear = availableYears[0];
                     }
                 }
 
@@ -794,23 +809,18 @@ app.post('/api/fast-attendance', async (req, res) => {
         // Fallback robust mappings if options couldn't be discovered dynamically
         const getFallbackYearId = (y) => {
             const str = String(y || '').trim();
-            if (str.startsWith('2026')) return '22';
-            if (str.startsWith('2025')) return '19';
-            if (str.startsWith('2024')) return '16';
-            if (str.startsWith('2023')) return '15';
-            if (str.startsWith('2022')) return '14';
-            if (str.startsWith('2021')) return '13';
-            if (str.startsWith('2020')) return '10';
-            if (str.startsWith('2019')) return '9';
-            if (str.startsWith('2018')) return '8';
-            if (str.startsWith('2017')) return '7';
-            if (str.startsWith('2016')) return '6';
-            if (str.startsWith('2015')) return '5';
-            if (str.startsWith('2014')) return '4';
-            if (str.startsWith('2013')) return '3';
-            if (str.startsWith('2012')) return '2';
-            if (str.startsWith('2011')) return '1';
-            return str || '19';
+            if (str.startsWith('2026') || str === '18' || str.includes('26')) return '29';
+            if (str.startsWith('2025') || str === '17' || str.includes('25')) return '28';
+            if (str.startsWith('2024') || str === '16' || str.includes('24')) return '27';
+            if (str.startsWith('2023') || str === '15' || str.includes('23')) return '26';
+            if (str.startsWith('2022') || str === '14') return '14';
+            if (str.startsWith('2021') || str === '13') return '13';
+            if (str.startsWith('2020') || str === '10') return '10';
+            if (str.startsWith('2019') || str === '9') return '9';
+            if (str.startsWith('2018') || str === '8') return '8';
+            if (str.startsWith('2017') || str === '7') return '7';
+            if (str.startsWith('2016') || str === '6') return '6';
+            return str || '29';
         };
         const getFallbackSemId = (s) => {
             const str = String(s || '').trim().toLowerCase();

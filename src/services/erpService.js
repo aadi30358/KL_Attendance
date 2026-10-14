@@ -686,6 +686,7 @@ export const erpService = {
         const csrfToken = this.getCachedCsrfToken();
 
         // 1. Try high-performance /api/fast-attendance endpoint first (< 1s execution)
+        const isNumericDbId = /^\d+$/.test(String(year || '').trim()) && parseInt(String(year || '').trim(), 10) > 20;
         try {
             const resp = await fetch(`${apiBase || ''}/api/fast-attendance`, {
                 method: 'POST',
@@ -695,6 +696,7 @@ export const erpService = {
                 }),
                 body: JSON.stringify({
                     year,
+                    yearId: isNumericDbId ? String(year).trim() : undefined,
                     semester,
                     csrfToken: csrfToken || ''
                 })
@@ -733,28 +735,42 @@ export const erpService = {
 
         // 3. Resolve matching year ID
         let matchedYearVal = null;
-        const reqYearStr = String(year || '').trim().toLowerCase();
+        const reqYearStr = String(year || '').trim();
+        const cleanReqStr = reqYearStr.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+        const legacyToYear = { '18': '2026', '17': '2025', '16': '2024', '15': '2023', '14': '2022' };
+        const targetYearStart = legacyToYear[reqYearStr] || 
+            (cleanReqStr.includes('-') ? cleanReqStr.split('-')[0].trim() : (cleanReqStr.match(/\b(20\d\d)\b/)?.[1] || ''));
 
         if (sessionInfo?.years && sessionInfo.years.length > 0) {
-            // Text match (e.g. "2026-2027", "26-27", "2026")
-            const textMatch = sessionInfo.years.find(y => 
-                y.text.toLowerCase() === reqYearStr ||
-                y.text.toLowerCase().includes(reqYearStr) ||
-                reqYearStr.includes(y.text.toLowerCase())
-            );
-            if (textMatch) matchedYearVal = textMatch.value;
+            // Direct ERP DB value match first (e.g. '29')
+            const valMatch = sessionInfo.years.find(y => y.value === reqYearStr);
+            if (valMatch && parseInt(reqYearStr, 10) > 20) {
+                matchedYearVal = valMatch.value;
+            }
 
-            // Start year match (e.g. "2026")
-            if (!matchedYearVal && reqYearStr.includes('-')) {
-                const startY = reqYearStr.split('-')[0].trim();
-                const startMatch = sessionInfo.years.find(y => y.text.startsWith(startY) || y.text.includes(startY));
+            // Text match with clean string
+            if (!matchedYearVal && cleanReqStr) {
+                const textMatch = sessionInfo.years.find(y => {
+                    const yClean = y.text.toLowerCase().trim();
+                    return yClean === cleanReqStr || yClean.includes(cleanReqStr) || cleanReqStr.includes(yClean);
+                });
+                if (textMatch) matchedYearVal = textMatch.value;
+            }
+
+            // Target start year match (e.g. '2026')
+            if (!matchedYearVal && targetYearStart) {
+                const startMatch = sessionInfo.years.find(y => y.text.includes(targetYearStart));
                 if (startMatch) matchedYearVal = startMatch.value;
             }
 
-            // Direct value match
-            if (!matchedYearVal) {
-                const valMatch = sessionInfo.years.find(y => y.value === year);
-                if (valMatch) matchedYearVal = valMatch.value;
+            // Direct value fallback
+            if (!matchedYearVal && valMatch) {
+                matchedYearVal = valMatch.value;
+            }
+
+            // If still unresolved and looking for current active academic year, default to first ERP option
+            if (!matchedYearVal && (reqYearStr === '18' || reqYearStr.includes('26') || !reqYearStr)) {
+                matchedYearVal = sessionInfo.years[0]?.value;
             }
         }
 
