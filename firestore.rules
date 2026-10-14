@@ -6,8 +6,7 @@ service cloud.firestore {
       return request.auth != null && (
         request.auth.token.email == 'yaswanthadithyareddy11@gmail.com' ||
         request.auth.token.email == 'yaswanthadithyareddy12@gmail.com' ||
-        request.auth.token.email == 'yaswanthadithyareddy10@gmail.com' ||
-        request.auth.token.email == 'yaswanthadithya3130@gmail.com'
+        request.auth.token.email == 'yaswanthadithyareddy10@gmail.com'
       );
     }
 
@@ -17,9 +16,11 @@ service cloud.firestore {
       allow write: if true;
     }
 
-    // User profiles - strict IDOR protection: only the authenticated owner can access their own document
+    // User profiles - allows real student roll numbers (8-12 digits) or authenticated owner/admin
     match /users/{userId} {
-      allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow read: if true;
+      allow create, update: if userId.matches('^[0-9]{8,12}$') || (request.auth != null && (request.auth.uid == userId || isAdmin()));
+      allow delete: if isAdmin();
     }
 
     // Feedback collection - public creation with size validation, read/update/delete enabled for admin operations

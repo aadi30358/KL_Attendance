@@ -573,16 +573,50 @@ export default function AdminDashboard() {
             // ignore
         }
 
-        // 3b. Real-time Registered Students Stream (immediate 0ms discovery of new users)
+        // 3b. Real-time Registered Students & Users Streams (immediate 0ms discovery of new users)
         let unsubStudents = null;
+        let unsubUsers = null;
+        const studentDocsMap = new Map();
+
+        const updateStudentsState = () => {
+            setFirestoreStudents(Array.from(studentDocsMap.values()));
+        };
+
         try {
             unsubStudents = onSnapshot(collection(db, 'students'), (snapshot) => {
-                const sList = snapshot.docs
-                    .map(d => ({ id: d.id, studentId: d.id, ...d.data() }))
-                    .filter(s => !s.id?.startsWith('seed_') && !s.id?.startsWith('sim_'));
-                setFirestoreStudents(sList);
+                snapshot.docs.forEach(d => {
+                    if (!d.id?.startsWith('seed_') && !d.id?.startsWith('sim_')) {
+                        const existing = studentDocsMap.get(d.id) || {};
+                        studentDocsMap.set(d.id, { ...existing, id: d.id, studentId: d.id, ...d.data() });
+                    }
+                });
+                updateStudentsState();
             }, (err) => {
                 console.warn('Students listener notice:', err);
+            });
+        } catch {
+            // ignore
+        }
+
+        try {
+            unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+                snapshot.docs.forEach(d => {
+                    if (!d.id?.startsWith('seed_') && !d.id?.startsWith('sim_') && /^\d{8,12}$/.test(d.id)) {
+                        const existing = studentDocsMap.get(d.id) || {};
+                        const uData = d.data();
+                        const loginCount = Math.max(Number(existing.loginCount) || 0, Number(uData.loginCount) || 1);
+                        studentDocsMap.set(d.id, { 
+                            ...existing, 
+                            id: d.id, 
+                            studentId: d.id, 
+                            ...uData,
+                            loginCount
+                        });
+                    }
+                });
+                updateStudentsState();
+            }, (err) => {
+                console.warn('Users listener notice:', err);
             });
         } catch {
             // ignore
@@ -668,7 +702,36 @@ export default function AdminDashboard() {
 
         const handleNewLogin = (e) => {
             if (e?.detail) {
-                setUserLogins(prev => cleanAndDeduplicateLogins([e.detail, ...prev]));
+                const loginItem = e.detail;
+                setUserLogins(prev => cleanAndDeduplicateLogins([loginItem, ...prev]));
+
+                // Immediately update firestoreStudents for 0ms reactivity in Users tab
+                const sId = String(loginItem.studentId || '').trim().toUpperCase();
+                if (sId && /^\d{8,12}$/.test(sId)) {
+                    setFirestoreStudents(prev => {
+                        const existingIdx = prev.findIndex(s => s.id === sId || s.studentId === sId);
+                        if (existingIdx >= 0) {
+                            const updated = [...prev];
+                            const current = updated[existingIdx];
+                            updated[existingIdx] = {
+                                ...current,
+                                lastLoginAt: loginItem.timestamp || new Date().toISOString(),
+                                lastDevice: loginItem.device || current.lastDevice || 'Web Browser',
+                                loginCount: (Number(current.loginCount) || 1) + 1
+                            };
+                            return updated;
+                        } else {
+                            return [{
+                                id: sId,
+                                studentId: sId,
+                                lastLoginAt: loginItem.timestamp || new Date().toISOString(),
+                                lastDevice: loginItem.device || 'Web Browser',
+                                loginCount: 1,
+                                createdAt: loginItem.timestamp || new Date().toISOString()
+                            }, ...prev];
+                        }
+                    });
+                }
             }
         };
 
@@ -703,6 +766,7 @@ export default function AdminDashboard() {
             if (unsubFeedback) unsubFeedback();
             if (unsubLogins) unsubLogins();
             if (unsubStudents) unsubStudents();
+            if (unsubUsers) unsubUsers();
             if (unsubTraffic) unsubTraffic();
             window.removeEventListener('kl_new_feedback', handleNewFeedback);
             window.removeEventListener('kl_new_login', handleNewLogin);

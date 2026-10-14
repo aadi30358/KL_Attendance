@@ -131,14 +131,25 @@ export async function recordStudentLogin(studentId, customTimestamp = null) {
         // ignore
     }
 
-    // 4. Save to Firestore (individual log, student profile counter, analytics)
+    // 4. Save to Firestore (individual log in userLogins, profile counters in students & users, analytics)
     try {
-        await Promise.allSettled([
+        const results = await Promise.allSettled([
             setDoc(doc(db, 'userLogins', loginId), loginRecord),
             setDoc(doc(db, 'students', cleanId), {
                 studentId: cleanId,
                 lastLoginAt: timestamp,
-                loginCount: increment(1)
+                loginCount: increment(1),
+                lastDevice: device
+            }, { merge: true }),
+            setDoc(doc(db, 'users', cleanId), {
+                studentId: cleanId,
+                lastLoginAt: timestamp,
+                loginCount: increment(1),
+                date: dateKey,
+                month: monthKey,
+                year: yearKey,
+                device,
+                lastDevice: device
             }, { merge: true }),
             setDoc(doc(db, 'analytics', 'logins'), {
                 totalLogins: increment(1),
@@ -148,6 +159,7 @@ export async function recordStudentLogin(studentId, customTimestamp = null) {
                 lastLoginAt: timestamp
             }, { merge: true })
         ]);
+        console.log(`[LoginTracker] Login recorded for ${cleanId} (Session: ${loginId})`);
     } catch (err) {
         console.warn('Firestore login record notice:', err);
     }

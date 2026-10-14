@@ -937,9 +937,9 @@ app.post('/api/logins', (req, res) => {
         const record = req.body;
         if (record && record.studentId && /^[A-Za-z0-9_.-]{4,20}$/.test(record.studentId)) {
             const recTime = record.timestamp ? new Date(record.timestamp).getTime() : Date.now();
-            // Avoid duplicate logins for the same student within 45 seconds
+            // Avoid duplicate rapid double-clicks within 2 seconds (allows logins spaced 1 min apart)
             const exists = recentStudentLogins.some(
-                l => l.studentId === record.studentId && Math.abs((l.timestamp ? new Date(l.timestamp).getTime() : 0) - recTime) < 45000
+                l => l.studentId === record.studentId && Math.abs((l.timestamp ? new Date(l.timestamp).getTime() : 0) - recTime) < 2000
             );
             if (!exists) {
                 recentStudentLogins.unshift(record);
@@ -1207,6 +1207,28 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
             res.setHeader('Set-Cookie', rewrittenCookies);
 
             console.log(`[Fast Login] Login successful & verified for student: ${username.trim()}`);
+            try {
+                const sRoll = String(username).trim().toUpperCase();
+                if (/^\d{8,12}$/.test(sRoll)) {
+                    const nowTs = new Date().toISOString();
+                    const nowMs = Date.now();
+                    const isDup = recentStudentLogins.some(
+                        l => l.studentId === sRoll && Math.abs((l.timestamp ? new Date(l.timestamp).getTime() : 0) - nowMs) < 2000
+                    );
+                    if (!isDup) {
+                        recentStudentLogins.unshift({
+                            id: `log_${nowMs}_${sRoll}`,
+                            studentId: sRoll,
+                            timestamp: nowTs,
+                            source: 'ERP Portal',
+                            device: 'Web Browser'
+                        });
+                        if (recentStudentLogins.length > 2000) recentStudentLogins.length = 2000;
+                    }
+                }
+            } catch (e) {
+                // non-critical buffer notice
+            }
 
             return res.json({
                 success: true,
