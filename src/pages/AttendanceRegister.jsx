@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, LogOut, ArrowLeft, RefreshCw, Sparkles, Clock, CheckCircle2, AlertCircle, Radio, X } from 'lucide-react';
+import { BookOpen, Calendar, LogOut, ArrowLeft, RefreshCw, Sparkles, CheckCircle2, AlertCircle, Radio, X } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import {
-    getCurrentPeriodInfo,
     isNearPeriodEnd,
     calculateAttendanceDiff,
     playAttendanceChime
@@ -172,7 +171,9 @@ const AttendanceRegister = () => {
                 const parsed = JSON.parse(cached);
                 if (Array.isArray(parsed) && parsed.length > 0) return parsed;
             }
-        } catch {}
+        } catch {
+            // ignore fallback
+        }
         return DEFAULT_YEARS;
     };
 
@@ -212,7 +213,6 @@ const AttendanceRegister = () => {
             return true;
         }
     });
-    const [periodInfo, setPeriodInfo] = useState(() => getCurrentPeriodInfo());
     const [attendanceNotification, setAttendanceNotification] = useState(null);
     const [justCheckedNotice, setJustCheckedNotice] = useState(null);
     const [recentlyUpdatedCodes, setRecentlyUpdatedCodes] = useState(new Set());
@@ -286,7 +286,9 @@ const AttendanceRegister = () => {
                 setAvailableYears(sessionData.years);
                 try {
                     localStorage.setItem('kl_erp_session_years', JSON.stringify(sessionData.years));
-                } catch {}
+                } catch {
+                    // ignore storage error
+                }
             }
             if (sessionData.semesters && sessionData.semesters.length > 0) {
                 setAvailableSemesters(sessionData.semesters);
@@ -355,15 +357,7 @@ const AttendanceRegister = () => {
         };
     }, [showDashboard]);
 
-    // Period tracker updates every 30s
-    useEffect(() => {
-        const updateP = () => {
-            setPeriodInfo(getCurrentPeriodInfo());
-        };
-        updateP();
-        const pInterval = setInterval(updateP, 30 * 1000);
-        return () => clearInterval(pInterval);
-    }, []);
+
 
     // Periodic auto-check when enabled
     useEffect(() => {
@@ -378,6 +372,7 @@ const AttendanceRegister = () => {
         const intervalMs = nearCheck.isWindow ? 15000 : 60000;
         const autoTimer = setInterval(checkPeriodically, intervalMs);
         return () => clearInterval(autoTimer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showDashboard, autoCheckEnabled, year, semester]);
 
     const handleSearch = async (fetchYear = year, fetchSemester = semester) => {
@@ -540,14 +535,6 @@ const AttendanceRegister = () => {
                                     }`} />
                                     <span>{sessionStatus === 'active' ? 'ERP Session Active' : sessionStatus === 'checking' ? 'Checking ERP Session...' : 'Session Expired'}</span>
                                 </div>
-
-                                {/* Period Info Pill */}
-                                {periodInfo?.statusText && (
-                                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200">
-                                        <Clock className="w-3.5 h-3.5 text-indigo-600" />
-                                        <span>{periodInfo.statusText}</span>
-                                    </div>
-                                )}
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2 text-slate-500 text-xs sm:text-sm font-medium">
@@ -568,7 +555,11 @@ const AttendanceRegister = () => {
                                 onClick={() => {
                                     const next = !autoCheckEnabled;
                                     setAutoCheckEnabled(next);
-                                    try { localStorage.setItem('kl_auto_check_attendance', String(next)); } catch {}
+                                    try { 
+                                        localStorage.setItem('kl_auto_check_attendance', String(next)); 
+                                    } catch {
+                                        // ignore storage error
+                                    }
                                 }}
                                 className={`px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all cursor-pointer ${
                                     autoCheckEnabled

@@ -1265,7 +1265,7 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
                         if (recentStudentLogins.length > 2000) recentStudentLogins.length = 2000;
                     }
                 }
-            } catch (e) {
+            } catch {
                 // non-critical buffer notice
             }
 

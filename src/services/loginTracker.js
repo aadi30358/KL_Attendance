@@ -133,7 +133,7 @@ export async function recordStudentLogin(studentId, customTimestamp = null) {
 
     // 4. Save to Firestore (individual log in userLogins, profile counters in students & users, analytics)
     try {
-        const results = await Promise.allSettled([
+        await Promise.allSettled([
             setDoc(doc(db, 'userLogins', loginId), loginRecord),
             setDoc(doc(db, 'students', cleanId), {
                 studentId: cleanId,

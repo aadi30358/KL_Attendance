@@ -245,7 +245,7 @@ const Navbar = () => {
                                     width="121"
                                     height="48"
                                     loading="eager"
-                                    fetchpriority="high"
+                                    fetchPriority="high"
                                     decoding="sync"
                                     className={cn(
                                         "h-8 lg:h-12 w-auto object-contain transition-all duration-300 group-hover:scale-105"
