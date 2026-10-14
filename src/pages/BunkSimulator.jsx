@@ -18,35 +18,40 @@ import { subscribeCrossDomainSync } from '../services/crossDomainSync';
 // KLU Official Weights
 const KLU_WEIGHTS = {
     L: 100, // Lecture: 100%
-    T: 25,  // Tutorial: 25%
+    T: 100, // Tutorial / Theory: 100%
     P: 50,  // Practical: 50%
     S: 25   // Skill: 25%
 };
 
 const COMPONENT_LABELS = {
     L: 'Lecture (L - 100%)',
-    T: 'Tutorial (T - 25%)',
+    T: 'Tutorial / Theory (T - 100%)',
     P: 'Practical (P - 50%)',
     S: 'Skill (S - 25%)'
 };
 
 const COMP_SHORT_NAMES = {
     L: 'Lecture (L)',
-    T: 'Tutorial (T)',
+    T: 'Tutorial / Theory (T)',
     P: 'Practical (P)',
     S: 'Skill (S)'
 };
 
-const BunkSimulator = () => {
-    const { attendanceData } = useAttendance();
-    const [mode, setMode] = useState('ltps'); // 'ltps' or 'quick'
+const getStoredErpSubjects = () => {
+    try {
+        const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
+        const keysToTry = [];
+        if (activeId) keysToTry.push(`kleData_${activeId}`);
+        keysToTry.push('kleData');
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('kleData_') && !keysToTry.includes(k)) {
+                keysToTry.push(k);
+            }
+        }
 
-    // ERP subjects if available
-    const [savedSubjects, setSavedSubjects] = useState(() => {
-        try {
-            const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
-            const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
-            const raw = localStorage.getItem(storageKey) || localStorage.getItem('kleData');
+        for (const key of keysToTry) {
+            const raw = localStorage.getItem(key);
             if (raw) {
                 const parsed = JSON.parse(raw);
                 const list = parsed.attendance_data || parsed.data || [];
@@ -54,20 +59,43 @@ const BunkSimulator = () => {
                     return list;
                 }
             }
-        } catch {
-            // Ignore parse error
         }
-        return [];
-    });
+    } catch {
+        // Ignore parse error
+    }
+    return [];
+};
+
+const BunkSimulator = () => {
+    const { attendanceData } = useAttendance();
+    const [mode, setMode] = useState('ltps'); // 'ltps' or 'quick'
+
+    // ERP subjects if available
+    const [savedSubjects, setSavedSubjects] = useState(getStoredErpSubjects);
 
     // Real-Time Cross-Domain & Tab Synchronization (< 1s)
     useEffect(() => {
+        const refreshSubjects = () => {
+            const subjects = getStoredErpSubjects();
+            if (subjects && subjects.length > 0) {
+                setSavedSubjects(subjects);
+            }
+        };
+
+        window.addEventListener('storage', refreshSubjects);
+        window.addEventListener('focus', refreshSubjects);
+
         const unsubscribe = subscribeCrossDomainSync((event) => {
             if (event.type === 'ATTENDANCE_UPDATED' && Array.isArray(event.data?.subjects) && event.data.subjects.length > 0) {
                 setSavedSubjects(event.data.subjects);
             }
         });
-        return () => unsubscribe();
+
+        return () => {
+            window.removeEventListener('storage', refreshSubjects);
+            window.removeEventListener('focus', refreshSubjects);
+            unsubscribe();
+        };
     }, []);
 
     const [selectedCourseCode, setSelectedCourseCode] = useState('');
@@ -105,10 +133,77 @@ const BunkSimulator = () => {
         setSelectedCourseCode(code);
         if (!code) return;
 
+        if (code === '__OVERALL__') {
+            setCourseTitle('Overall Attendance (All Courses Combined)');
+
+            const aggregatedLtps = {
+                L: { conducted: 0, attended: 0 },
+                T: { conducted: 0, attended: 0 },
+                P: { conducted: 0, attended: 0 },
+                S: { conducted: 0, attended: 0 }
+            };
+
+            let overallRawAtt = 0;
+            let overallRawCond = 0;
+
+            savedSubjects.forEach((subj) => {
+                let hasComp = false;
+                if (subj.components && Object.keys(subj.components).length > 0) {
+                    Object.entries(subj.components).forEach(([compKey, compVal]) => {
+                        const norm = (compKey || '').trim().toLowerCase();
+                        let targetKey = null;
+                        if (norm.startsWith('pract') || norm.includes('lab') || norm === 'p') targetKey = 'P';
+                        else if (norm.includes('theor') || norm.includes('tut') || norm === 't') targetKey = 'T';
+                        else if (norm.includes('sk') || norm === 's') targetKey = 'S';
+                        else if (norm.startsWith('lect') || norm === 'l') targetKey = 'L';
+                        else {
+                            const first = norm.charAt(0).toUpperCase();
+                            if (aggregatedLtps[first]) targetKey = first;
+                        }
+
+                        if (targetKey && aggregatedLtps[targetKey]) {
+                            hasComp = true;
+                            const c = parseInt(compVal.conducted, 10) || 0;
+                            const a = parseInt(compVal.attended, 10) || 0;
+                            aggregatedLtps[targetKey].conducted += c;
+                            aggregatedLtps[targetKey].attended += a;
+                        }
+                    });
+                }
+
+                if (!hasComp && subj.attended && typeof subj.attended === 'string' && subj.attended.includes('/')) {
+                    const [a, c] = subj.attended.split('/').map(v => parseInt(v, 10) || 0);
+                    aggregatedLtps.L.conducted += c;
+                    aggregatedLtps.L.attended += a;
+                }
+
+                if (subj.attended && typeof subj.attended === 'string' && subj.attended.includes('/')) {
+                    const [a, c] = subj.attended.split('/').map(v => parseInt(v, 10) || 0);
+                    overallRawAtt += a;
+                    overallRawCond += c;
+                } else if (subj.rawAttended && subj.rawConducted) {
+                    overallRawAtt += Number(subj.rawAttended) || 0;
+                    overallRawCond += Number(subj.rawConducted) || 0;
+                }
+            });
+
+            setLtpsData({
+                L: { conducted: aggregatedLtps.L.conducted ? aggregatedLtps.L.conducted.toString() : '', attended: aggregatedLtps.L.attended ? aggregatedLtps.L.attended.toString() : '' },
+                T: { conducted: aggregatedLtps.T.conducted ? aggregatedLtps.T.conducted.toString() : '', attended: aggregatedLtps.T.attended ? aggregatedLtps.T.attended.toString() : '' },
+                P: { conducted: aggregatedLtps.P.conducted ? aggregatedLtps.P.conducted.toString() : '', attended: aggregatedLtps.P.attended ? aggregatedLtps.P.attended.toString() : '' },
+                S: { conducted: aggregatedLtps.S.conducted ? aggregatedLtps.S.conducted.toString() : '', attended: aggregatedLtps.S.attended ? aggregatedLtps.S.attended.toString() : '' }
+            });
+            setBunksToSimulate({ L: 0, T: 0, P: 0, S: 0 });
+
+            setQuickAttended(overallRawAtt ? overallRawAtt.toString() : '');
+            setQuickTotal(overallRawCond ? overallRawCond.toString() : '');
+            return;
+        }
+
         const found = savedSubjects.find(s => s.code === code);
         if (!found) return;
 
-        setCourseTitle(found.title || found.code);
+        setCourseTitle(found.title ? `${found.code} - ${found.title}` : found.code);
 
         const newLtps = {
             L: { conducted: '', attended: '' },
@@ -117,16 +212,34 @@ const BunkSimulator = () => {
             S: { conducted: '', attended: '' }
         };
 
-        if (found.components) {
+        if (found.components && Object.keys(found.components).length > 0) {
             Object.entries(found.components).forEach(([compKey, compVal]) => {
-                const upperKey = compKey.charAt(0).toUpperCase();
-                if (newLtps[upperKey]) {
-                    newLtps[upperKey] = {
+                const norm = (compKey || '').trim().toLowerCase();
+                let targetKey = null;
+                if (norm.startsWith('pract') || norm.includes('lab') || norm === 'p') targetKey = 'P';
+                else if (norm.includes('theor') || norm.includes('tut') || norm === 't') targetKey = 'T';
+                else if (norm.includes('sk') || norm === 's') targetKey = 'S';
+                else if (norm.startsWith('lect') || norm === 'l') targetKey = 'L';
+                else {
+                    const first = norm.charAt(0).toUpperCase();
+                    if (newLtps[first]) targetKey = first;
+                }
+
+                if (targetKey && newLtps[targetKey]) {
+                    newLtps[targetKey] = {
                         conducted: (compVal.conducted ?? '').toString(),
                         attended: (compVal.attended ?? '').toString()
                     };
                 }
             });
+        }
+
+        // Fallback: if components empty but attended "att/cond" exists, assign to Lecture
+        if (!newLtps.L.conducted && !newLtps.T.conducted && !newLtps.P.conducted && !newLtps.S.conducted) {
+            if (found.attended && typeof found.attended === 'string' && found.attended.includes('/')) {
+                const [att, cond] = found.attended.split('/');
+                newLtps.L = { conducted: cond || '', attended: att || '' };
+            }
         }
 
         setLtpsData(newLtps);
@@ -447,6 +560,9 @@ const BunkSimulator = () => {
                                     className="w-full bg-white border border-indigo-200 rounded-2xl px-4 py-3 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
                                 >
                                     <option value="">-- Choose a course to auto-fill components --</option>
+                                    <option value="__OVERALL__">
+                                        📊 Overall Total Attendance (All {savedSubjects.length} Courses Combined)
+                                    </option>
                                     {savedSubjects.map((s) => (
                                         <option key={s.code} value={s.code}>
                                             {s.code} - {s.title} ({s.percent}%)

@@ -1,8 +1,55 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { RotateCcw, Calculator, LineChart, CheckCircle, AlertTriangle, XCircle, Sparkles, TrendingUp, Flame, ArrowRight } from 'lucide-react';
+import { RotateCcw, Calculator, LineChart, CheckCircle, AlertTriangle, XCircle, Sparkles, TrendingUp, Flame, ArrowRight, BookOpen } from 'lucide-react';
 import { useAttendance } from '../context/useAttendance';
+
+const getStoredErpData = () => {
+    try {
+        const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
+        const keysToTry = [];
+        if (activeId) keysToTry.push(`kleData_${activeId}`);
+        keysToTry.push('kleData');
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('kleData_') && !keysToTry.includes(k)) {
+                keysToTry.push(k);
+            }
+        }
+
+        for (const key of keysToTry) {
+            const raw = localStorage.getItem(key);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                const list = parsed.attendance_data || parsed.data || [];
+                if (Array.isArray(list) && list.length > 0) {
+                    let totalAtt = 0;
+                    let totalCond = 0;
+                    list.forEach(subj => {
+                        if (subj.attended && typeof subj.attended === 'string' && subj.attended.includes('/')) {
+                            const [a, c] = subj.attended.split('/').map(v => parseInt(v, 10) || 0);
+                            totalAtt += a;
+                            totalCond += c;
+                        } else if (subj.rawAttended && subj.rawConducted) {
+                            totalAtt += Number(subj.rawAttended) || 0;
+                            totalCond += Number(subj.rawConducted) || 0;
+                        }
+                    });
+                    return {
+                        totalClasses: totalCond,
+                        attendedClasses: totalAtt,
+                        percentage: totalCond > 0 ? Math.round((totalAtt / totalCond) * 100) : 0,
+                        courseCount: list.length,
+                        courses: list
+                    };
+                }
+            }
+        }
+    } catch {
+        // Ignore parse error
+    }
+    return null;
+};
 
 const ThreeDCard = ({ children, className }) => {
     const x = useMotionValue(0);
@@ -36,6 +83,9 @@ const ThreeDCard = ({ children, className }) => {
 
 const TotalAttendance = () => {
     const { updateAttendanceData } = useAttendance();
+    const [erpData, setErpData] = useState(getStoredErpData);
+    const [selectedCourse, setSelectedCourse] = useState('');
+
     const [totalClasses, setTotalClasses] = useState('');
     const [attendedClasses, setAttendedClasses] = useState('');
     const [projectedAbsences, setProjectedAbsences] = useState('');
@@ -43,6 +93,19 @@ const TotalAttendance = () => {
     const [classesNeeded85, setClassesNeeded85] = useState(null);
     const [classesNeeded65, setClassesNeeded65] = useState(null);
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        const refresh = () => {
+            const d = getStoredErpData();
+            if (d) setErpData(d);
+        };
+        window.addEventListener('storage', refresh);
+        window.addEventListener('focus', refresh);
+        return () => {
+            window.removeEventListener('storage', refresh);
+            window.removeEventListener('focus', refresh);
+        };
+    }, []);
 
     const projectedStats = useMemo(() => {
         if (!totalClasses || !attendedClasses || !projectedAbsences || currentPercentage === null) {
@@ -129,6 +192,46 @@ const TotalAttendance = () => {
         setClassesNeeded65(calculateClassesNeeded(attended, total, 75));
     };
 
+    const applyCourseData = (code) => {
+        setSelectedCourse(code);
+        if (!code || !erpData) return;
+
+        if (code === '__OVERALL__') {
+            setTotalClasses(erpData.totalClasses.toString());
+            setAttendedClasses(erpData.attendedClasses.toString());
+            setError('');
+            const percentage = (erpData.attendedClasses / erpData.totalClasses) * 100;
+            setCurrentPercentage(Math.round(percentage));
+            setClassesNeeded85(calculateClassesNeeded(erpData.attendedClasses, erpData.totalClasses, 85));
+            setClassesNeeded65(calculateClassesNeeded(erpData.attendedClasses, erpData.totalClasses, 75));
+            return;
+        }
+
+        const found = erpData.courses?.find(c => c.code === code);
+        if (found) {
+            let att = 0;
+            let cond = 0;
+            if (found.attended && typeof found.attended === 'string' && found.attended.includes('/')) {
+                const [a, c] = found.attended.split('/').map(v => parseInt(v, 10) || 0);
+                att = a;
+                cond = c;
+            } else if (found.rawAttended && found.rawConducted) {
+                att = Number(found.rawAttended) || 0;
+                cond = Number(found.rawConducted) || 0;
+            }
+
+            if (cond > 0) {
+                setTotalClasses(cond.toString());
+                setAttendedClasses(att.toString());
+                setError('');
+                const percentage = (att / cond) * 100;
+                setCurrentPercentage(Math.round(percentage));
+                setClassesNeeded85(calculateClassesNeeded(att, cond, 85));
+                setClassesNeeded65(calculateClassesNeeded(att, cond, 75));
+            }
+        }
+    };
+
     const getStatusInfo = (percentage) => {
         if (percentage >= 85) return { color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-100', bar: 'bg-gradient-to-r from-emerald-400 to-teal-400', label: 'Eligible (Safe Zone)', icon: CheckCircle };
         if (percentage >= 75) return { color: 'text-amber-600', bg: 'bg-amber-50', border: 'border-amber-100', bar: 'bg-gradient-to-r from-amber-400 to-orange-400', label: 'Condonation Required', icon: AlertTriangle };
@@ -177,6 +280,36 @@ const TotalAttendance = () => {
                     <div className="bg-white/80 backdrop-blur-xl rounded-[2.5rem] shadow-2xl shadow-indigo-100/50 border border-white/60 p-8 md:p-10 relative overflow-hidden group hover:shadow-indigo-200/50 transition-all duration-500">
                         {/* Blob Decoration */}
                         <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 opacity-60 pointer-events-none" />
+
+                        {/* ERP Course Selector */}
+                        {erpData && (
+                            <div className="relative z-10 mb-8 bg-indigo-50/70 border border-indigo-200 rounded-3xl p-5 shadow-sm space-y-2">
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2 text-indigo-950 font-bold text-sm">
+                                        <BookOpen className="w-4 h-4 text-indigo-600" />
+                                        <span>Load from your ERP Attendance Register</span>
+                                    </div>
+                                    <span className="text-[11px] font-semibold text-indigo-600 bg-white px-2.5 py-0.5 rounded-full border border-indigo-200">
+                                        {erpData.courseCount} Courses Available
+                                    </span>
+                                </div>
+                                <select
+                                    value={selectedCourse}
+                                    onChange={(e) => applyCourseData(e.target.value)}
+                                    className="w-full bg-white border border-indigo-200 rounded-2xl px-4 py-3 text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+                                >
+                                    <option value="">-- Choose a course or overall attendance --</option>
+                                    <option value="__OVERALL__">
+                                        📊 Overall Total Attendance ({erpData.attendedClasses}/{erpData.totalClasses} Classes • {erpData.percentage}%)
+                                    </option>
+                                    {erpData.courses?.map((c) => (
+                                        <option key={c.code} value={c.code}>
+                                            {c.code} - {c.title} ({c.percent}%)
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
 
                         <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-8">
                             <div className="space-y-6">

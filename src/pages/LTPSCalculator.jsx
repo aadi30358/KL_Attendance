@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Download, RotateCcw, History, ArrowLeft, ArrowRight, Star, CheckCircle, Calculator, Flame, Clock } from 'lucide-react';
+import { Download, RotateCcw, History, ArrowLeft, ArrowRight, Star, CheckCircle, Calculator, Flame, Clock, BookOpen } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { cn } from '../lib/utils';
 import Confetti from 'react-confetti';
@@ -9,8 +9,40 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 
 
+const getStoredErpSubjects = () => {
+    try {
+        const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
+        const keysToTry = [];
+        if (activeId) keysToTry.push(`kleData_${activeId}`);
+        keysToTry.push('kleData');
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('kleData_') && !keysToTry.includes(k)) {
+                keysToTry.push(k);
+            }
+        }
+
+        for (const key of keysToTry) {
+            const raw = localStorage.getItem(key);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                const list = parsed.attendance_data || parsed.data || [];
+                if (Array.isArray(list) && list.length > 0) {
+                    return list;
+                }
+            }
+        }
+    } catch {
+        // Ignore parse error
+    }
+    return [];
+};
+
 const LTPSCalculator = () => {
     const [subject, setSubject] = useState('');
+    const [savedSubjects, setSavedSubjects] = useState(getStoredErpSubjects);
+    const [selectedCourseCode, setSelectedCourseCode] = useState('');
+
     const [classData, setClassData] = useState({
         lect: { att: '', cond: '' },
         tut: { att: '', cond: '' },
@@ -31,14 +63,110 @@ const LTPSCalculator = () => {
         height: window.innerHeight,
     });
 
+    // Official KL University ERP Component Weights with real-time Firestore sync (< 1 second)
+    const [weights, setWeights] = useState({
+        lecture: 100,
+        tutorial: 100,
+        practical: 50,
+        skill: 25
+    });
+
+    useEffect(() => {
+        let unsub = null;
+        try {
+            unsub = onSnapshot(doc(db, 'config', 'weights'), (snap) => {
+                if (snap.exists()) {
+                    const data = snap.data();
+                    setWeights({
+                        lecture: Number(data.lecture) || 100,
+                        tutorial: Number(data.tutorial) || 100,
+                        practical: Number(data.practical) || 50,
+                        skill: Number(data.skill) || 25
+                    });
+                }
+            }, () => {});
+        } catch {
+            // ignore
+        }
+        return () => {
+            if (unsub) unsub();
+        };
+    }, []);
+
+    // Sync saved ERP subjects on window focus or storage updates
+    useEffect(() => {
+        const refreshSubjects = () => {
+            const list = getStoredErpSubjects();
+            if (list && list.length > 0) setSavedSubjects(list);
+        };
+        window.addEventListener('storage', refreshSubjects);
+        window.addEventListener('focus', refreshSubjects);
+        return () => {
+            window.removeEventListener('storage', refreshSubjects);
+            window.removeEventListener('focus', refreshSubjects);
+        };
+    }, []);
+
+    const handleSelectCourse = (code) => {
+        setSelectedCourseCode(code);
+        if (!code) return;
+
+        const found = savedSubjects.find(s => s.code === code);
+        if (!found) return;
+
+        setSubject(found.title ? `${found.code} - ${found.title}` : found.code);
+
+        const newClassData = {
+            lect: { att: '', cond: '' },
+            tut: { att: '', cond: '' },
+            pract: { att: '', cond: '' },
+            skill: { att: '', cond: '' }
+        };
+
+        if (found.components && Object.keys(found.components).length > 0) {
+            Object.entries(found.components).forEach(([compKey, compVal]) => {
+                const norm = (compKey || '').trim().toLowerCase();
+                let targetKey = null;
+                if (norm.startsWith('pract') || norm.includes('lab') || norm === 'p') targetKey = 'pract';
+                else if (norm.includes('theor') || norm.includes('tut') || norm === 't') targetKey = 'tut';
+                else if (norm.includes('sk') || norm === 's') targetKey = 'skill';
+                else if (norm.startsWith('lect') || norm === 'l') targetKey = 'lect';
+                else {
+                    const first = norm.charAt(0).toUpperCase();
+                    if (first === 'L') targetKey = 'lect';
+                    else if (first === 'T') targetKey = 'tut';
+                    else if (first === 'P') targetKey = 'pract';
+                    else if (first === 'S') targetKey = 'skill';
+                }
+
+                if (targetKey && newClassData[targetKey]) {
+                    newClassData[targetKey] = {
+                        cond: (compVal.conducted ?? '').toString(),
+                        att: (compVal.attended ?? '').toString()
+                    };
+                }
+            });
+        }
+
+        if (!newClassData.lect.cond && !newClassData.tut.cond && !newClassData.pract.cond && !newClassData.skill.cond) {
+            if (found.attended && typeof found.attended === 'string' && found.attended.includes('/')) {
+                const [att, cond] = found.attended.split('/');
+                newClassData.lect = { cond: cond || '', att: att || '' };
+            }
+        }
+
+        setClassData(newClassData);
+        setBunkSim({ lect: 0, tut: 0, pract: 0, skill: 0 });
+    };
+
     const bunkProjection = useMemo(() => {
         let currentAttW = 0;
         let currentCondW = 0;
         const comps = [
-            { k: 'lect', w: 100 },
-            { k: 'tut', w: 25 },
-            { k: 'pract', w: 50 },
-            { k: 'skill', w: 25 }
+            { k: 'lect', w: weights.lecture },
+            { k: 'tut', w: weights.tutorial },
+            { k: 'pract', w: weights.practical },
+            { k: 'skill', w: weights.skill }
         ];
 
         let totalBunks = 0;
@@ -79,7 +207,7 @@ const LTPSCalculator = () => {
             isWarning: newCeil >= 75 && newCeil < 85,
             isDanger: newCeil < 75
         };
-    }, [classData, bunkSim]);
+    }, [classData, bunkSim, weights]);
 
     useEffect(() => {
         const handleResize = () => {
@@ -91,36 +219,6 @@ const LTPSCalculator = () => {
 
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
-    }, []);
-
-    // Official KL University ERP Component Weights with real-time Firestore sync (< 1 second)
-    const [weights, setWeights] = useState({
-        lecture: 100,
-        tutorial: 25,
-        practical: 50,
-        skill: 25
-    });
-
-    useEffect(() => {
-        let unsub = null;
-        try {
-            unsub = onSnapshot(doc(db, 'config', 'weights'), (snap) => {
-                if (snap.exists()) {
-                    const data = snap.data();
-                    setWeights({
-                        lecture: Number(data.lecture) || 100,
-                        tutorial: Number(data.tutorial) || 25,
-                        practical: Number(data.practical) || 50,
-                        skill: Number(data.skill) || 25
-                    });
-                }
-            }, () => {});
-        } catch {
-            // ignore
-        }
-        return () => {
-            if (unsub) unsub();
-        };
     }, []);
 
     const ITEMS_PER_PAGE = windowSize.width > 768 ? 6 : 3;
@@ -424,6 +522,32 @@ const LTPSCalculator = () => {
                     </AnimatePresence>
 
                     <motion.div className="space-y-6">
+                        {savedSubjects.length > 0 && (
+                            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+                                        <BookOpen className="w-4 h-4 text-blue-600" />
+                                        Load from ERP Attendance Register
+                                    </span>
+                                    <span className="text-[10px] font-bold text-blue-700 bg-white px-2 py-0.5 rounded-full border border-blue-200">
+                                        {savedSubjects.length} Courses Available
+                                    </span>
+                                </div>
+                                <select
+                                    value={selectedCourseCode}
+                                    onChange={(e) => handleSelectCourse(e.target.value)}
+                                    className="w-full bg-white border border-blue-200 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer shadow-2xs"
+                                >
+                                    <option value="">-- Choose a course to auto-fill components --</option>
+                                    {savedSubjects.map((s) => (
+                                        <option key={s.code} value={s.code}>
+                                            {s.code} - {s.title} ({s.percent}%)
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
                         <div className="space-y-2">
                             <label className="text-sm font-medium text-slate-700">Subject Name (Optional)</label>
                             <input

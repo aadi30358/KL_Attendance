@@ -954,7 +954,7 @@ export const erpService = {
         const getWeight = (ltpsType) => {
             const type = (ltpsType || '').toLowerCase();
             if (type.includes('lecture') || type === 'l') return 100;
-            if (type.includes('practical') || type === 'p') return 50;
+            if (type.includes('practical') || type.includes('lab') || type === 'p') return 50;
             if (type.includes('theory') || type.includes('tutorial') || type === 't') return 100;
             if (type.includes('skill') || type === 's') return 25;
             return 1;
