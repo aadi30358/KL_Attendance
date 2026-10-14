@@ -16,24 +16,69 @@ export const getErpBase = () => {
     return FALLBACK_ERP_BASE;
 };
 
-// Pure in-memory session persistence to prevent credentials/tokens appearing in DevTools Application tab
 let inMemoryErpCookies = '';
 let inMemoryCsrfToken = '';
 
 export const getStoredErpCookies = () => {
-    return inMemoryErpCookies || '';
+    if (inMemoryErpCookies) return inMemoryErpCookies;
+    try {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            const stored = sessionStorage.getItem('erp_session_cookie');
+            if (stored) {
+                inMemoryErpCookies = stored;
+                return stored;
+            }
+        }
+    } catch {
+        // ignore
+    }
+    return '';
 };
 
 export const setStoredErpCookies = (val) => {
     inMemoryErpCookies = val || '';
+    try {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            if (val) {
+                sessionStorage.setItem('erp_session_cookie', val);
+            } else {
+                sessionStorage.removeItem('erp_session_cookie');
+            }
+        }
+    } catch {
+        // ignore
+    }
 };
 
 export const getStoredCsrfToken = () => {
-    return inMemoryCsrfToken || '';
+    if (inMemoryCsrfToken) return inMemoryCsrfToken;
+    try {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            const stored = sessionStorage.getItem('erp_csrf_token');
+            if (stored) {
+                inMemoryCsrfToken = stored;
+                return stored;
+            }
+        }
+    } catch {
+        // ignore
+    }
+    return '';
 };
 
 export const setStoredCsrfToken = (val) => {
     inMemoryCsrfToken = val || '';
+    try {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
+            if (val) {
+                sessionStorage.setItem('erp_csrf_token', val);
+            } else {
+                sessionStorage.removeItem('erp_csrf_token');
+            }
+        }
+    } catch {
+        // ignore
+    }
 };
 
 const IGNORED_COOKIE_ATTRS = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned']);
@@ -63,7 +108,7 @@ export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true } 
                 }
             });
             const merged = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-            inMemoryErpCookies = merged;
+            setStoredErpCookies(merged);
         }
     } catch (e) {
         console.warn("[ERP] Failed to persist cookies:", e);
@@ -584,6 +629,52 @@ export const erpService = {
         } catch (e) {
             console.warn("[ERP] Failed to retrieve dynamic session options:", e);
             return null;
+        }
+    },
+
+    // Lightweight session keep-alive ping to prevent university ERP timeout
+    async keepSessionAlive() {
+        try {
+            const cookie = getStoredErpCookies();
+            if (!cookie) return { success: false, sessionActive: false, reason: 'No session cookie' };
+
+            const apiBase = getErpBase();
+            const headers = buildErpHeaders({
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache',
+                'X-Requested-With': 'XMLHttpRequest'
+            });
+
+            let resp = await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
+                method: 'GET',
+                credentials: 'include',
+                cache: 'no-store',
+                headers
+            });
+
+            if (!resp.ok && apiBase !== FALLBACK_ERP_BASE) {
+                resp = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
+                    method: 'GET',
+                    credentials: 'include',
+                    cache: 'no-store',
+                    headers: buildErpHeaders(headers)
+                });
+            }
+
+            if (!resp.ok) {
+                return { success: false, sessionActive: false, status: resp?.status };
+            }
+
+            const html = await resp.text();
+            if (html.includes('id="login-form"') || html.includes('loginFormUserNameID')) {
+                return { success: false, sessionActive: false, reason: 'Session expired' };
+            }
+
+            saveErpCookiesFromResponse(resp);
+            return { success: true, sessionActive: true };
+        } catch (e) {
+            console.warn("[ERP] Session keep-alive ping notice:", e.message);
+            return { success: false, sessionActive: true, networkError: true };
         }
     },
 

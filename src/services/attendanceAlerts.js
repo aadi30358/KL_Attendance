@@ -53,6 +53,63 @@ export function isNearPeriodEnd() {
 }
 
 /**
+ * Returns current period info and whether college hours/submission window are active.
+ */
+export function getCurrentPeriodInfo() {
+    const now = new Date();
+    // Convert to Indian Standard Time (UTC + 5:30)
+    const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const istMinutes = (utcMinutes + 330) % 1440;
+
+    for (const p of KLU_PERIODS) {
+        const startMin = parseTimeToMinutes(p.start);
+        const endMin = parseTimeToMinutes(p.end);
+        if (istMinutes >= startMin && istMinutes < endMin) {
+            return {
+                period: p.period,
+                label: p.period === 'Lunch' ? 'Lunch Break' : `Period ${p.period}`,
+                timing: `${p.start} - ${p.end}`,
+                isSubmissionWindow: istMinutes >= endMin - 5,
+                isLunch: p.period === 'Lunch',
+                isClassHours: true,
+                statusText: p.period === 'Lunch' ? 'Lunch Break (12:30 - 13:20)' : `Period ${p.period} (${p.start} - ${p.end}) in progress`
+            };
+        }
+    }
+
+    // Check if within submission window (up to 15 mins after period end)
+    for (const p of KLU_PERIODS) {
+        if (typeof p.period !== 'number') continue;
+        const endMin = parseTimeToMinutes(p.end);
+        if (istMinutes >= endMin && istMinutes <= endMin + 15) {
+            return {
+                period: p.period,
+                label: `Period ${p.period}`,
+                timing: `${p.start} - ${p.end}`,
+                isSubmissionWindow: true,
+                isLunch: false,
+                isClassHours: true,
+                statusText: `Period ${p.period} ended · Faculty attendance window active`
+            };
+        }
+    }
+
+    const firstStart = parseTimeToMinutes(KLU_PERIODS[0].start);
+    const lastEnd = parseTimeToMinutes(KLU_PERIODS[KLU_PERIODS.length - 1].end);
+    const isClassHours = istMinutes >= firstStart && istMinutes <= lastEnd;
+
+    return {
+        period: null,
+        label: isClassHours ? 'Between Periods' : 'Classes Done for Today',
+        timing: '',
+        isSubmissionWindow: false,
+        isLunch: false,
+        isClassHours,
+        statusText: isClassHours ? 'Break Between Periods' : 'Classes done for today'
+    };
+}
+
+/**
  * Recommended polling interval:
  * 5 seconds during active attendance submission windows, 20 seconds otherwise.
  */

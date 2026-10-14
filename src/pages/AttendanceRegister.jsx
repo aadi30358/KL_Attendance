@@ -1,10 +1,26 @@
-import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { BookOpen, Calendar, LogOut, ArrowLeft } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { BookOpen, Calendar, LogOut, ArrowLeft, RefreshCw, Sparkles, Clock, CheckCircle2, AlertCircle, Radio, X } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
+import {
+    getCurrentPeriodInfo,
+    isNearPeriodEnd,
+    calculateAttendanceDiff,
+    playAttendanceChime
+} from '../services/attendanceAlerts';
 
+function formatTimeAgo(timestamp) {
+    if (!timestamp) return null;
+    const diffSec = Math.floor((Date.now() - timestamp) / 1000);
+    if (diffSec < 30) return 'Just now';
+    if (diffSec < 60) return `${diffSec}s ago`;
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    return `${diffHr}h ago`;
+}
 
 // Component weights matching the extension: L=100, T=100, P=50, S=25
 const WEIGHTS = { L: 100, T: 100, P: 50, S: 25 };
@@ -157,11 +173,36 @@ const AttendanceRegister = () => {
     ]);
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
     const [debugHtml, setDebugHtml] = useState(null);
     const [fetchError, setFetchError] = useState(null);
     const [showDashboard, setShowDashboard] = useState(false);
+    const [sessionStatus, setSessionStatus] = useState('active'); // 'active' | 'checking' | 'expired'
+    const [lastUpdated, setLastUpdated] = useState(() => {
+        if (!activeId) return null;
+        try {
+            const v = localStorage.getItem(`attendanceLastUpdated_${activeId}`);
+            return v ? Number(v) : null;
+        } catch {
+            return null;
+        }
+    });
+    const [autoCheckEnabled, setAutoCheckEnabled] = useState(() => {
+        try {
+            return localStorage.getItem('kl_auto_check_attendance') !== 'false';
+        } catch {
+            return true;
+        }
+    });
+    const [periodInfo, setPeriodInfo] = useState(() => getCurrentPeriodInfo());
+    const [attendanceNotification, setAttendanceNotification] = useState(null);
+    const [justCheckedNotice, setJustCheckedNotice] = useState(null);
+    const [recentlyUpdatedCodes, setRecentlyUpdatedCodes] = useState(new Set());
+
     const navigate = useNavigate();
     const location = useLocation();
+    const subjectsRef = useRef(subjects);
+    subjectsRef.current = subjects;
 
     // Listen for "Change Selection" from Navbar or cross-component reset
     useEffect(() => {
@@ -186,11 +227,9 @@ const AttendanceRegister = () => {
         }
     }, [location]);
 
+    // Initial mount and cache restoration
     useEffect(() => {
         const html = localStorage.getItem('erpDashboardHtml');
-        
-        // Always start on the selection form after login or refresh
-        setShowDashboard(false);
 
         if (!html || html.includes('site-error') || html.includes('The above error occurred') || html.includes('id="login-form"')) {
             localStorage.removeItem('erpDashboardHtml');
@@ -202,6 +241,24 @@ const AttendanceRegister = () => {
 
         // Cleanup any old flags
         sessionStorage.removeItem('manual_sem_reset');
+
+        // Restore cached attendance so student doesn't lose their dashboard on return/refresh
+        const cachedRaw = localStorage.getItem(storageKey);
+        if (cachedRaw) {
+            try {
+                const parsed = JSON.parse(cachedRaw);
+                if (parsed.attendance_data && Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
+                    setSubjects(parsed.attendance_data);
+                    setShowDashboard(true);
+                    const savedYear = activeId ? localStorage.getItem(`activeYear_${activeId}`) : null;
+                    const savedSem = activeId ? localStorage.getItem(`activeSem_${activeId}`) : null;
+                    if (savedYear) setYear(savedYear);
+                    if (savedSem) setSemester(savedSem);
+                }
+            } catch {
+                // ignore
+            }
+        }
 
         // Dynamically discover registered sessions from ERP
         let isMounted = true;
@@ -235,7 +292,59 @@ const AttendanceRegister = () => {
         });
 
         return () => { isMounted = false; };
-    }, [navigate, storageKey]);
+    }, [navigate, storageKey, activeId]);
+
+    // Keep ERP session alive while dashboard is open (pings every 4 mins)
+    useEffect(() => {
+        if (!showDashboard) return;
+
+        let isMounted = true;
+        const doPing = async () => {
+            try {
+                const res = await erpService.keepSessionAlive();
+                if (!isMounted) return;
+                if (res?.sessionActive) {
+                    setSessionStatus('active');
+                } else if (res?.reason === 'Session expired') {
+                    setSessionStatus('expired');
+                }
+            } catch {
+                // ignore
+            }
+        };
+
+        doPing();
+        const pingInterval = setInterval(doPing, 4 * 60 * 1000);
+        return () => {
+            isMounted = false;
+            clearInterval(pingInterval);
+        };
+    }, [showDashboard]);
+
+    // Period tracker updates every 30s
+    useEffect(() => {
+        const updateP = () => {
+            setPeriodInfo(getCurrentPeriodInfo());
+        };
+        updateP();
+        const pInterval = setInterval(updateP, 30 * 1000);
+        return () => clearInterval(pInterval);
+    }, []);
+
+    // Periodic auto-check when enabled
+    useEffect(() => {
+        if (!showDashboard || !autoCheckEnabled || !year || !semester) return;
+
+        const checkPeriodically = () => {
+            handleRefresh(true); // background silent check
+        };
+
+        // If in attendance submission window (near period end), check every 15s; otherwise every 60s
+        const nearCheck = isNearPeriodEnd();
+        const intervalMs = nearCheck.isWindow ? 15000 : 60000;
+        const autoTimer = setInterval(checkPeriodically, intervalMs);
+        return () => clearInterval(autoTimer);
+    }, [showDashboard, autoCheckEnabled, year, semester]);
 
     const handleSearch = async (fetchYear = year, fetchSemester = semester) => {
         if (!fetchYear || !fetchSemester) { 
@@ -245,14 +354,22 @@ const AttendanceRegister = () => {
         setLoading(true); 
         setDebugHtml(null);
         setFetchError(null);
+        setJustCheckedNotice(null);
         try {
             const data = await erpService.fetchAttendance(fetchYear, fetchSemester);
             setSubjects(data);
             setShowDashboard(true);
             // Save fetched data to standard location for persistence
             localStorage.setItem(storageKey, JSON.stringify({ attendance_data: data }));
+            if (activeId) {
+                localStorage.setItem(`activeYear_${activeId}`, fetchYear);
+                localStorage.setItem(`activeSem_${activeId}`, fetchSemester);
+                localStorage.setItem(`attendanceLastUpdated_${activeId}`, String(Date.now()));
+            }
             setYear(fetchYear);
             setSemester(fetchSemester);
+            setLastUpdated(Date.now());
+            setSessionStatus('active');
         } catch (error) {
             if (error.message?.startsWith('DEBUG_HTML:')) { 
                 setDebugHtml(error.message.replace('DEBUG_HTML:', '')); 
@@ -268,15 +385,72 @@ const AttendanceRegister = () => {
         } finally { setLoading(false); }
     };
 
+    // Manual or automatic attendance refresh with diff detection and audio alert
+    const handleRefresh = async (isSilent = false) => {
+        if (loading || refreshing) return;
+        if (!year || !semester) return;
+
+        if (!isSilent) {
+            setRefreshing(true);
+            setFetchError(null);
+            setJustCheckedNotice(null);
+        }
+
+        try {
+            const data = await erpService.fetchAttendance(year, semester);
+            if (Array.isArray(data) && data.length > 0) {
+                const prev = subjectsRef.current || subjects;
+                const diff = calculateAttendanceDiff(prev, data);
+
+                if (diff.hasChanges) {
+                    playAttendanceChime();
+                    setAttendanceNotification({
+                        show: true,
+                        changes: diff.changes,
+                        summary: diff.summaryBanner,
+                        timestamp: Date.now()
+                    });
+                    const codes = new Set(diff.changes.map(c => c.code));
+                    setRecentlyUpdatedCodes(codes);
+                    setTimeout(() => {
+                        setRecentlyUpdatedCodes(new Set());
+                    }, 25000);
+                } else if (!isSilent) {
+                    setJustCheckedNotice('All caught up · No new attendance marks found');
+                    setTimeout(() => setJustCheckedNotice(null), 4000);
+                }
+
+                setSubjects(data);
+                localStorage.setItem(storageKey, JSON.stringify({ attendance_data: data }));
+                const now = Date.now();
+                if (activeId) {
+                    localStorage.setItem(`attendanceLastUpdated_${activeId}`, String(now));
+                }
+                setLastUpdated(now);
+                setSessionStatus('active');
+            } else if (!isSilent) {
+                setJustCheckedNotice('No attendance records returned for this semester.');
+                setTimeout(() => setJustCheckedNotice(null), 4000);
+            }
+        } catch (error) {
+            if (error.message?.includes('expired') || error.message?.includes('sign in')) {
+                setSessionStatus('expired');
+                if (!isSilent) {
+                    setFetchError('Your university ERP session has expired. Please sign in again.');
+                }
+            } else if (!isSilent) {
+                setFetchError(error.message || 'Failed to refresh attendance.');
+            }
+        } finally {
+            if (!isSilent) setRefreshing(false);
+        }
+    };
+
     const handleBack = () => {
         setShowDashboard(false);
-        setSubjects([]);
-        setDebugHtml(null);
         setFetchError(null);
-        if (activeId) {
-            localStorage.removeItem(`kleData_${activeId}`);
-        }
-        localStorage.removeItem('kleData');
+        setDebugHtml(null);
+        setJustCheckedNotice(null);
     };
 
     const handleLogoutAction = async () => {
@@ -284,6 +458,9 @@ const AttendanceRegister = () => {
             await logout();
             if (activeId) {
                 localStorage.removeItem(`kleData_${activeId}`);
+                localStorage.removeItem(`activeYear_${activeId}`);
+                localStorage.removeItem(`activeSem_${activeId}`);
+                localStorage.removeItem(`attendanceLastUpdated_${activeId}`);
             }
             localStorage.removeItem('activeErpUser');
             localStorage.removeItem('erpDashboardHtml');
@@ -308,23 +485,158 @@ const AttendanceRegister = () => {
                 <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30" />
 
                 {/* Header */}
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 max-w-7xl mx-auto">
-                    <div>
-                        <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-                            Attendance <span className="text-indigo-600">Dashboard</span>
-                        </h1>
-                        <p className="text-slate-400 text-sm mt-0.5 font-medium">
-                            {year && semester ? `${displayYearText} · ${displaySemesterText} Semester` : 'Current Session'}
-                        </p>
+                <div className="flex flex-col gap-4 mb-6 max-w-7xl mx-auto">
+                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                        <div>
+                            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                                    Attendance <span className="text-indigo-600">Dashboard</span>
+                                </h1>
+
+                                {/* ERP Session Status Pill */}
+                                <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors shadow-2xs ${
+                                    sessionStatus === 'active'
+                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                        : sessionStatus === 'checking'
+                                        ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                        : 'bg-red-50 text-red-800 border-red-300'
+                                }`}>
+                                    <span className={`w-2 h-2 rounded-full ${
+                                        sessionStatus === 'active' ? 'bg-emerald-500 animate-pulse' : sessionStatus === 'checking' ? 'bg-amber-500 animate-spin' : 'bg-red-500'
+                                    }`} />
+                                    <span>{sessionStatus === 'active' ? 'ERP Session Active' : sessionStatus === 'checking' ? 'Checking ERP Session...' : 'Session Expired'}</span>
+                                </div>
+
+                                {/* Period Info Pill */}
+                                {periodInfo?.statusText && (
+                                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200">
+                                        <Clock className="w-3.5 h-3.5 text-indigo-600" />
+                                        <span>{periodInfo.statusText}</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 text-slate-500 text-xs sm:text-sm font-medium">
+                                <span>{year && semester ? `${displayYearText} · ${displaySemesterText} Semester` : 'Current Session'}</span>
+                                {lastUpdated && (
+                                    <>
+                                        <span>•</span>
+                                        <span className="text-indigo-600 font-bold">Last checked: {formatTimeAgo(lastUpdated)}</span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Controls Toolbar */}
+                        <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                            {/* Auto-check Toggle */}
+                            <button
+                                onClick={() => {
+                                    const next = !autoCheckEnabled;
+                                    setAutoCheckEnabled(next);
+                                    try { localStorage.setItem('kl_auto_check_attendance', String(next)); } catch {}
+                                }}
+                                className={`px-3 py-2 rounded-xl text-xs font-bold border flex items-center gap-1.5 transition-all cursor-pointer ${
+                                    autoCheckEnabled
+                                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                        : 'bg-slate-100 border-slate-200 text-slate-500 hover:text-slate-700'
+                                }`}
+                                title="Automatically checks for new attendance marks periodically and after period ends"
+                            >
+                                <Radio className={`w-3.5 h-3.5 ${autoCheckEnabled ? 'text-emerald-600 animate-pulse' : 'text-slate-400'}`} />
+                                <span>Auto-Check: {autoCheckEnabled ? 'ON' : 'OFF'}</span>
+                            </button>
+
+                            {/* Check Attendance Button */}
+                            <button
+                                onClick={() => handleRefresh(false)}
+                                disabled={refreshing || loading}
+                                className="flex-1 sm:flex-none px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/20 text-xs sm:text-sm font-black flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-95 disabled:opacity-70"
+                            >
+                                <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                                <span>{refreshing ? 'Checking Attendance...' : 'Check Attendance'}</span>
+                            </button>
+
+                            {/* Change Selection */}
+                            <button
+                                onClick={handleBack}
+                                className="px-3.5 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl hover:bg-indigo-100 hover:text-indigo-800 transition-colors text-xs sm:text-sm font-bold shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                                <ArrowLeft className="w-4 h-4" /> Change Selection
+                            </button>
+
+                            {/* Logout */}
+                            <button
+                                onClick={handleLogoutAction}
+                                className="px-3.5 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-all flex items-center justify-center gap-1.5 border border-red-100 text-xs sm:text-sm font-bold cursor-pointer"
+                            >
+                                <LogOut className="w-4 h-4" />Logout
+                            </button>
+                        </div>
                     </div>
-                    <div className="flex gap-2 w-full sm:w-auto">
-                        <button onClick={handleBack} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-xl hover:bg-indigo-100 hover:text-indigo-800 transition-colors text-sm font-bold shadow-sm flex items-center justify-center gap-2 cursor-pointer">
-                            <ArrowLeft className="w-4 h-4" /> Change Selection
-                        </button>
-                        <button onClick={handleLogoutAction} className="flex-1 sm:flex-none px-4 py-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-all flex items-center justify-center gap-2 border border-red-100 text-sm font-bold cursor-pointer">
-                            <LogOut className="w-4 h-4" />Logout
-                        </button>
-                    </div>
+
+                    {/* Attendance Diff Alert Banner (Celebration when faculty posts attendance) */}
+                    <AnimatePresence>
+                        {attendanceNotification?.show && (
+                            <motion.div
+                                initial={{ opacity: 0, y: -10, scale: 0.98 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: -10, scale: 0.98 }}
+                                className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white shadow-xl flex items-center justify-between gap-4 border-2 border-emerald-400"
+                            >
+                                <div className="flex items-center gap-3.5">
+                                    <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 border border-white/30">
+                                        <Sparkles className="w-6 h-6 text-yellow-300 animate-bounce" />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="bg-white/20 text-white text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">New Attendance Detected</span>
+                                            <span className="text-emerald-100 text-xs font-semibold">Just now</span>
+                                        </div>
+                                        <p className="font-extrabold text-sm sm:text-base mt-0.5">{attendanceNotification.summary}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setAttendanceNotification(null)}
+                                    className="p-1.5 hover:bg-white/20 rounded-lg text-white/80 hover:text-white transition-colors cursor-pointer shrink-0"
+                                    title="Dismiss"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
+                    {/* Just Checked Up-to-Date Notice */}
+                    {justCheckedNotice && (
+                        <motion.div
+                            initial={{ opacity: 0, y: -5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="px-4 py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-800 text-xs font-bold flex items-center gap-2 shadow-2xs"
+                        >
+                            <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                            <span>{justCheckedNotice}</span>
+                        </motion.div>
+                    )}
+
+                    {/* Session Expired Banner */}
+                    {sessionStatus === 'expired' && (
+                        <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+                            <div className="flex items-center gap-3">
+                                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                                <div>
+                                    <p className="font-black text-sm text-amber-900">University ERP Session Timed Out</p>
+                                    <p className="text-xs font-medium text-amber-800">Your session has expired on the university server after inactivity. Cached attendance is shown above.</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => navigate('/login')}
+                                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow cursor-pointer shrink-0"
+                            >
+                                Sign In to Refresh
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Debug view */}
@@ -341,6 +653,7 @@ const AttendanceRegister = () => {
                         {subjects.map((subject, index) => {
                             const pct = subject.percent;
                             const status = getStatusLabel(pct);
+                            const isRecentlyUpdated = recentlyUpdatedCodes.has(subject.code);
 
                             return (
                                 <motion.div
@@ -348,7 +661,11 @@ const AttendanceRegister = () => {
                                     initial={{ opacity: 0, y: 20 }}
                                     animate={{ opacity: 1, y: 0 }}
                                     transition={{ delay: index * 0.03 }}
-                                    className="bg-white border-2 border-slate-900 rounded-2xl overflow-hidden shadow hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
+                                    className={`bg-white rounded-2xl overflow-hidden shadow transition-all duration-300 ${
+                                        isRecentlyUpdated
+                                            ? 'border-2 border-emerald-500 ring-4 ring-emerald-200/80 shadow-lg -translate-y-1'
+                                            : 'border-2 border-slate-900 hover:shadow-md hover:-translate-y-0.5'
+                                    }`}
                                 >
                                     {/* Top color strip */}
                                     <div className={`h-1.5 w-full ${getBgStrip(pct)}`} />
@@ -357,7 +674,15 @@ const AttendanceRegister = () => {
                                         {/* Title row */}
                                         <div className="flex justify-between items-start gap-4 mb-4">
                                             <div className="flex-1 min-w-0">
-                                                <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide leading-snug">{subject.title}</h3>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide leading-snug">{subject.title}</h3>
+                                                    {isRecentlyUpdated && (
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse">
+                                                            <Sparkles className="w-3 h-3 text-emerald-600" />
+                                                            Just Updated
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <p className="text-slate-400 text-[11px] mt-0.5 font-mono">{subject.code}</p>
                                             </div>
                                             <div className="text-right shrink-0">
