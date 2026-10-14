@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BookOpen, Calendar, Sparkles, CheckCircle2, X } from 'lucide-react';
 import { erpService } from '../services/erpService';
@@ -21,9 +21,6 @@ function formatTimeAgo(timestamp) {
     return `${diffHr}h ago`;
 }
 
-// Component weights matching the extension: L=100, T=100, P=50, S=25
-const WEIGHTS = { L: 100, T: 100, P: 50, S: 25 };
-
 function getColor(pct) {
     if (pct >= 85) return 'text-emerald-600';
     if (pct >= 75) return 'text-amber-500';
@@ -42,63 +39,78 @@ function getStatusLabel(pct) {
     return { text: '✗ Shortage', cls: 'bg-red-50 text-red-600 ring-red-200' };
 }
 
+function getComponentMeta(compName) {
+    const norm = (compName || '').trim().toLowerCase();
+    if (norm.startsWith('pract') || norm.includes('lab') || norm === 'p') {
+        return { id: 'P', label: 'Practical', weight: 50 };
+    }
+    if (norm.includes('theor') || norm.includes('tut') || norm === 't') {
+        return { id: 'T', label: 'Tutorial', weight: 100 };
+    }
+    if (norm.includes('sk') || norm === 's') {
+        return { id: 'S', label: 'Skill', weight: 25 };
+    }
+    return { id: 'L', label: 'Lecture', weight: 100 };
+}
+
 // ── BunkSimulator sub-component ──────────────────────────────────────
 function BunkSimulator({ subject }) {
     const [bunkInput, setBunkInput] = useState('');
 
-    // Always allow these 4 standard options
-    const ALL_COMPS = [
-        { id: 'L', label: 'Lecture' },
-        { id: 'T', label: 'Tutorial' },
-        { id: 'P', label: 'Practical' },
-        { id: 'S', label: 'Skill' }
-    ];
+    // Filter to ONLY the components this subject actually has
+    const availableComps = useMemo(() => {
+        const rawEntries = subject?.components ? Object.entries(subject.components) : [];
+        if (rawEntries.length === 0) {
+            return [{ id: 'L', label: 'Lecture', weight: 100 }];
+        }
+        const seen = new Set();
+        const list = [];
+        rawEntries.forEach(([compName]) => {
+            const meta = getComponentMeta(compName);
+            if (!seen.has(meta.id)) {
+                seen.add(meta.id);
+                list.push(meta);
+            }
+        });
+        return list.length > 0 ? list : [{ id: 'L', label: 'Lecture', weight: 100 }];
+    }, [subject]);
 
-    // Determine available components to see if we can default to one they actually have
-    const components = subject.components ? Object.entries(subject.components) : [];
-    const hasComponents = components.length > 0;
-
-    // Default to the first component if available, else Lecture
-    const [selectedComp, setSelectedComp] = useState(hasComponents ? components[0][0].charAt(0).toUpperCase() : 'L');
+    const [userSelectedComp, setUserSelectedComp] = useState('');
+    const selectedComp = availableComps.some(c => c.id === userSelectedComp)
+        ? userSelectedComp
+        : (availableComps[0]?.id || 'L');
 
     const bunkCount = parseInt(bunkInput) || 0;
     let projectedActual = null;
 
     if (bunkCount > 0) {
-        if (hasComponents) {
+        const components = subject?.components ? Object.entries(subject.components) : [];
+        if (components.length > 0) {
             let totalConductedW = 0;
             let totalAttendedW = 0;
-            let selectedCompFound = false;
 
             components.forEach(([compName, data]) => {
-                const firstChar = compName ? compName.charAt(0).toUpperCase() : '';
-                const w = WEIGHTS[firstChar] || WEIGHTS[compName] || 1;
+                const meta = getComponentMeta(compName);
+                const w = meta.weight;
 
                 let cConducted = data.conducted;
                 let cAttended = data.attended;
 
-                if (firstChar === selectedComp || compName === selectedComp) {
+                if (meta.id === selectedComp) {
                     cConducted += bunkCount;
-                    selectedCompFound = true;
                 }
 
                 totalConductedW += cConducted * w;
                 totalAttendedW += cAttended * w;
             });
 
-            if (!selectedCompFound) {
-                const w = WEIGHTS[selectedComp] || 1;
-                totalConductedW += bunkCount * w;
-                // attended doesn't increase since we bunked
-            }
-
             projectedActual = totalConductedW > 0 ? Math.ceil((totalAttendedW / totalConductedW) * 100) : null;
         } else {
-            // Fallback for subjects with completely broken component names
-            const parts = (subject.attended || '0/0').split('/');
+            // Fallback for subjects with simple class totals
+            const parts = (subject?.attended || '0/0').split('/');
             const attended = parseInt(parts[0]) || 0;
             const total = parseInt(parts[1]) || 0;
-            projectedActual = parseFloat(((attended / (total + bunkCount)) * 100).toFixed(2));
+            projectedActual = (total + bunkCount > 0) ? Math.ceil((attended / (total + bunkCount)) * 100) : null;
         }
     }
 
@@ -113,10 +125,10 @@ function BunkSimulator({ subject }) {
                 <div className="flex items-center gap-2">
                     <select
                         value={selectedComp}
-                        onChange={(e) => setSelectedComp(e.target.value)}
+                        onChange={(e) => setUserSelectedComp(e.target.value)}
                         className="bg-white border-2 border-indigo-300 text-slate-700 text-xs rounded-xl px-2 py-2 focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold w-[110px] shrink-0 shadow-sm transition-all cursor-pointer"
                     >
-                        {ALL_COMPS.map((comp) => (
+                        {availableComps.map((comp) => (
                             <option key={comp.id} value={comp.id}>{comp.label}</option>
                         ))}
                     </select>

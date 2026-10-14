@@ -99,6 +99,7 @@ const BunkSimulator = () => {
     }, []);
 
     const [selectedCourseCode, setSelectedCourseCode] = useState('');
+    const [courseAvailableComponents, setCourseAvailableComponents] = useState(null);
 
     // --- L-T-P-S State ---
     const [courseTitle, setCourseTitle] = useState('');
@@ -131,7 +132,18 @@ const BunkSimulator = () => {
     // Handle ERP subject selection
     const handleSelectCourse = (code) => {
         setSelectedCourseCode(code);
-        if (!code) return;
+        if (!code) {
+            setCourseTitle('');
+            setCourseAvailableComponents(null);
+            setLtpsData({
+                L: { conducted: '', attended: '' },
+                T: { conducted: '', attended: '' },
+                P: { conducted: '', attended: '' },
+                S: { conducted: '', attended: '' }
+            });
+            setBunksToSimulate({ L: 0, T: 0, P: 0, S: 0 });
+            return;
+        }
 
         if (code === '__OVERALL__') {
             setCourseTitle('Overall Attendance (All Courses Combined)');
@@ -143,6 +155,7 @@ const BunkSimulator = () => {
                 S: { conducted: 0, attended: 0 }
             };
 
+            const overallActiveKeys = new Set();
             let overallRawAtt = 0;
             let overallRawCond = 0;
 
@@ -163,6 +176,7 @@ const BunkSimulator = () => {
 
                         if (targetKey && aggregatedLtps[targetKey]) {
                             hasComp = true;
+                            overallActiveKeys.add(targetKey);
                             const c = parseInt(compVal.conducted, 10) || 0;
                             const a = parseInt(compVal.attended, 10) || 0;
                             aggregatedLtps[targetKey].conducted += c;
@@ -175,6 +189,7 @@ const BunkSimulator = () => {
                     const [a, c] = subj.attended.split('/').map(v => parseInt(v, 10) || 0);
                     aggregatedLtps.L.conducted += c;
                     aggregatedLtps.L.attended += a;
+                    overallActiveKeys.add('L');
                 }
 
                 if (subj.attended && typeof subj.attended === 'string' && subj.attended.includes('/')) {
@@ -186,6 +201,9 @@ const BunkSimulator = () => {
                     overallRawCond += Number(subj.rawConducted) || 0;
                 }
             });
+
+            const overallList = ['L', 'T', 'P', 'S'].filter(k => overallActiveKeys.has(k));
+            setCourseAvailableComponents(overallList.length > 0 ? overallList : null);
 
             setLtpsData({
                 L: { conducted: aggregatedLtps.L.conducted ? aggregatedLtps.L.conducted.toString() : '', attended: aggregatedLtps.L.attended ? aggregatedLtps.L.attended.toString() : '' },
@@ -212,6 +230,8 @@ const BunkSimulator = () => {
             S: { conducted: '', attended: '' }
         };
 
+        const compKeys = new Set();
+
         if (found.components && Object.keys(found.components).length > 0) {
             Object.entries(found.components).forEach(([compKey, compVal]) => {
                 const norm = (compKey || '').trim().toLowerCase();
@@ -226,6 +246,7 @@ const BunkSimulator = () => {
                 }
 
                 if (targetKey && newLtps[targetKey]) {
+                    compKeys.add(targetKey);
                     newLtps[targetKey] = {
                         conducted: (compVal.conducted ?? '').toString(),
                         attended: (compVal.attended ?? '').toString()
@@ -239,8 +260,12 @@ const BunkSimulator = () => {
             if (found.attended && typeof found.attended === 'string' && found.attended.includes('/')) {
                 const [att, cond] = found.attended.split('/');
                 newLtps.L = { conducted: cond || '', attended: att || '' };
+                compKeys.add('L');
             }
         }
+
+        const activeList = ['L', 'T', 'P', 'S'].filter(k => compKeys.has(k));
+        setCourseAvailableComponents(activeList.length > 0 ? activeList : ['L']);
 
         setLtpsData(newLtps);
         setBunksToSimulate({ L: 0, T: 0, P: 0, S: 0 });
@@ -416,6 +441,7 @@ const BunkSimulator = () => {
         setBunksToSimulate({ L: 0, T: 0, P: 0, S: 0 });
         setSelectedCourseCode('');
         setCourseTitle('');
+        setCourseAvailableComponents(null);
     };
 
     const resetQuick = () => {
@@ -581,7 +607,7 @@ const BunkSimulator = () => {
                                             {courseTitle ? courseTitle : 'Enter LTPS Attendance'}
                                         </h2>
                                         <p className="text-xs text-slate-400 font-medium mt-0.5">
-                                            Lecture (100%), Tutorial (100%), Practical (50%), Skill (25%)
+                                            {(courseAvailableComponents || ['L', 'T', 'P', 'S']).map(k => `${k === 'L' ? 'Lecture' : k === 'T' ? 'Tutorial' : k === 'P' ? 'Practical' : 'Skill'} (${KLU_WEIGHTS[k]}%)`).join(', ')}
                                         </p>
                                     </div>
                                     <button
@@ -595,7 +621,7 @@ const BunkSimulator = () => {
 
                                 {/* Component Inputs Table */}
                                 <div className="space-y-4">
-                                    {['L', 'T', 'P', 'S'].map((compKey) => {
+                                    {(courseAvailableComponents || ['L', 'T', 'P', 'S']).map((compKey) => {
                                         const condInt = parseInt(ltpsData[compKey].conducted, 10) || 0;
                                         const isCompActive = condInt > 0;
                                         return (
@@ -694,7 +720,7 @@ const BunkSimulator = () => {
                                                                 !isCompActive
                                                                     ? 'bg-slate-100/70 border-slate-200 text-slate-300 cursor-not-allowed'
                                                                     : 'bg-white border-slate-200 text-rose-600 focus:ring-2 focus:ring-rose-400'
-                                                            }`}
+                                                             }`}
                                                         />
                                                         <button
                                                             type="button"
@@ -719,6 +745,18 @@ const BunkSimulator = () => {
                                         );
                                     })}
                                 </div>
+
+                                {courseAvailableComponents && courseAvailableComponents.length < 4 && (
+                                    <div className="pt-1 text-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => setCourseAvailableComponents(null)}
+                                            className="text-xs text-indigo-600 hover:text-indigo-800 font-bold transition-colors cursor-pointer hover:underline"
+                                        >
+                                            + Show all 4 components (Practical, Skill, etc.)
+                                        </button>
+                                    </div>
+                                )}
 
                                 <div className="flex items-center justify-between pt-2">
                                     <span className="text-xs font-bold text-slate-500">Calculate Safe Bunks for:</span>
