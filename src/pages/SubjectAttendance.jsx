@@ -58,7 +58,7 @@ const SubjectAttendance = () => {
     };
 
     return (
-        <div className="min-h-[calc(100vh-5rem)] bg-slate-100 py-12 px-4 sm:px-6 lg:px-8 flex flex-col items-center">
+        <div className="min-h-[calc(100vh-5rem)] bg-slate-100 pt-28 sm:pt-32 pb-16 px-4 sm:px-6 lg:px-8 flex flex-col items-center">
 
             {/* Header - Gradient Blue (Middle Theme) */}
             <motion.div

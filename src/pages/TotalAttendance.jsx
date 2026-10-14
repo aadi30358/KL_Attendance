@@ -153,7 +153,7 @@ const TotalAttendance = () => {
                 <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.03] mix-blend-overlay" />
             </div>
 
-            <div className="relative z-10 max-w-4xl mx-auto py-12 px-4 sm:px-6 lg:px-8 space-y-8">
+            <div className="relative z-10 max-w-4xl mx-auto pt-28 sm:pt-32 pb-16 px-4 sm:px-6 lg:px-8 space-y-8">
 
                 {/* Header */}
                 <motion.div

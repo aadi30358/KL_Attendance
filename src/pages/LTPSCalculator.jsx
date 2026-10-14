@@ -338,7 +338,7 @@ const LTPSCalculator = () => {
 
     return (
         <motion.div
-            className="min-h-screen bg-slate-100 py-12 px-4 sm:px-6 lg:px-8 relative"
+            className="min-h-screen bg-slate-100 pt-28 sm:pt-32 pb-16 px-4 sm:px-6 lg:px-8 relative"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}

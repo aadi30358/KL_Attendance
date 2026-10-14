@@ -1896,8 +1896,8 @@ export default function AdminDashboard() {
                         </div>
                     </div>
 
-                    {/* Navigation Tabs Bar — Always 100% visible, completely responsive, zero cut-off */}
-                    <div className="px-4 sm:px-8 py-2 overflow-x-auto flex items-center gap-2 bg-slate-50/70 border-t border-slate-100 no-scrollbar">
+                    {/* Navigation Tabs Bar — Responsive Mobile Bar */}
+                    <div className="md:hidden px-4 py-2 overflow-x-auto flex items-center gap-2 bg-slate-50/70 border-t border-slate-100 no-scrollbar">
                         <button
                             onClick={() => setActiveTab('dashboard')}
                             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 shrink-0 cursor-pointer ${

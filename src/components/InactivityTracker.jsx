@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, ShieldAlert, LogOut, CheckCircle } from 'lucide-react';
+import { Clock, LogOut, CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 
 // Inactivity configuration: 5 minutes total (warning shown during last 60 seconds)
