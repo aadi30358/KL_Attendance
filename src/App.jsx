@@ -13,6 +13,7 @@ import { InstallPwaPrompt } from './components/InstallPwaPrompt';
 import { InstallModal } from './components/InstallModal';
 import { DeveloperModal } from './components/DeveloperModal';
 import { InactivityTracker } from './components/InactivityTracker';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // ─── Lazy-loaded pages (only loaded when the user navigates to that route) ───
 const Home             = lazy(() => import('./pages/Home'));
@@ -230,9 +231,11 @@ function App() {
     <HelmetProvider>
       <AuthProvider>
         <AttendanceProvider>
-          <Router>
-            <AppWithAuth />
-          </Router>
+          <ErrorBoundary>
+            <Router>
+              <AppWithAuth />
+            </Router>
+          </ErrorBoundary>
         </AttendanceProvider>
       </AuthProvider>
     </HelmetProvider>
