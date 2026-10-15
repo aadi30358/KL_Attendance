@@ -334,9 +334,9 @@ const Login = () => {
                     description={maintenanceConfig.message || "ERP Login is currently under maintenance."}
                 />
                 {/* Ambient Background */}
-                <div className="fixed inset-0 pointer-events-none">
-                    <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-amber-50/50 to-white opacity-80" />
-                    <div className="hidden sm:block absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-amber-200 via-orange-100 to-amber-100 blur-[150px] opacity-40" />
+                <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-b from-amber-50/50 via-white to-amber-50/20 opacity-80" />
+                    <div className="hidden sm:block absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-amber-200/50 via-orange-100/40 to-amber-100/30 blur-3xl opacity-50" />
                 </div>
 
                 <motion.div
@@ -491,20 +491,12 @@ const Login = () => {
 
     return (
         <div className="min-h-screen pt-32 pb-12 overflow-hidden bg-[#FAFAFA] flex items-center justify-center px-4 relative font-sans selection:bg-indigo-500 selection:text-white">
-            {/* Ambient Background */}
-            <div className="fixed inset-0 pointer-events-none">
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
-                <motion.div
-                    animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
-                    transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-                    className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 blur-[150px]"
-                />
-                <motion.div
-                    animate={{ x: [0, 100, 0], opacity: [0.2, 0.4, 0.2] }}
-                    transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
-                    className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 blur-[150px]"
-                />
-                <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.03] mix-blend-overlay" />
+            {/* Ambient Background - High Performance Static Gradient */}
+            <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-white to-indigo-50/30" />
+                <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/50 via-purple-100/40 to-pink-100/30 blur-3xl opacity-70" />
+                <div className="absolute top-1/3 -right-32 w-96 h-96 rounded-full bg-gradient-to-bl from-blue-200/50 via-teal-100/40 to-emerald-100/30 blur-3xl opacity-60" />
+                <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.02] mix-blend-overlay" />
             </div>
 
             <motion.div

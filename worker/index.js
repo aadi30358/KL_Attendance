@@ -758,22 +758,39 @@ export default {
 
                         const reqSemStr = (semester || '').toString().trim().toLowerCase();
                         const reqSemId = (semId || '').toString().trim();
+                        const isReqSummer = reqSemStr.includes('summer') || reqSemId === '3';
+                        const isReqTerm3 = (reqSemStr.includes('term') || reqSemStr.includes('tri') || reqSemId === '4') && !isReqSummer;
                         let matchedSem = null;
                         if (availableSemesters.length > 0) {
-                            if (reqSemStr) {
+                            if (isReqSummer) {
+                                matchedSem = availableSemesters.find(s => {
+                                    const sText = (s.text || '').toLowerCase();
+                                    const sVal = String(s.val || s.value || '').trim();
+                                    return sVal === '3' || sText.includes('summer');
+                                });
+                            } else if (isReqTerm3) {
+                                matchedSem = availableSemesters.find(s => {
+                                    const sText = (s.text || '').toLowerCase();
+                                    const sVal = String(s.val || s.value || '').trim();
+                                    return (sVal === '4' || sText.includes('tri') || sText.includes('term 3') || sText.includes('term-3') || (sText.includes('term') && !sText.includes('summer'))) && !sText.includes('summer') && sVal !== '3';
+                                });
+                            } else if (reqSemStr.includes('even') || reqSemId === '2') {
+                                matchedSem = availableSemesters.find(s => {
+                                    const sText = (s.text || '').toLowerCase();
+                                    const sVal = String(s.val || s.value || '').trim();
+                                    return sVal === '2' || sText.includes('even');
+                                });
+                            } else if (reqSemStr.includes('odd') || reqSemId === '1') {
+                                matchedSem = availableSemesters.find(s => {
+                                    const sText = (s.text || '').toLowerCase();
+                                    const sVal = String(s.val || s.value || '').trim();
+                                    return sVal === '1' || sText.includes('odd');
+                                });
+                            } else if (reqSemStr) {
                                 matchedSem = availableSemesters.find(s => s.text.toLowerCase() === reqSemStr || s.text.toLowerCase().includes(reqSemStr));
                             }
-                            if (!matchedSem) {
-                                if (reqSemStr.includes('odd') || reqSemId === '1') {
-                                    matchedSem = availableSemesters.find(s => s.text.toLowerCase().includes('odd') || s.val === '1');
-                                } else if (reqSemStr.includes('even') || reqSemId === '2') {
-                                    matchedSem = availableSemesters.find(s => s.text.toLowerCase().includes('even') || s.val === '2');
-                                } else if (reqSemStr.includes('summer') || reqSemId === '3') {
-                                    matchedSem = availableSemesters.find(s => s.text.toLowerCase().includes('summer') || s.val === '3');
-                                }
-                            }
                             if (!matchedSem && reqSemId) {
-                                matchedSem = availableSemesters.find(s => s.val === reqSemId);
+                                matchedSem = availableSemesters.find(s => (s.val || s.value) === reqSemId);
                             }
                         }
                         if (matchedSem) {
@@ -785,30 +802,54 @@ export default {
                     console.warn("[Worker] Fast-attendance pre-priming notice:", e.message);
                 }
 
-                if (!resolvedYearId) {
-                    const yStr = String(year || yearId || '').trim();
-                    if (yStr.startsWith('2026') || yStr === '18' || yStr.includes('26')) resolvedYearId = '29';
-                    else if (yStr.startsWith('2025') || yStr === '17' || yStr.includes('25')) resolvedYearId = '28';
-                    else if (yStr.startsWith('2024') || yStr === '16' || yStr.includes('24')) resolvedYearId = '27';
-                    else if (yStr.startsWith('2023') || yStr === '15' || yStr.includes('23')) resolvedYearId = '26';
-                    else resolvedYearId = (yStr || '29');
-                }
-                if (!resolvedSemId) {
-                    const sStr = String(semester || semId || '').trim().toLowerCase();
-                    resolvedSemId = sStr.includes('even') || sStr === '2' ? '2' : sStr.includes('summer') || sStr === '3' ? '3' : '1';
+                // Helper to resolve all possible candidate ERP IDs for the requested academic year
+                const getCandidateYearIds = (yVal, yIdVal, mVal) => {
+                    const list = [];
+                    if (mVal) list.push(String(mVal).trim());
+                    if (yIdVal) list.push(String(yIdVal).trim());
+                    const str = String(yVal || '').trim();
+                    const cleanStr = str.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+                    let firstYear = parseInt(str.split('-')[0], 10);
+                    if (!isNaN(firstYear) && firstYear < 100) {
+                        if (firstYear === 29 || firstYear === 18) firstYear = 2026;
+                        else if (firstYear === 28 || firstYear === 17) firstYear = 2025;
+                        else if (firstYear === 27 || firstYear === 16) firstYear = 2024;
+                        else if (firstYear === 26 || firstYear === 15) firstYear = 2023;
+                        else if (firstYear === 25 || firstYear === 14) firstYear = 2022;
+                        else if (firstYear === 24 || firstYear === 13) firstYear = 2021;
+                        else if (firstYear === 23 || firstYear === 10) firstYear = 2020;
+                        else firstYear += 2000;
+                    }
+
+                    if (firstYear === 2026 || str === '29' || str === '18' || cleanStr.includes('26')) list.push('29', '18', '2026-2027', '2026-27');
+                    else if (firstYear === 2025 || str === '28' || str === '17' || str === '19' || cleanStr.includes('25')) list.push('28', '17', '19', '18', '2025-2026', '2025-26');
+                    else if (firstYear === 2024 || str === '27' || str === '16' || cleanStr.includes('24')) list.push('27', '16', '17', '2024-2025', '2024-25');
+                    else if (firstYear === 2023 || str === '26' || str === '15' || cleanStr.includes('23')) list.push('26', '15', '16', '2023-2024', '2023-24');
+                    else if (firstYear === 2022 || str === '25' || str === '14' || cleanStr.includes('22')) list.push('25', '14', '15', '2022-2023', '2022-23');
+                    else if (firstYear === 2021 || str === '24' || str === '13' || cleanStr.includes('21')) list.push('24', '13', '14', '2021-2022', '2021-22');
+                    else if (firstYear === 2020 || str === '23' || str === '10' || cleanStr.includes('20')) list.push('23', '10', '13', '2020-2021', '2020-21');
+                    else if (firstYear === 2019 || str === '22' || str === '9' || cleanStr.includes('19')) list.push('22', '9');
+                    if (str && !list.includes(str)) list.push(str);
+
+                    return Array.from(new Set(list.filter(Boolean)));
+                };
+
+                const candidateYears = getCandidateYearIds(year, yearId, resolvedYearId);
+                if (candidateYears.length === 0) {
+                    candidateYears.push(resolvedYearId || '28');
                 }
 
-                const formData = new URLSearchParams();
-                formData.append('DynamicModel[academicyear]', String(resolvedYearId));
-                formData.append('DynamicModel[semesterid]', String(resolvedSemId));
-                formData.append('DynamicModel[academic_year]', String(resolvedYearId));
-                formData.append('DynamicModel[semester_id]', String(resolvedSemId));
-                formData.append('academicyear', String(resolvedYearId));
-                formData.append('semesterid', String(resolvedSemId));
-                if (currentCsrf) {
-                    formData.append('_csrf', currentCsrf);
-                    formData.append('_csrf-frontend', currentCsrf);
+                if (!resolvedSemId) {
+                    const sStr = String(semester || semId || '').trim().toLowerCase();
+                    resolvedSemId = sStr.includes('summer') || sStr === '3' ? '3' 
+                        : sStr.includes('term') || sStr.includes('tri') || sStr === '4' ? '4' 
+                        : sStr.includes('even') || sStr === '2' ? '2' 
+                        : '1';
                 }
+
+                let finalHtml = '';
+                let finalResp = null;
+                let usedYearId = resolvedYearId;
 
                 const postHeaders = {
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -821,34 +862,67 @@ export default {
                 };
                 if (currentCsrf) postHeaders['x-csrf-token'] = currentCsrf;
 
-                let crResp = await fetch(`${ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
-                    method: 'POST',
-                    headers: postHeaders,
-                    body: formData.toString(),
-                    redirect: 'manual',
-                    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                });
+                for (const testYearId of candidateYears) {
+                    const formData = new URLSearchParams();
+                    formData.append('DynamicModel[academicyear]', String(testYearId));
+                    formData.append('DynamicModel[semesterid]', String(resolvedSemId));
+                    formData.append('DynamicModel[academic_year]', String(testYearId));
+                    formData.append('DynamicModel[semester_id]', String(resolvedSemId));
+                    formData.append('academicyear', String(testYearId));
+                    formData.append('semesterid', String(resolvedSemId));
+                    if (currentCsrf) {
+                        formData.append('_csrf', currentCsrf);
+                        formData.append('_csrf-frontend', currentCsrf);
+                    }
 
-                const crScList = crResp.headers.getSetCookie ? crResp.headers.getSetCookie() : [crResp.headers.get('set-cookie')].filter(Boolean);
-                parseCookieHeader(crScList).forEach((v, k) => cookieMap.set(k, v));
-                currentCookieStr = serializeCookieMap(cookieMap);
+                    postHeaders['Cookie'] = currentCookieStr;
+                    let crResp = await fetch(`${ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
+                        method: 'POST',
+                        headers: postHeaders,
+                        body: formData.toString(),
+                        redirect: 'manual',
+                        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                    });
 
-                if (crResp.status >= 300 && crResp.status < 400) {
-                    const loc = crResp.headers.get('location') || crResp.headers.get('x-redirect') || '';
-                    if (!loc.toLowerCase().includes('login') && loc) {
-                        const nextUrl = loc.startsWith('http') ? loc : `${ERP_BASE}${loc.startsWith('/') ? '' : '/'}${loc}`;
-                        crResp = await fetch(nextUrl, {
-                            headers: postHeaders,
-                            redirect: 'manual',
-                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                        });
-                        const followSc = crResp.headers.getSetCookie ? crResp.headers.getSetCookie() : [crResp.headers.get('set-cookie')].filter(Boolean);
-                        parseCookieHeader(followSc).forEach((v, k) => cookieMap.set(k, v));
-                        currentCookieStr = serializeCookieMap(cookieMap);
+                    const crScList = crResp.headers.getSetCookie ? crResp.headers.getSetCookie() : [crResp.headers.get('set-cookie')].filter(Boolean);
+                    parseCookieHeader(crScList).forEach((v, k) => cookieMap.set(k, v));
+                    currentCookieStr = serializeCookieMap(cookieMap);
+
+                    if (crResp.status >= 300 && crResp.status < 400) {
+                        const loc = crResp.headers.get('location') || crResp.headers.get('x-redirect') || '';
+                        if (!loc.toLowerCase().includes('login') && loc) {
+                            const nextUrl = loc.startsWith('http') ? loc : `${ERP_BASE}${loc.startsWith('/') ? '' : '/'}${loc}`;
+                            crResp = await fetch(nextUrl, {
+                                headers: postHeaders,
+                                redirect: 'manual',
+                                signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                            });
+                            const followSc = crResp.headers.getSetCookie ? crResp.headers.getSetCookie() : [crResp.headers.get('set-cookie')].filter(Boolean);
+                            parseCookieHeader(followSc).forEach((v, k) => cookieMap.set(k, v));
+                            currentCookieStr = serializeCookieMap(cookieMap);
+                        }
+                    }
+
+                    const crHtml = await crResp.text();
+                    finalResp = crResp;
+                    finalHtml = crHtml;
+                    usedYearId = testYearId;
+
+                    const isLoginForm = crHtml.includes('id="login-form"') || crHtml.includes('loginFormUserNameID');
+                    if (isLoginForm) break;
+
+                    const hasEmptyResult = crHtml.includes('class="empty"') || crHtml.includes('No results found');
+                    const hasTable = crHtml.includes('<table') || crHtml.includes('grid-view') || crHtml.includes('Course Code') || crHtml.includes('Course Title') || crHtml.includes('L-T-P-S');
+                    const hasCourseCode = /\b\d{2}[A-Za-z]{2,5}\d+/i.test(crHtml);
+
+                    if (hasTable && !hasEmptyResult && (hasCourseCode || crHtml.includes('Attendance'))) {
+                        // Found valid courselist table with real courses for this candidate year ID!
+                        break;
                     }
                 }
 
-                const crHtml = await crResp.text();
+                const crHtml = finalHtml;
+                const crResp = finalResp || { ok: false, status: 500 };
                 const isLoginForm = crHtml.includes('id="login-form"') || crHtml.includes('loginFormUserNameID');
                 const hasTable = crHtml.includes('<table') || crHtml.includes('grid-view') || crHtml.includes('Course Code') || crHtml.includes('Course Title') || crHtml.includes('L-T-P-S');
 
@@ -858,7 +932,7 @@ export default {
                     latencyMs: Date.now() - startTime,
                     html: crHtml,
                     csrfToken: currentCsrf,
-                    resolvedYearId,
+                    resolvedYearId: usedYearId,
                     resolvedSemId,
                     selectedYearText,
                     selectedSemText,

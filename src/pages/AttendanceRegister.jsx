@@ -93,8 +93,8 @@ function BunkSimulator({ subject }) {
                 const meta = getComponentMeta(compName);
                 const w = meta.weight;
 
-                let cConducted = data.conducted;
-                let cAttended = data.attended;
+                let cConducted = Number(data?.conducted) || 0;
+                let cAttended = Number(data?.attended) || 0;
 
                 if (meta.id === selectedComp) {
                     cConducted += bunkCount;
@@ -163,25 +163,43 @@ function BunkSimulator({ subject }) {
     );
 }
 
+// Default clean academic years without badges (recent 6 years)
+const DEFAULT_YEARS = [
+    { value: '2026-2027', text: '2026-2027', isCurrent: true },
+    { value: '2025-2026', text: '2025-2026', isCompleted: true },
+    { value: '2024-2025', text: '2024-2025', isCompleted: true },
+    { value: '2023-2024', text: '2023-2024', isCompleted: true },
+    { value: '2022-2023', text: '2022-2023', isCompleted: true },
+    { value: '2021-2022', text: '2021-2022', isCompleted: true }
+];
+
 const AttendanceRegister = () => {
     const { logout } = useAuth();
     const activeId = localStorage.getItem('activeErpUser');
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
-
-    // Default clean academic years matching ERP's real option format
-    const DEFAULT_YEARS = [
-        { value: '28', text: '2025-2026' },
-        { value: '27', text: '2024-2025' },
-        { value: '29', text: '2026-2027' },
-        { value: '26', text: '2023-2024' }
-    ];
 
     const getInitialYears = () => {
         try {
             const cached = localStorage.getItem('kl_erp_session_years');
             if (cached) {
                 const parsed = JSON.parse(cached);
-                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    const filtered = parsed
+                        .map(y => {
+                            const cleanText = (y.text || y.value || '').replace(/\s*\([^)]*\)/g, '').trim();
+                            return { ...y, text: cleanText || y.text };
+                        })
+                        .filter(y => {
+                            const startYr = parseInt((y.text || '').split('-')[0], 10);
+                            return !isNaN(startYr) && startYr >= 2021;
+                        })
+                        .sort((a, b) => {
+                            const yA = parseInt((a.text || '').split('-')[0], 10) || 0;
+                            const yB = parseInt((b.text || '').split('-')[0], 10) || 0;
+                            return yB - yA;
+                        });
+                    if (filtered.length > 0) return filtered;
+                }
             }
         } catch {
             // ignore fallback
@@ -193,21 +211,21 @@ const AttendanceRegister = () => {
         const manualYear = activeId ? localStorage.getItem(`manualYear_${activeId}`) : null;
         if (manualYear) return manualYear;
         const savedYear = activeId ? localStorage.getItem(`activeYear_${activeId}`) : null;
-        if (savedYear && savedYear !== '18' && savedYear !== '29' && !savedYear.includes('(26-27)')) return savedYear;
-        return '';
+        if (savedYear) return savedYear;
+        return '2026-2027';
     });
     const [semester, setSemester] = useState(() => {
         const manualSem = activeId ? localStorage.getItem(`manualSem_${activeId}`) : null;
         if (manualSem) return manualSem;
         const savedSem = activeId ? localStorage.getItem(`activeSem_${activeId}`) : null;
-        return savedSem || 'Even';
+        return savedSem || 'Odd';
     });
     const [availableYears, setAvailableYears] = useState(getInitialYears);
     const [availableSemesters, setAvailableSemesters] = useState([
-        { value: 'Odd', text: 'Odd Sem' },
         { value: 'Even', text: 'Even Sem' },
+        { value: 'Odd', text: 'Odd Sem' },
         { value: 'Summer', text: 'Summer Term' },
-        { value: 'Term3', text: 'Term 3' }
+        { value: 'Term3', text: 'Tri Sem / Term 3' }
     ]);
     const [subjects, setSubjects] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -273,15 +291,19 @@ const AttendanceRegister = () => {
         sessionStorage.removeItem('manual_sem_reset');
 
         // Restore cached attendance so student doesn't lose their dashboard on return/refresh
-        const cachedRaw = localStorage.getItem(storageKey);
+        const savedYear = activeId ? localStorage.getItem(`activeYear_${activeId}`) : null;
+        const savedSem = activeId ? localStorage.getItem(`activeSem_${activeId}`) : null;
+        const initY = savedYear || '2026-2027';
+        const initS = savedSem || 'Odd';
+        const scopedKey = activeId ? `kleData_${activeId}_${initY}_${initS}` : null;
+        const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
+        const cachedRaw = scopedRaw || localStorage.getItem(storageKey);
         if (cachedRaw) {
             try {
                 const parsed = JSON.parse(cachedRaw);
                 if (parsed.attendance_data && Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
                     setSubjects(parsed.attendance_data);
                     setShowDashboard(true);
-                    const savedYear = activeId ? localStorage.getItem(`activeYear_${activeId}`) : null;
-                    const savedSem = activeId ? localStorage.getItem(`activeSem_${activeId}`) : null;
                     if (savedYear) setYear(savedYear);
                     if (savedSem) setSemester(savedSem);
                 }
@@ -295,9 +317,26 @@ const AttendanceRegister = () => {
         erpService.getAvailableSessions().then(sessionData => {
             if (!isMounted || !sessionData) return;
             if (sessionData.years && sessionData.years.length > 0) {
-                setAvailableYears(sessionData.years);
+                // Filter out ancient ERP years (e.g. 2012-2016) to keep dropdown compact and perfectly centered
+                const validRecentYears = sessionData.years
+                    .map(y => {
+                        const cleanText = (y.text || y.value || '').replace(/\s*\([^)]*\)/g, '').trim();
+                        return { ...y, text: cleanText || y.text };
+                    })
+                    .filter(y => {
+                        const startYr = parseInt((y.text || '').split('-')[0], 10);
+                        return !isNaN(startYr) && startYr >= 2021;
+                    })
+                    .sort((a, b) => {
+                        const yA = parseInt((a.text || '').split('-')[0], 10) || 0;
+                        const yB = parseInt((b.text || '').split('-')[0], 10) || 0;
+                        return yB - yA;
+                    });
+
+                const finalYears = validRecentYears.length > 0 ? validRecentYears : DEFAULT_YEARS;
+                setAvailableYears(finalYears);
                 try {
-                    localStorage.setItem('kl_erp_session_years', JSON.stringify(sessionData.years));
+                    localStorage.setItem('kl_erp_session_years', JSON.stringify(finalYears));
                 } catch {
                     // ignore storage error
                 }
@@ -305,14 +344,14 @@ const AttendanceRegister = () => {
             if (sessionData.semesters && sessionData.semesters.length > 0) {
                 setAvailableSemesters(sessionData.semesters);
             }
-            // Auto-select active year and semester directly from ERP session
+            // Auto-select active year directly: prioritize saved year if recent, otherwise current 2026-2027
             const userManualYear = activeId ? localStorage.getItem(`manualYear_${activeId}`) : null;
-            if (userManualYear && sessionData.years?.some(y => y.value === userManualYear)) {
+            if (userManualYear && (userManualYear.includes('202') || userManualYear === '29' || userManualYear === '18')) {
                 setYear(userManualYear);
-            } else if (sessionData.selectedYear?.value) {
-                setYear(sessionData.selectedYear.value);
-            } else if (sessionData.years && sessionData.years.length > 0) {
-                setYear(sessionData.years[0].value);
+            } else if (sessionData.selectedYear?.text?.includes('2026') || sessionData.selectedYear?.value === '29' || sessionData.selectedYear?.value === '18') {
+                setYear(sessionData.selectedYear.value || '2026-2027');
+            } else {
+                setYear('2026-2027');
             }
 
             const userManualSem = activeId ? localStorage.getItem(`manualSem_${activeId}`) : null;
@@ -320,9 +359,9 @@ const AttendanceRegister = () => {
                 setSemester(userManualSem);
             } else if (sessionData.selectedSemester) {
                 const sText = sessionData.selectedSemester.text.toLowerCase();
-                const matched = sText.includes('even') ? 'Even'
-                    : sText.includes('summer') ? 'Summer'
-                    : sText.includes('term') ? 'Term3'
+                const matched = sText.includes('summer') ? 'Summer'
+                    : (sText.includes('term') || sText.includes('tri')) ? 'Term3'
+                    : sText.includes('even') ? 'Even'
                     : 'Odd';
                 setSemester(matched);
             }
@@ -370,22 +409,25 @@ const AttendanceRegister = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionStatus]);
 
-    // Live background auto-check (always active while viewing dashboard)
+    // Live background auto-check (only active while viewing current live semester)
     useEffect(() => {
         if (!showDashboard || !year || !semester) return;
+        const yearObj = availableYears.find(y => y.value === year);
+        const yText = yearObj?.text || '';
+        const isPresentSession = year === '28' || yText.includes('2025-2026') || year === '29';
+        if (!isPresentSession) return; // Completed historical records do not need constant polling
 
         const checkPeriodically = () => {
             if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
             handleRefresh(true); // background silent check
         };
 
-        // If in attendance submission window (near period end), check every 15s; otherwise every 60s
         const nearCheck = isNearPeriodEnd();
-        const intervalMs = nearCheck.isWindow ? 15000 : 60000;
+        const intervalMs = nearCheck.isWindow ? 30000 : 120000;
         const autoTimer = setInterval(checkPeriodically, intervalMs);
         return () => clearInterval(autoTimer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showDashboard, year, semester]);
+    }, [showDashboard, year, semester, availableYears]);
 
     const handleSearch = async (fetchYear = year, fetchSemester = semester) => {
         if (!fetchYear || !fetchSemester) { 
@@ -397,14 +439,25 @@ const AttendanceRegister = () => {
         setFetchError(null);
         setJustCheckedNotice(null);
         try {
-            const data = await erpService.fetchAttendance(fetchYear, fetchSemester);
+            const yearObj = availableYears.find(y => y.value === fetchYear);
+            const queryYear = yearObj?.text || fetchYear;
+            const data = await erpService.fetchAttendance(queryYear, fetchSemester);
             setSubjects(data);
             setShowDashboard(true);
-            // Save fetched data to standard location for persistence
-            localStorage.setItem(storageKey, JSON.stringify({ attendance_data: data }));
+            // Save fetched data to standard location and scoped semester location
+            const payload = JSON.stringify({ 
+                attendance_data: data, 
+                year: fetchYear, 
+                semester: fetchSemester, 
+                timestamp: Date.now() 
+            });
+            localStorage.setItem(storageKey, payload);
             if (activeId) {
                 localStorage.setItem(`activeYear_${activeId}`, fetchYear);
                 localStorage.setItem(`activeSem_${activeId}`, fetchSemester);
+                localStorage.setItem(`manualYear_${activeId}`, fetchYear);
+                localStorage.setItem(`manualSem_${activeId}`, fetchSemester);
+                localStorage.setItem(`kleData_${activeId}_${fetchYear}_${fetchSemester}`, payload);
                 localStorage.setItem(`attendanceLastUpdated_${activeId}`, String(Date.now()));
             }
             setYear(fetchYear);
@@ -438,7 +491,9 @@ const AttendanceRegister = () => {
         }
 
         try {
-            const data = await erpService.fetchAttendance(year, semester);
+            const yearObj = availableYears.find(y => y.value === year);
+            const queryYear = yearObj?.text || year;
+            const data = await erpService.fetchAttendance(queryYear, semester);
             if (Array.isArray(data) && data.length > 0) {
                 const prev = subjectsRef.current || subjects;
                 const diff = calculateAttendanceDiff(prev, data);
@@ -524,8 +579,16 @@ const AttendanceRegister = () => {
 
     // ── DASHBOARD VIEW ──────────────────────────────────────────────
     if (showDashboard) {
-        const displayYearText = availableYears.find(y => y.value === year)?.text || (year === '29' || year === '18' ? '2026-2027' : year);
-        const displaySemesterText = availableSemesters.find(s => s.value === semester)?.text || semester;
+        const displayYearText = (() => {
+            const raw = availableYears.find(y => y.value === year)?.text || (year === '29' || year === '18' ? '2026-2027' : year);
+            return (raw || '').replace(/\s*\([^)]*\)/g, '').trim();
+        })();
+        const displaySemesterText = (() => {
+            if (semester === 'Term3') return 'Tri Sem / Term 3';
+            if (semester === 'Summer') return 'Summer Term';
+            if (semester === 'Even' || semester === '2') return 'Even Sem';
+            return 'Odd Sem';
+        })();
 
         return (
             <div className="min-h-screen bg-slate-50 pt-28 sm:pt-32 pb-8 px-4 sm:px-6 font-sans">
@@ -533,7 +596,7 @@ const AttendanceRegister = () => {
 
                 {/* Header */}
                 <div className="flex flex-col gap-4 mb-6 max-w-7xl mx-auto">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div>
                             <div className="flex flex-wrap items-center gap-2 mb-1.5">
                                 <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
@@ -630,8 +693,16 @@ const AttendanceRegister = () => {
                     </div>
                 )}
 
-                {/* Cards Grid */}
-                {subjects.length > 0 ? (
+                {/* Loading state skeleton */}
+                {loading && subjects.length === 0 ? (
+                    <div className="max-w-2xl mx-auto bg-white border-2 border-slate-900 rounded-[2.5rem] p-12 text-center shadow-lg my-8">
+                        <div className="w-14 h-14 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-5" />
+                        <h3 className="text-xl font-black text-slate-900 mb-2">Fetching Academic Record</h3>
+                        <p className="text-slate-500 text-sm font-medium">
+                            Retrieving course registered records for <span className="font-bold text-indigo-600">{displayYearText} ({displaySemesterText} Semester)</span> from KL ERP...
+                        </p>
+                    </div>
+                ) : subjects.length > 0 ? (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-7xl mx-auto">
                         {subjects.map((subject, index) => {
                             const pct = subject.percent;
@@ -728,14 +799,16 @@ const AttendanceRegister = () => {
                         </div>
                         <h2 className="text-2xl font-black text-slate-900 mb-2">No Courses Found</h2>
                         <p className="text-slate-500 font-medium max-w-sm mx-auto">
-                            We couldn&apos;t find any registered courses for {displayYearText} ({displaySemesterText} Semester) on KL ERP. If your current courses are in a different semester, please click below to change.
+                            We couldn&apos;t find any registered courses for {displayYearText} ({displaySemesterText} Semester) on KL ERP.
                         </p>
-                        <button
-                            onClick={handleBack}
-                            className="mt-6 inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-200 transition-all cursor-pointer"
-                        >
-                            Change Year / Semester
-                        </button>
+                        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                            <button
+                                onClick={handleBack}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-200 transition-all cursor-pointer"
+                            >
+                                Change Academic Year / Semester
+                            </button>
+                        </div>
                     </motion.div>
                 )}
             </div>
@@ -744,18 +817,17 @@ const AttendanceRegister = () => {
 
     // ── SELECTION FORM ───────────────────────────────────────────────
     return (
-        <div className="min-h-screen pt-28 sm:pt-32 pb-12 overflow-x-hidden bg-[#FAFAFA] flex items-center justify-center p-4 font-sans relative selection:bg-indigo-500 selection:text-white">
-            <div className="fixed inset-0 pointer-events-none">
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
-                <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }} transition={{ duration: 15, repeat: Infinity, ease: 'linear' }}
-                    className="absolute -top-[30%] -left-[10%] w-[80vw] h-[80vw] rounded-full bg-gradient-to-r from-indigo-200 via-purple-200 to-pink-200 blur-[150px]" />
-                <motion.div animate={{ x: [0, 100, 0], opacity: [0.2, 0.4, 0.2] }} transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
-                    className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-l from-blue-200 via-teal-200 to-emerald-200 blur-[150px]" />
+        <div className="min-h-screen pt-24 sm:pt-28 pb-12 overflow-x-hidden bg-[#FAFAFA] flex items-center justify-center p-4 font-sans relative selection:bg-indigo-500 selection:text-white">
+            {/* Ambient Background - High Performance Static Ambient */}
+            <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-white to-indigo-50/20" />
+                <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/50 via-purple-100/40 to-pink-100/30 blur-3xl opacity-70" />
+                <div className="absolute top-1/3 -right-32 w-96 h-96 rounded-full bg-gradient-to-bl from-blue-200/50 via-teal-100/40 to-emerald-100/30 blur-3xl opacity-60" />
             </div>
 
             <div className="w-full max-w-md relative z-10">
                 <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 200, damping: 25 }}
-                    className="bg-white/80 backdrop-blur-xl border-2 border-slate-900 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden">
+                    className="bg-white border-2 border-slate-900 rounded-[2.5rem] p-8 shadow-xl relative overflow-hidden transform-gpu">
                     <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500 rounded-t-[2.5rem]" />
 
                     <div className="text-center mb-8 relative z-10">
@@ -780,17 +852,27 @@ const AttendanceRegister = () => {
                                     className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
                                     <option value="">Select Academic Year</option>
                                     {availableYears.length > 0 ? (
-                                        availableYears.map(y => (
-                                            <option key={y.value} value={y.value}>
-                                                {y.text}
-                                            </option>
-                                        ))
+                                        availableYears
+                                            .filter(y => {
+                                                const startYr = parseInt((y.text || y.value || '').split('-')[0], 10);
+                                                return isNaN(startYr) || startYr >= 2021;
+                                            })
+                                            .map(y => {
+                                                const cleanText = (y.text || y.value || '').replace(/\s*\([^)]*\)/g, '').trim();
+                                                return (
+                                                    <option key={y.value} value={y.value}>
+                                                        {cleanText}
+                                                    </option>
+                                                );
+                                            })
                                     ) : (
                                         <>
-                                            <option value="28">2025-2026</option>
-                                            <option value="27">2024-2025</option>
-                                            <option value="29">2026-2027</option>
-                                            <option value="26">2023-2024</option>
+                                            <option value="2026-2027">2026-2027</option>
+                                            <option value="2025-2026">2025-2026</option>
+                                            <option value="2024-2025">2024-2025</option>
+                                            <option value="2023-2024">2023-2024</option>
+                                            <option value="2022-2023">2022-2023</option>
+                                            <option value="2021-2022">2021-2022</option>
                                         </>
                                     )}
                                 </select>
@@ -809,27 +891,34 @@ const AttendanceRegister = () => {
                                     }}
                                     className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
                                     <option value="">Select Semester</option>
-                                    {availableSemesters.length > 0 ? (
-                                        availableSemesters.map(s => {
+                                    {(() => {
+                                        const seenVals = new Set();
+                                        const list = [];
+                                        availableSemesters.forEach(s => {
                                             const sLow = (s.text || '').toLowerCase();
-                                            const val = sLow.includes('even') ? 'Even'
-                                                : sLow.includes('summer') ? 'Summer'
-                                                : sLow.includes('term') ? 'Term3'
+                                            const val = sLow.includes('summer') ? 'Summer'
+                                                : (sLow.includes('term') || sLow.includes('tri')) ? 'Term3'
+                                                : sLow.includes('even') ? 'Even'
                                                 : 'Odd';
-                                            return (
-                                                <option key={s.value} value={val}>
-                                                    {s.text}
-                                                </option>
-                                            );
-                                        })
-                                    ) : (
-                                        <>
-                                            <option value="Odd">Odd Sem</option>
-                                            <option value="Even">Even Sem</option>
-                                            <option value="Summer">Summer Term</option>
-                                            <option value="Term3">Term 3</option>
-                                        </>
-                                    )}
+                                            if (!seenVals.has(val)) {
+                                                seenVals.add(val);
+                                                const label = val === 'Odd' ? 'Odd Sem'
+                                                    : val === 'Even' ? 'Even Sem'
+                                                    : val === 'Summer' ? 'Summer Term'
+                                                    : 'Tri Sem / Term 3';
+                                                list.push({ val, text: label });
+                                            }
+                                        });
+                                        if (!seenVals.has('Odd')) list.push({ val: 'Odd', text: 'Odd Sem' });
+                                        if (!seenVals.has('Even')) list.push({ val: 'Even', text: 'Even Sem' });
+                                        if (!seenVals.has('Summer')) list.push({ val: 'Summer', text: 'Summer Term' });
+                                        if (!seenVals.has('Term3')) list.push({ val: 'Term3', text: 'Tri Sem / Term 3' });
+                                        return list.map(s => (
+                                            <option key={s.val} value={s.val}>
+                                                {s.text}
+                                            </option>
+                                        ));
+                                    })()}
                                 </select>
                                 <BookOpen className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                             </div>

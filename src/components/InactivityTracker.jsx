@@ -5,12 +5,11 @@ import { Clock, LogOut, CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 
 // Proactive Inactivity Configuration:
-// University ERP sessions expire around 5 minutes of inactivity on the server.
-// Auto-logout is strictly enforced at 4 minutes (with a 45-second advance warning)
-// to guarantee the student is securely logged out BEFORE the server session drops.
-const INACTIVITY_LIMIT_MS = 4 * 60 * 1000; // 4 minutes
-const WARNING_WINDOW_MS = 45 * 1000; // 45 seconds warning
-const WARNING_THRESHOLD_MS = INACTIVITY_LIMIT_MS - WARNING_WINDOW_MS; // 3 minutes 15 seconds
+// Extended to 25 minutes so students reading course material or taking notes are not abruptly logged out.
+// Session keep-alive pings maintain ERP connectivity while the dashboard is active.
+const INACTIVITY_LIMIT_MS = 25 * 60 * 1000; // 25 minutes
+const WARNING_WINDOW_MS = 60 * 1000; // 60 seconds warning
+const WARNING_THRESHOLD_MS = INACTIVITY_LIMIT_MS - WARNING_WINDOW_MS; // 24 minutes
 
 const getStoredLastActive = () => {
     try {
@@ -31,7 +30,7 @@ export const InactivityTracker = () => {
     const location = useLocation();
 
     const [showWarning, setShowWarning] = useState(false);
-    const [secondsLeft, setSecondsLeft] = useState(45);
+    const [secondsLeft, setSecondsLeft] = useState(60);
 
     const lastActiveRef = useRef(getStoredLastActive());
     const isLoggingOutRef = useRef(false);
@@ -48,16 +47,7 @@ export const InactivityTracker = () => {
         try {
             sessionStorage.setItem('kl_logout_reason', 'inactivity');
             sessionStorage.removeItem('kl_last_active_ts');
-            const activeId = localStorage.getItem('activeErpUser');
-            if (activeId) {
-                localStorage.removeItem(`kleData_${activeId}`);
-                localStorage.removeItem(`activeYear_${activeId}`);
-                localStorage.removeItem(`activeSem_${activeId}`);
-                localStorage.removeItem(`attendanceLastUpdated_${activeId}`);
-            }
-            localStorage.removeItem('activeErpUser');
-            localStorage.removeItem('erpDashboardHtml');
-            localStorage.removeItem('kleData');
+            // Retain cached attendance data in localStorage so historical & present data is preserved
             sessionStorage.removeItem('erp_authenticated');
             sessionStorage.removeItem('adminLoggedOut');
 

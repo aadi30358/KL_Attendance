@@ -596,18 +596,18 @@ export default function Home() {
             <div className="fixed inset-0 pointer-events-none overflow-hidden">
                 <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white dark:from-[#0b1120] dark:to-[#0f172a] opacity-90" />
 
-                {/* Ambient Soft Glows - Desktop only to save mobile GPU compositing memory */}
-                <div className="hidden sm:block absolute -top-[15%] -left-[10%] w-[60vw] h-[60vw] rounded-full bg-gradient-to-r from-indigo-100 via-purple-100 to-pink-100 dark:from-indigo-950/30 dark:via-purple-950/20 dark:to-transparent blur-[100px] opacity-40 pointer-events-none" />
-                <div className="hidden sm:block absolute top-[35%] -right-[15%] w-[50vw] h-[50vw] rounded-full bg-gradient-to-l from-blue-100 via-teal-100 to-emerald-100 dark:from-blue-950/25 dark:via-indigo-950/25 dark:to-transparent blur-[100px] opacity-30 pointer-events-none" />
+                {/* Ambient Soft Glows - Static and GPU-composited for 60fps responsiveness */}
+                <div className="hidden sm:block absolute -top-[10%] -left-[5%] w-[45vw] h-[45vw] rounded-full bg-gradient-to-r from-indigo-100 via-purple-100 to-pink-100 dark:from-indigo-950/30 dark:via-purple-950/20 dark:to-transparent blur-3xl opacity-40 pointer-events-none" />
+                <div className="hidden sm:block absolute top-[35%] -right-[10%] w-[40vw] h-[40vw] rounded-full bg-gradient-to-l from-blue-100 via-teal-100 to-emerald-100 dark:from-blue-950/25 dark:via-indigo-950/25 dark:to-transparent blur-3xl opacity-30 pointer-events-none" />
                 {/* Lightweight non-blurred static gradient on mobile */}
                 <div className="sm:hidden absolute top-0 left-0 w-full h-72 bg-gradient-to-b from-indigo-50/50 dark:from-indigo-950/20 to-transparent pointer-events-none" />
 
-                {/* 3D Floating Particles (Desktop Only for buttery-smooth mobile scrolling) */}
-                <div className="hidden lg:block absolute inset-0 preserve-3d">
+                {/* Lightweight Floating Particles (Desktop Only - hardware friendly, no expensive backdrop-blur) */}
+                <div className="hidden lg:block absolute inset-0 pointer-events-none overflow-hidden">
                     {particles.map((p) => (
                         <motion.div
                             key={p.id}
-                            className="absolute rounded-full bg-gradient-to-br from-white to-slate-100 dark:from-slate-800 dark:to-slate-900 shadow-xl border border-white/50 dark:border-slate-800/80 backdrop-blur-md"
+                            className="absolute rounded-full bg-gradient-to-br from-indigo-100/40 to-slate-200/30 dark:from-slate-700/30 dark:to-slate-800/20 border border-white/40 dark:border-slate-700/40"
                             style={{
                                 width: p.width,
                                 height: p.height,
@@ -616,14 +616,13 @@ export default function Home() {
                                 zIndex: -1
                             }}
                             animate={{
-                                y: [0, -100, 0],
-                                rotateX: [0, 180, 360],
-                                rotateY: [0, 180, 360]
+                                y: [0, -35, 0],
+                                opacity: [0.3, 0.6, 0.3]
                             }}
                             transition={{
                                 duration: p.duration,
                                 repeat: Infinity,
-                                ease: "linear"
+                                ease: "easeInOut"
                             }}
                         />
                     ))}

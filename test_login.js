@@ -15,7 +15,7 @@ async function test() {
     fd.append('LoginForm[password]', 'WrongPassword123'); // FAKE PASSWORD
     fd.append('LoginForm[rememberMe]', '0');
     fd.append('LoginForm[captcha]', ''); // EMPTY CAPTCHA
-    fd.append('login-button', '');
+    fd.append('login-button', ''); 
 
     const r2 = await fetch('https://newerp.kluniversity.in/index.php?r=site%2Flogin', {
         method: 'POST',

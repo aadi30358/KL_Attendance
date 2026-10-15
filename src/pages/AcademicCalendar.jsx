@@ -100,18 +100,10 @@ export default function AcademicCalendar() {
             />
 
             {/* Ambient Background */}
-            <div className="fixed inset-0 pointer-events-none overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
-                <motion.div
-                    animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.4, 0.3], rotate: [0, 90, 0] }}
-                    transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-                    className="absolute -top-[10%] -right-[10%] w-[60vw] h-[60vw] rounded-full bg-blue-100/30 blur-[100px]"
-                />
-                <motion.div
-                    animate={{ x: [0, 100, 0], opacity: [0.2, 0.3, 0.2] }}
-                    transition={{ duration: 15, repeat: Infinity, ease: "easeInOut" }}
-                    className="absolute bottom-[20%] -left-[10%] w-[50vw] h-[50vw] rounded-full bg-indigo-100/30 blur-[100px]"
-                />
+            <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-white to-blue-50/20 opacity-80" />
+                <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-blue-100/40 blur-3xl opacity-60" />
+                <div className="absolute bottom-1/4 -left-32 w-96 h-96 rounded-full bg-indigo-100/40 blur-3xl opacity-50" />
             </div>
 
             <div className="relative z-10 w-full max-w-6xl mx-auto pt-24 sm:pt-28 pb-10 px-2 sm:px-6 lg:px-8 flex flex-col items-center">

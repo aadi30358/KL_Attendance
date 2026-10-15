@@ -172,19 +172,11 @@ export default function StudyHub() {
     return (
         <div className="relative min-h-screen bg-[#FAFAFA] selection:bg-indigo-500 selection:text-white">
             {/* --- Advanced Ambient Background --- */}
-            <div className="fixed inset-0 pointer-events-none overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
-                <motion.div
-                    animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3], rotate: [0, 45, 0] }}
-                    transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-                    className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] rounded-full bg-amber-100/40 blur-[120px]"
-                />
-                <motion.div
-                    animate={{ x: [0, 50, 0], opacity: [0.2, 0.4, 0.2] }}
-                    transition={{ duration: 20, repeat: Infinity, ease: "easeInOut" }}
-                    className="absolute top-[40%] -right-[20%] w-[60vw] h-[60vw] rounded-full bg-indigo-100/40 blur-[120px]"
-                />
-                <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.03] mix-blend-overlay" />
+            <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-white to-amber-50/20 opacity-80" />
+                <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-amber-100/50 blur-3xl opacity-60" />
+                <div className="absolute top-1/3 -right-32 w-96 h-96 rounded-full bg-indigo-100/50 blur-3xl opacity-50" />
+                <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.02] mix-blend-overlay" />
             </div>
 
             <div className="relative z-10 max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 space-y-8">

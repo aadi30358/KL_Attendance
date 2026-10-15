@@ -241,19 +241,11 @@ const TotalAttendance = () => {
     return (
         <div className="relative min-h-screen bg-[#FAFAFA] selection:bg-indigo-500 selection:text-white">
             {/* --- Advanced Ambient Background --- */}
-            <div className="fixed inset-0 pointer-events-none overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-slate-50 to-white opacity-80" />
-                <motion.div
-                    animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.5, 0.3], rotate: [0, -45, 0] }}
-                    transition={{ duration: 18, repeat: Infinity, ease: "linear" }}
-                    className="absolute top-[10%] left-[20%] w-[60vw] h-[60vw] rounded-full bg-emerald-100/40 blur-[120px]"
-                />
-                <motion.div
-                    animate={{ x: [0, -50, 0], opacity: [0.2, 0.4, 0.2] }}
-                    transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
-                    className="absolute bottom-[20%] -left-[10%] w-[50vw] h-[50vw] rounded-full bg-blue-100/40 blur-[120px]"
-                />
-                <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.03] mix-blend-overlay" />
+            <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-white to-emerald-50/20 opacity-80" />
+                <div className="absolute -top-32 left-1/4 w-96 h-96 rounded-full bg-emerald-100/50 blur-3xl opacity-60" />
+                <div className="absolute bottom-1/4 -left-32 w-96 h-96 rounded-full bg-blue-100/50 blur-3xl opacity-50" />
+                <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.02] mix-blend-overlay" />
             </div>
 
             <div className="relative z-10 max-w-4xl mx-auto pt-28 sm:pt-32 pb-16 px-4 sm:px-6 lg:px-8 space-y-8">

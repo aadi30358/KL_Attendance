@@ -22,8 +22,8 @@ let inMemoryCsrfToken = '';
 export const getStoredErpCookies = () => {
     if (inMemoryErpCookies) return inMemoryErpCookies;
     try {
-        if (typeof window !== 'undefined' && window.sessionStorage) {
-            const stored = sessionStorage.getItem('erp_session_cookie');
+        if (typeof window !== 'undefined') {
+            const stored = sessionStorage?.getItem('erp_session_cookie') || localStorage?.getItem('erp_session_cookie');
             if (stored) {
                 inMemoryErpCookies = stored;
                 return stored;
@@ -38,11 +38,13 @@ export const getStoredErpCookies = () => {
 export const setStoredErpCookies = (val) => {
     inMemoryErpCookies = val || '';
     try {
-        if (typeof window !== 'undefined' && window.sessionStorage) {
+        if (typeof window !== 'undefined') {
             if (val) {
-                sessionStorage.setItem('erp_session_cookie', val);
+                sessionStorage?.setItem('erp_session_cookie', val);
+                localStorage?.setItem('erp_session_cookie', val);
             } else {
-                sessionStorage.removeItem('erp_session_cookie');
+                sessionStorage?.removeItem('erp_session_cookie');
+                localStorage?.removeItem('erp_session_cookie');
             }
         }
     } catch {
@@ -53,8 +55,8 @@ export const setStoredErpCookies = (val) => {
 export const getStoredCsrfToken = () => {
     if (inMemoryCsrfToken) return inMemoryCsrfToken;
     try {
-        if (typeof window !== 'undefined' && window.sessionStorage) {
-            const stored = sessionStorage.getItem('erp_csrf_token');
+        if (typeof window !== 'undefined') {
+            const stored = sessionStorage?.getItem('erp_csrf_token') || localStorage?.getItem('erp_csrf_token');
             if (stored) {
                 inMemoryCsrfToken = stored;
                 return stored;
@@ -69,11 +71,13 @@ export const getStoredCsrfToken = () => {
 export const setStoredCsrfToken = (val) => {
     inMemoryCsrfToken = val || '';
     try {
-        if (typeof window !== 'undefined' && window.sessionStorage) {
+        if (typeof window !== 'undefined') {
             if (val) {
-                sessionStorage.setItem('erp_csrf_token', val);
+                sessionStorage?.setItem('erp_csrf_token', val);
+                localStorage?.setItem('erp_csrf_token', val);
             } else {
-                sessionStorage.removeItem('erp_csrf_token');
+                sessionStorage?.removeItem('erp_csrf_token');
+                localStorage?.removeItem('erp_csrf_token');
             }
         }
     } catch {
@@ -752,9 +756,10 @@ export const erpService = {
                 if (data && data.html) {
                     const parsed = this.parseSubjects(data.html);
                     console.log(`[ERP] Fast-attendance query for year "${year}", sem "${semester}" returned ${parsed.length} courses.`);
-                    // Valid response received for the requested year & semester.
-                    // Return parsed directly (even if empty) — never fall through to other academic years!
-                    return parsed;
+                    if (parsed.length > 0) {
+                        return parsed;
+                    }
+                    console.log(`[ERP] Fast-attendance returned 0 courses. Proceeding to systematic candidate discovery...`);
                 }
             }
         } catch (fastErr) {
@@ -778,7 +783,7 @@ export const erpService = {
         let matchedYearVal = null;
         const reqYearStr = String(year || '').trim();
         const cleanReqStr = reqYearStr.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
-        const legacyToYear = { '18': '2026', '17': '2025', '16': '2024', '15': '2023', '14': '2022' };
+        const legacyToYear = { '18': '2026', '17': '2025', '16': '2024', '15': '2023', '14': '2022', '13': '2021', '10': '2020' };
         const targetYearStart = legacyToYear[reqYearStr] || 
             (cleanReqStr.includes('-') ? cleanReqStr.split('-')[0].trim() : (cleanReqStr.match(/\b(20\d\d)\b/)?.[1] || ''));
 
@@ -789,11 +794,12 @@ export const erpService = {
                 matchedYearVal = valMatch.value;
             }
 
-            // Text match with clean string
+            // Text match with clean string (normalize whitespace around hyphens)
             if (!matchedYearVal && cleanReqStr) {
+                const normReq = cleanReqStr.replace(/\s+/g, '');
                 const textMatch = sessionInfo.years.find(y => {
-                    const yClean = y.text.toLowerCase().trim();
-                    return yClean === cleanReqStr || yClean.includes(cleanReqStr) || cleanReqStr.includes(yClean);
+                    const yClean = y.text.toLowerCase().trim().replace(/\s+/g, '');
+                    return yClean === normReq || yClean.includes(normReq) || normReq.includes(yClean);
                 });
                 if (textMatch) matchedYearVal = textMatch.value;
             }
@@ -818,23 +824,37 @@ export const erpService = {
         // 4. Resolve semester ID
         let semId = SEMESTER_MAP[semester] || '1';
         const reqSemStr = String(semester || '').trim().toLowerCase();
+        const isReqSummer = reqSemStr.includes('summer') || reqSemStr === '3';
+        const isReqTerm3 = (reqSemStr.includes('term') || reqSemStr.includes('tri') || reqSemStr === '4') && !isReqSummer;
 
         if (sessionInfo?.semesters && sessionInfo.semesters.length > 0) {
-            const semMatch = sessionInfo.semesters.find(s => 
-                s.text.toLowerCase() === reqSemStr ||
-                s.text.toLowerCase().includes(reqSemStr) ||
-                (reqSemStr.includes('odd') && (s.value === '1' || s.text.toLowerCase().includes('odd'))) ||
-                (reqSemStr.includes('even') && (s.value === '2' || s.text.toLowerCase().includes('even'))) ||
-                (reqSemStr.includes('summer') && (s.value === '3' || s.text.toLowerCase().includes('summer'))) ||
-                (reqSemStr.includes('term') && (s.value === '4' || s.text.toLowerCase().includes('term')))
-            );
+            const semMatch = sessionInfo.semesters.find(s => {
+                const sText = (s.text || '').toLowerCase();
+                const sVal = String(s.value || '').trim();
+
+                if (isReqSummer) {
+                    return sVal === '3' || sText.includes('summer');
+                }
+                if (isReqTerm3) {
+                    return (sVal === '4' || sText.includes('tri') || sText.includes('term 3') || sText.includes('term-3') || (sText.includes('term') && !sText.includes('summer'))) && !sText.includes('summer') && sVal !== '3';
+                }
+                if (reqSemStr.includes('even') || reqSemStr === '2') {
+                    return sVal === '2' || sText.includes('even');
+                }
+                if (reqSemStr.includes('odd') || reqSemStr === '1') {
+                    return sVal === '1' || sText.includes('odd');
+                }
+                return sText === reqSemStr || sText.includes(reqSemStr);
+            });
             if (semMatch) semId = semMatch.value;
         }
 
-        // 5. Candidate IDs to try (strictly restricted to the requested year)
-        const candidateYearIds = matchedYearVal
-            ? [matchedYearVal]
-            : getCandidateYearIdsForYear(year, null, null);
+        // 5. Candidate IDs to try (combine matched value and all historical candidate aliases for requested year)
+        const fallbackCandidates = getCandidateYearIdsForYear(year, null, null);
+        const candidateYearIds = Array.from(new Set([
+            matchedYearVal,
+            ...fallbackCandidates
+        ].filter(Boolean)));
         console.log(`[ERP] Candidate Year IDs to query:`, candidateYearIds, `SemId:`, semId);
 
         let subjects = [];
@@ -843,6 +863,33 @@ export const erpService = {
 
         for (const currentYearId of candidateYearIds) {
             try {
+                // 1. Prime searchgetinput with candidate year and sem to update Yii2 controller session context
+                try {
+                    const primeForm = new URLSearchParams();
+                    primeForm.append('DynamicModel[academicyear]', String(currentYearId));
+                    primeForm.append('DynamicModel[semesterid]', String(semId));
+                    if (effectiveCsrfToken) {
+                        primeForm.append('_csrf', effectiveCsrfToken);
+                        primeForm.append('_csrf-frontend', effectiveCsrfToken);
+                    }
+                    await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
+                        method: 'POST',
+                        headers: buildErpHeaders({
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Pragma': 'no-cache',
+                            'Cache-Control': 'no-cache',
+                            'Referer': 'https://newerp.kluniversity.in/index.php'
+                        }),
+                        body: primeForm,
+                        credentials: 'include',
+                        cache: 'no-store'
+                    });
+                } catch {
+                    // ignore priming failure and continue to courselist
+                }
+
+                // 2. Query courselist
                 const formData = new URLSearchParams();
                 formData.append('DynamicModel[academicyear]', String(currentYearId));
                 formData.append('DynamicModel[semesterid]', String(semId));

@@ -774,26 +774,40 @@ app.post('/api/fast-attendance', async (req, res) => {
                 // Resolve target semester with thorough matching - text match FIRST!
                 const reqSemStr = (semester || '').toString().trim().toLowerCase();
                 const reqSemId = (semId || '').toString().trim();
+                const isReqSummer = reqSemStr.includes('summer') || reqSemId === '3';
+                const isReqTerm3 = (reqSemStr.includes('term') || reqSemStr.includes('tri') || reqSemId === '4') && !isReqSummer;
                 let matchedSem = null;
 
                 if (availableSemesters.length > 0) {
-                    // 1. Text or substring match FIRST (ground truth)
-                    if (reqSemStr) {
+                    if (isReqSummer) {
+                        matchedSem = availableSemesters.find(s => {
+                            const sText = (s.text || '').toLowerCase();
+                            const sVal = String(s.val || s.value || '').trim();
+                            return sVal === '3' || sText.includes('summer');
+                        });
+                    } else if (isReqTerm3) {
+                        matchedSem = availableSemesters.find(s => {
+                            const sText = (s.text || '').toLowerCase();
+                            const sVal = String(s.val || s.value || '').trim();
+                            return (sVal === '4' || sText.includes('tri') || sText.includes('term 3') || sText.includes('term-3') || (sText.includes('term') && !sText.includes('summer'))) && !sText.includes('summer') && sVal !== '3';
+                        });
+                    } else if (reqSemStr.includes('even') || reqSemId === '2') {
+                        matchedSem = availableSemesters.find(s => {
+                            const sText = (s.text || '').toLowerCase();
+                            const sVal = String(s.val || s.value || '').trim();
+                            return sVal === '2' || sText.includes('even');
+                        });
+                    } else if (reqSemStr.includes('odd') || reqSemId === '1') {
+                        matchedSem = availableSemesters.find(s => {
+                            const sText = (s.text || '').toLowerCase();
+                            const sVal = String(s.val || s.value || '').trim();
+                            return sVal === '1' || sText.includes('odd');
+                        });
+                    } else if (reqSemStr) {
                         matchedSem = availableSemesters.find(s => s.text.toLowerCase() === reqSemStr || s.text.toLowerCase().includes(reqSemStr));
                     }
-                    // 2. Keyword matching (Odd vs Even vs Summer)
-                    if (!matchedSem) {
-                        if (reqSemStr.includes('odd') || reqSemId === '1') {
-                            matchedSem = availableSemesters.find(s => s.text.toLowerCase().includes('odd') || s.val === '1');
-                        } else if (reqSemStr.includes('even') || reqSemId === '2') {
-                            matchedSem = availableSemesters.find(s => s.text.toLowerCase().includes('even') || s.val === '2');
-                        } else if (reqSemStr.includes('summer') || reqSemId === '3') {
-                            matchedSem = availableSemesters.find(s => s.text.toLowerCase().includes('summer') || s.val === '3');
-                        }
-                    }
-                    // 3. Direct val match fallback
                     if (!matchedSem && reqSemId) {
-                        matchedSem = availableSemesters.find(s => s.val === reqSemId);
+                        matchedSem = availableSemesters.find(s => (s.val || s.value) === reqSemId);
                     }
                 }
 
@@ -806,34 +820,54 @@ app.post('/api/fast-attendance', async (req, res) => {
             console.warn('[Fast Attendance] Pre-priming notice:', primeErr);
         }
 
-        // Fallback robust mappings if options couldn't be discovered dynamically
-        const getFallbackYearId = (y) => {
-            const str = String(y || '').trim();
-            if (str.startsWith('2026') || str === '18' || str.includes('26')) return '29';
-            if (str.startsWith('2025') || str === '17' || str.includes('25')) return '28';
-            if (str.startsWith('2024') || str === '16' || str.includes('24')) return '27';
-            if (str.startsWith('2023') || str === '15' || str.includes('23')) return '26';
-            if (str.startsWith('2022') || str === '14') return '14';
-            if (str.startsWith('2021') || str === '13') return '13';
-            if (str.startsWith('2020') || str === '10') return '10';
-            if (str.startsWith('2019') || str === '9') return '9';
-            if (str.startsWith('2018') || str === '8') return '8';
-            if (str.startsWith('2017') || str === '7') return '7';
-            if (str.startsWith('2016') || str === '6') return '6';
-            return str || '29';
-        };
+
         const getFallbackSemId = (s) => {
             const str = String(s || '').trim().toLowerCase();
-            if (str.includes('even') || str === '2') return '2';
             if (str.includes('summer') || str === '3') return '3';
-            if (str.includes('term') || str === '4') return '4';
+            if (str.includes('term') || str.includes('tri') || str === '4') return '4';
+            if (str.includes('even') || str === '2') return '2';
             return '1';
         };
 
-        if (!resolvedYearId) resolvedYearId = getFallbackYearId(year || yearId);
+        const getCandidateYearIds = (yVal, yIdVal, mVal) => {
+            const list = [];
+            if (mVal) list.push(String(mVal).trim());
+            if (yIdVal) list.push(String(yIdVal).trim());
+            const str = String(yVal || '').trim();
+            const cleanStr = str.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
+            let firstYear = parseInt(str.split('-')[0], 10);
+            if (!isNaN(firstYear) && firstYear < 100) {
+                if (firstYear === 29 || firstYear === 18) firstYear = 2026;
+                else if (firstYear === 28 || firstYear === 17) firstYear = 2025;
+                else if (firstYear === 27 || firstYear === 16) firstYear = 2024;
+                else if (firstYear === 26 || firstYear === 15) firstYear = 2023;
+                else if (firstYear === 25 || firstYear === 14) firstYear = 2022;
+                else if (firstYear === 24 || firstYear === 13) firstYear = 2021;
+                else if (firstYear === 23 || firstYear === 10) firstYear = 2020;
+                else firstYear += 2000;
+            }
+
+            if (firstYear === 2026 || str === '29' || str === '18' || cleanStr.includes('26')) list.push('29', '18', '2026-2027', '2026-27');
+            else if (firstYear === 2025 || str === '28' || str === '17' || str === '19' || cleanStr.includes('25')) list.push('28', '17', '19', '18', '2025-2026', '2025-26');
+            else if (firstYear === 2024 || str === '27' || str === '16' || cleanStr.includes('24')) list.push('27', '16', '17', '2024-2025', '2024-25');
+            else if (firstYear === 2023 || str === '26' || str === '15' || cleanStr.includes('23')) list.push('26', '15', '16', '2023-2024', '2023-24');
+            else if (firstYear === 2022 || str === '25' || str === '14' || cleanStr.includes('22')) list.push('25', '14', '15', '2022-2023', '2022-23');
+            else if (firstYear === 2021 || str === '24' || str === '13' || cleanStr.includes('21')) list.push('24', '13', '14', '2021-2022', '2021-22');
+            else if (firstYear === 2020 || str === '23' || str === '10' || cleanStr.includes('20')) list.push('23', '10', '13', '2020-2021', '2020-21');
+            else if (firstYear === 2019 || str === '22' || str === '9' || cleanStr.includes('19')) list.push('22', '9');
+            if (str && !list.includes(str)) list.push(str);
+
+            return Array.from(new Set(list.filter(Boolean)));
+        };
+
+        const candidateYears = getCandidateYearIds(year, yearId, resolvedYearId);
+        if (candidateYears.length === 0) {
+            candidateYears.push(resolvedYearId || '28');
+        }
+
         if (!resolvedSemId) resolvedSemId = getFallbackSemId(semester || semId);
 
-        console.log(`[Fast Attendance] Querying courselist -> Year: ${resolvedYearId} ("${selectedYearText}"), Sem: ${resolvedSemId} ("${selectedSemText}")`);
+        console.log(`[Fast Attendance] Querying courselist -> Candidates: [${candidateYears.join(', ')}], Sem: ${resolvedSemId} ("${selectedSemText}")`);
 
         const buildFormData = (token, yId, sId) => {
             const formData = new URLSearchParams();
@@ -862,42 +896,67 @@ app.post('/api/fast-attendance', async (req, res) => {
             ...(token ? { 'x-csrf-token': token } : {})
         });
 
-        // 2. Query courselist directly with primed session
-        let response = await fetch('https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist', {
-            method: 'POST',
-            headers: buildHeaders(currentCookieStr, currentCsrf),
-            body: buildFormData(currentCsrf, resolvedYearId, resolvedSemId),
-            redirect: 'manual',
-            cache: 'no-store'
-        });
+        // 2. Query courselist trying candidate year IDs until table is returned
+        let finalResp = null;
+        let finalHtml = '';
+        let usedYearId = resolvedYearId;
 
-        collectCookies(response);
-        currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-
-        let isRedirect = (response.status >= 300 && response.status < 400);
-        let loc = response.headers.get('location') || response.headers.get('x-redirect') || '';
-        let isRedirectToLogin = isRedirect && loc.toLowerCase().includes('login');
-
-        if (isRedirect && !isRedirectToLogin && loc) {
-            let targetLoc = loc.startsWith('http')
-                ? loc.replace(/^http:/i, 'https:')
-                : 'https://newerp.kluniversity.in' + (loc.startsWith('/') ? '' : '/') + loc;
-            const followResp = await fetch(targetLoc, {
+        for (const testYearId of candidateYears) {
+            let response = await fetch('https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist', {
+                method: 'POST',
                 headers: buildHeaders(currentCookieStr, currentCsrf),
-                redirect: 'manual'
+                body: buildFormData(currentCsrf, testYearId, resolvedSemId),
+                redirect: 'manual',
+                cache: 'no-store'
             });
-            collectCookies(followResp);
-            if (followResp.ok) {
-                response = followResp;
+
+            collectCookies(response);
+            currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+
+            let isRedirect = (response.status >= 300 && response.status < 400);
+            let loc = response.headers.get('location') || response.headers.get('x-redirect') || '';
+            let isRedirectToLogin = isRedirect && loc.toLowerCase().includes('login');
+
+            if (isRedirect && !isRedirectToLogin && loc) {
+                let targetLoc = loc.startsWith('http')
+                    ? loc.replace(/^http:/i, 'https:')
+                    : 'https://newerp.kluniversity.in' + (loc.startsWith('/') ? '' : '/') + loc;
+                const followResp = await fetch(targetLoc, {
+                    headers: buildHeaders(currentCookieStr, currentCsrf),
+                    redirect: 'manual'
+                });
+                collectCookies(followResp);
+                if (followResp.ok) {
+                    response = followResp;
+                }
+            }
+
+            const html = await response.text();
+            finalResp = response;
+            finalHtml = html;
+            usedYearId = testYearId;
+
+            const hasLoginForm = html.includes('id="login-form"') || html.includes('loginFormUserNameID');
+            if (hasLoginForm) break;
+
+            const hasEmptyResult = html.includes('class="empty"') || html.includes('No results found');
+            const hasTable = html.includes('<table') || html.includes('grid-view') || html.includes('Course Code') || html.includes('Course Title') || html.includes('L-T-P-S');
+            const hasCourseCode = /\b\d{2}[A-Za-z]{2,5}\d+/i.test(html);
+
+            if (hasTable && !hasEmptyResult && (hasCourseCode || html.includes('Attendance'))) {
+                break;
             }
         }
 
+        const response = finalResp || { ok: false, status: 500 };
+        const html = finalHtml;
         const latencyMs = Date.now() - tStart;
-        const html = await response.text();
         res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
 
         const hasLoginForm = html.includes('id="login-form"') || html.includes('loginFormUserNameID');
-        const isSessionExpired = response.status === 401 || isRedirectToLogin || hasLoginForm;
+        const isRedirect = (response.status >= 300 && response.status < 400);
+        const loc = response.headers?.get?.('location') || '';
+        const isSessionExpired = response.status === 401 || (isRedirect && loc.includes('login')) || hasLoginForm;
         const hasTable = html.includes('<table') || html.includes('grid-view') || html.includes('Course Code') || html.includes('Course Title') || html.includes('L-T-P-S');
 
         const finalCookies = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
@@ -907,7 +966,7 @@ app.post('/api/fast-attendance', async (req, res) => {
             res.setHeader('Set-Cookie', rewrittenCookies);
         }
 
-        console.log(`[Fast Attendance] Completed in ${latencyMs}ms, status: ${response.status}, HTML length: ${html.length}, hasTable: ${hasTable}, sessionExpired: ${isSessionExpired}`);
+        console.log(`[Fast Attendance] Completed in ${latencyMs}ms, status: ${response.status}, YearId: ${usedYearId}, HTML length: ${html.length}, hasTable: ${hasTable}, sessionExpired: ${isSessionExpired}`);
 
         return res.json({
             success: (response.ok || hasTable) && !isSessionExpired,
@@ -915,7 +974,7 @@ app.post('/api/fast-attendance', async (req, res) => {
             latencyMs,
             html,
             csrfToken: currentCsrf,
-            resolvedYearId,
+            resolvedYearId: usedYearId,
             resolvedSemId,
             selectedYearText,
             selectedSemText,
@@ -923,6 +982,7 @@ app.post('/api/fast-attendance', async (req, res) => {
             availableSemesters,
             sessionExpired: isSessionExpired
         });
+
     } catch (e) {
         console.error('[Fast-Attendance] Error:', e);
         return res.status(500).json({ success: false, error: e.message });
