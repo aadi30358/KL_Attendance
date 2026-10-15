@@ -163,15 +163,21 @@ function BunkSimulator({ subject }) {
     );
 }
 
-// Default clean academic years without badges (recent 6 years)
-const DEFAULT_YEARS = [
-    { value: '2026-2027', text: '2026-2027', isCurrent: true },
-    { value: '2025-2026', text: '2025-2026', isCompleted: true },
-    { value: '2024-2025', text: '2024-2025', isCompleted: true },
-    { value: '2023-2024', text: '2023-2024', isCompleted: true },
-    { value: '2022-2023', text: '2022-2023', isCompleted: true },
-    { value: '2021-2022', text: '2021-2022', isCompleted: true }
-];
+// Dynamically generate modern academic years (current + future years down to 2021)
+const generateDefaultYears = () => {
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth();
+    const startYear = (currentMonth >= 5) ? currentYear : currentYear - 1;
+    const topYear = Math.max(startYear + 1, 2026);
+    const years = [];
+    for (let y = topYear; y >= 2021; y--) {
+        const text = `${y}-${y + 1}`;
+        years.push({ value: text, text, isCurrent: y === startYear });
+    }
+    return years;
+};
+
+const DEFAULT_YEARS = generateDefaultYears();
 
 const AttendanceRegister = () => {
     const { logout } = useAuth();
@@ -212,7 +218,7 @@ const AttendanceRegister = () => {
         if (manualYear) return manualYear;
         const savedYear = activeId ? localStorage.getItem(`activeYear_${activeId}`) : null;
         if (savedYear) return savedYear;
-        return '2026-2027';
+        return DEFAULT_YEARS[0]?.value || '2026-2027';
     });
     const [semester, setSemester] = useState(() => {
         const manualSem = activeId ? localStorage.getItem(`manualSem_${activeId}`) : null;
@@ -444,21 +450,25 @@ const AttendanceRegister = () => {
             const data = await erpService.fetchAttendance(queryYear, fetchSemester);
             setSubjects(data);
             setShowDashboard(true);
-            // Save fetched data to standard location and scoped semester location
-            const payload = JSON.stringify({ 
-                attendance_data: data, 
-                year: fetchYear, 
-                semester: fetchSemester, 
-                timestamp: Date.now() 
-            });
-            localStorage.setItem(storageKey, payload);
-            if (activeId) {
-                localStorage.setItem(`activeYear_${activeId}`, fetchYear);
-                localStorage.setItem(`activeSem_${activeId}`, fetchSemester);
-                localStorage.setItem(`manualYear_${activeId}`, fetchYear);
-                localStorage.setItem(`manualSem_${activeId}`, fetchSemester);
-                localStorage.setItem(`kleData_${activeId}_${fetchYear}_${fetchSemester}`, payload);
-                localStorage.setItem(`attendanceLastUpdated_${activeId}`, String(Date.now()));
+            // Save fetched data to standard location and scoped semester location safely
+            try {
+                const payload = JSON.stringify({ 
+                    attendance_data: data, 
+                    year: fetchYear, 
+                    semester: fetchSemester, 
+                    timestamp: Date.now() 
+                });
+                localStorage.setItem(storageKey, payload);
+                if (activeId) {
+                    localStorage.setItem(`activeYear_${activeId}`, fetchYear);
+                    localStorage.setItem(`activeSem_${activeId}`, fetchSemester);
+                    localStorage.setItem(`manualYear_${activeId}`, fetchYear);
+                    localStorage.setItem(`manualSem_${activeId}`, fetchSemester);
+                    localStorage.setItem(`kleData_${activeId}_${fetchYear}_${fetchSemester}`, payload);
+                    localStorage.setItem(`attendanceLastUpdated_${activeId}`, String(Date.now()));
+                }
+            } catch (storageErr) {
+                console.warn('[Storage] Quota exceeded or private browsing:', storageErr);
             }
             setYear(fetchYear);
             setSemester(fetchSemester);
@@ -517,12 +527,16 @@ const AttendanceRegister = () => {
                 }
 
                 setSubjects(data);
-                localStorage.setItem(storageKey, JSON.stringify({ attendance_data: data }));
-                const now = Date.now();
-                if (activeId) {
-                    localStorage.setItem(`attendanceLastUpdated_${activeId}`, String(now));
+                try {
+                    localStorage.setItem(storageKey, JSON.stringify({ attendance_data: data }));
+                    const now = Date.now();
+                    if (activeId) {
+                        localStorage.setItem(`attendanceLastUpdated_${activeId}`, String(now));
+                    }
+                } catch (storageErr) {
+                    console.warn('[Storage] Quota exceeded or private browsing:', storageErr);
                 }
-                setLastUpdated(now);
+                setLastUpdated(Date.now());
                 setSessionStatus('active');
             } else if (!isSilent) {
                 setJustCheckedNotice('No attendance records returned for this semester.');
@@ -866,14 +880,11 @@ const AttendanceRegister = () => {
                                                 );
                                             })
                                     ) : (
-                                        <>
-                                            <option value="2026-2027">2026-2027</option>
-                                            <option value="2025-2026">2025-2026</option>
-                                            <option value="2024-2025">2024-2025</option>
-                                            <option value="2023-2024">2023-2024</option>
-                                            <option value="2022-2023">2022-2023</option>
-                                            <option value="2021-2022">2021-2022</option>
-                                        </>
+                                        DEFAULT_YEARS.map(y => (
+                                            <option key={y.value} value={y.value}>
+                                                {y.text}
+                                            </option>
+                                        ))
                                     )}
                                 </select>
                                 <Calendar className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />

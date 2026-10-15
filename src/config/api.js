@@ -69,13 +69,15 @@ export const getFormData = (username, password, captcha, semester, academicYear,
 };
 
 export const getCurrentAcademicYearOptions = () => {
-  return [
-    '2026-2027',
-    '2025-2026',
-    '2024-2025',
-    '2023-2024',
-    '2022-2023'
-  ];
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth();
+  const startYear = (currentMonth >= 5) ? currentYear : currentYear - 1;
+  const topYear = Math.max(startYear + 1, 2026);
+  const options = [];
+  for (let y = topYear; y >= 2021; y--) {
+    options.push(`${y}-${y + 1}`);
+  }
+  return options;
 };
 
 export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId) => {
@@ -92,7 +94,8 @@ export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId
     firstYear = parseInt(yearMatch[1], 10);
   } else if (/^\d+$/.test(strYear)) {
     const num = parseInt(strYear, 10);
-    if (num === 29 || num === 18) firstYear = 2026;
+    if (num >= 30) firstYear = 2026 + (num - 29);
+    else if (num === 29 || num === 18) firstYear = 2026;
     else if (num === 28 || num === 17) firstYear = 2025;
     else if (num === 27 || num === 16) firstYear = 2024;
     else if (num === 26 || num === 15) firstYear = 2023;
@@ -102,7 +105,18 @@ export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId
   }
 
   // Include all valid historical & modern ERP database representations for the year
-  if (firstYear === 2026 || strYear === '29' || strYear === '18' || cleanStr.includes('26')) {
+  if (firstYear && firstYear > 2026) {
+    const offset = firstYear - 2026;
+    const nextYr = firstYear + 1;
+    const shortYr = String(nextYr).slice(-2);
+    candidates.push(
+      String(29 + offset),
+      String(18 + offset),
+      `${firstYear}-${nextYr}`,
+      `${firstYear}-${shortYr}`,
+      `${String(firstYear).slice(-2)}-${shortYr}`
+    );
+  } else if (firstYear === 2026 || strYear === '29' || strYear === '18' || cleanStr.includes('26')) {
     candidates.push('29', '18', '2026-2027', '2026-27', '26-27');
   } else if (firstYear === 2025 || strYear === '28' || strYear === '17' || strYear === '19' || cleanStr.includes('25')) {
     candidates.push('28', '17', '19', '18', '2025-2026', '2025-26', '25-26');

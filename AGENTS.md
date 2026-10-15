@@ -18,3 +18,8 @@ Refer to [.agents/rules/erp_stability.md](file:///.agents/rules/erp_stability.md
    - Fully support Odd (`1`), Even (`2`), Summer Term (`3`), and Tri Sem / Term 3 (`4`).
 4. **Performance & Zero Lag**:
    - Do not use nested CPU-intensive backdrop blurs on top of heavy ambient blur divs on the selection card. Keep the card crisp `bg-white` with GPU transform acceleration so it never lags on mobile or laptops.
+5. **Future-Proof Resilience & Zero-Error Architecture**:
+   - Academic years must be generated dynamically from `new Date().getFullYear()` down to 2021 so future years (`2027-2028`, `2028-2029`, etc.) automatically appear and function without manual edits.
+   - Candidate year resolution dynamically computes future ERP session IDs (`29 + (firstYear - 2026)` and `18 + (firstYear - 2026)`).
+   - App must remain wrapped in `<ErrorBoundary>` to eliminate white-screen crashes.
+   - Storage writes (`localStorage.setItem`) must be defensively wrapped in `try/catch` to handle private browsing and quota limits.

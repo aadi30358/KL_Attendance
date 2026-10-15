@@ -42,3 +42,13 @@
 ## 4. Mobile & Low-Spec Laptop Performance (Zero Lag)
 - Avoid expensive CSS composite filters like `backdrop-blur-xl` layered on top of multiple `blur-3xl` ambient divs.
 - Use solid `bg-white` card surfaces with hardware-accelerated transforms (`transform-gpu`) for 60fps rendering across all mobile devices and integrated-GPU laptops.
+
+## 5. Future-Proof Resilience (Never Break in Coming Years)
+- **Dynamic Academic Year Roll-Over**:
+  - Never hardcode current year boundaries. Generate dynamic options (`startYear = month >= 5 ? currentYear : currentYear - 1; topYear = Math.max(startYear + 1, 2026)`).
+  - Automatically calculate future candidate ERP IDs (`29 + (firstYear - 2026)` and `18 + (firstYear - 2026)`).
+- **Crash Prevention via Global ErrorBoundary**:
+  - The app must stay enclosed in `<ErrorBoundary>` to catch any runtime exceptions gracefully and offer instant 1-click reload/cache-clear buttons instead of white screens.
+- **Safe Storage Access**:
+  - Defensively guard `localStorage.setItem` in `try/catch` to handle iOS Safari private mode or full storage quotas without interrupting execution.
+

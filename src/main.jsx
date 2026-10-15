@@ -7,6 +7,18 @@ import { initSecurityShield } from './utils/securityShield'
 // Initialize Anti-Tamper Protocol before rendering
 initSecurityShield();
 
+// Global defensive handlers to prevent network aborts or extension conflicts from breaking the UI
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (event) => {
+    if (event.reason?.name === 'AbortError' || event.reason?.message?.includes?.('aborted')) {
+      event.preventDefault();
+      return;
+    }
+    console.warn('[DefensiveGuard] Handled unhandled rejection:', event.reason);
+    event.preventDefault();
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
