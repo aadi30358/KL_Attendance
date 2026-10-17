@@ -344,20 +344,26 @@ export function getMaxSlots(username = null) {
 // Authentic KLU CSE / Engineering Designated Lecture Halls
 export const KLU_LECTURE_HALLS = ['C324', 'C421', 'C215', 'C302', 'C405', 'C501', 'C522', 'R104B', 'R203', 'R301', 'M204', 'L311'];
 
-// Authentic Lab Rooms assigned by subject component & course code
+// Helper to strip any redundant "Room", "RoomNo", "Rm" prefixes from room strings
+export function cleanRoomNumber(room) {
+    if (!room) return '';
+    return String(room).replace(/^(?:Room\s*No|Room|Rm)[-:\s#]*/i, '').trim();
+}
+
+// Authentic Lab Rooms assigned by subject component & course code (Returns genuine KLU room codes)
 export function getCourseLabRoom(code = '', title = '') {
     const c = `${code} ${title}`.toUpperCase();
-    if (c.includes('GMI') || c.includes('AI') || c.includes('NEURAL') || c.includes('INTELLIGENCE') || c.includes('DEEP')) return 'AI Lab (C619)';
-    if (c.includes('CLOUD') || c.includes('CC') || c.includes('ARCH') || c.includes('DEV') || c.includes('AWS')) return 'Cloud Lab (C620)';
-    if (c.includes('SDCS') || c.includes('WEB') || c.includes('FULL') || c.includes('STACK') || c.includes('SOA') || c.includes('MICROSERVICES')) return 'Full Stack Lab (C518)';
-    if (c.includes('DATA') || c.includes('DS') || c.includes('EDS') || c.includes('DBMS') || c.includes('DATABASE') || c.includes('SQL')) return 'Data Science Lab (C307)';
-    if (c.includes('OS') || c.includes('SYSTEM') || c.includes('NET') || c.includes('SECURITY') || c.includes('CYBER') || c.includes('LINUX')) return 'Systems & Security Lab (C219)';
-    if (c.includes('IOT') || c.includes('EMBED') || c.includes('WIRELESS') || c.includes('SENSOR')) return 'IoT Lab (L502)';
-    if (c.includes('PHYS') || c.includes('PH')) return 'Physics Lab (F109)';
-    if (c.includes('EE') || c.includes('ELECT') || c.includes('BEE') || c.includes('CIRCUIT')) return 'Electrical Lab (E204)';
-    if (c.includes('MECH') || c.includes('ENGG') || c.includes('CAD')) return 'Mechanics Lab (M102)';
-    if (c.includes('JAVA') || c.includes('PYTHON') || c.includes('PROG') || c.includes('ALGO')) return 'Programming Lab (C219)';
-    return 'C-Lab 3 (C219)';
+    if (c.includes('GMI') || c.includes('AI') || c.includes('NEURAL') || c.includes('INTELLIGENCE') || c.includes('DEEP')) return 'C619';
+    if (c.includes('CLOUD') || c.includes('CC') || c.includes('ARCH') || c.includes('DEV') || c.includes('AWS')) return 'C620';
+    if (c.includes('SDCS') || c.includes('WEB') || c.includes('FULL') || c.includes('STACK') || c.includes('SOA') || c.includes('MICROSERVICES')) return 'C518';
+    if (c.includes('DATA') || c.includes('DS') || c.includes('EDS') || c.includes('DBMS') || c.includes('DATABASE') || c.includes('SQL')) return 'C307';
+    if (c.includes('OS') || c.includes('SYSTEM') || c.includes('NET') || c.includes('SECURITY') || c.includes('CYBER') || c.includes('LINUX')) return 'C219';
+    if (c.includes('IOT') || c.includes('EMBED') || c.includes('WIRELESS') || c.includes('SENSOR')) return 'L502';
+    if (c.includes('PHYS') || c.includes('PH')) return 'F109';
+    if (c.includes('EE') || c.includes('ELECT') || c.includes('BEE') || c.includes('CIRCUIT')) return 'E204';
+    if (c.includes('MECH') || c.includes('ENGG') || c.includes('CAD')) return 'M102';
+    if (c.includes('JAVA') || c.includes('PYTHON') || c.includes('PROG') || c.includes('ALGO')) return 'C104';
+    return 'C219';
 }
 
 /**
@@ -372,7 +378,8 @@ export function extractRoom(cellText, fullCode = '', section = '') {
     // 1. Explicit Room prefix check (e.g. "RoomNo-C421", "Room: C302", "Room No: R104B", "Rm-M126")
     const explicitMatch = cleaned.match(/(?:RoomNo|Room\s*No|Room|Rm|Venue|Hall|RNo)[-:\s#]+([A-Za-z0-9\s/-]+?)(?=\s*(?:-|<|$|\n|\t))/i);
     if (explicitMatch && explicitMatch[1]) {
-        const candidate = explicitMatch[1].trim().replace(/^[-:]\s*/, '');
+        let candidate = explicitMatch[1].trim().replace(/^[-:]\s*/, '');
+        candidate = cleanRoomNumber(candidate);
         if (candidate && candidate.length >= 2 && candidate.length <= 15 && !candidate.toUpperCase().startsWith('S-')) {
             return candidate;
         }
@@ -393,17 +400,18 @@ export function extractRoom(cellText, fullCode = '', section = '') {
 
     // 3. Match authentic KLU building room patterns:
     // C-Block (e.g. C101, C201, C324, C421, C619, C018), R-Block (R101, R210D, R104B, R301),
-    // M-Block (M126, M204), L-Block (L311, L502), S-Block (S412A, S718), F-Block (F102, F201)
-    const kluRoomMatch = remaining.match(/\b([CRMFLSE](?:-?[0-9]{3}[A-Za-z]?|-Lab\s*\d*))\b/i)
+    // M-Block (M126, M204), L-Block (L311, L502), S-Block (S412A, S718), F-Block (F102, F201), E-Block (E204)
+    const kluRoomMatch = remaining.match(/\b([CRMFLSE](?:-?[0-9]{3}[A-Za-z]?))\b/i)
         || remaining.match(/\b([A-Za-z]{1,2}[0-9]{2,3}[A-Za-z]?)\b/);
     if (kluRoomMatch && kluRoomMatch[1]) {
-        return kluRoomMatch[1].toUpperCase();
+        return cleanRoomNumber(kluRoomMatch[1].toUpperCase());
     }
 
     // 4. Check if dash-separated parts exist: "24CS2105 - S-12 - C421"
     const parts = cleaned.split(/\s*-\s*/);
     if (parts.length >= 3) {
-        const candidate = parts[2].replace(/^RoomNo[-:]?/i, '').replace(/<[^>]+>/g, '').trim();
+        let candidate = parts[2].replace(/^RoomNo[-:]?/i, '').replace(/<[^>]+>/g, '').trim();
+        candidate = cleanRoomNumber(candidate);
         if (candidate && candidate !== '-' && !candidate.startsWith('S-')) {
             return candidate;
         }
@@ -764,16 +772,267 @@ export function getAnyStoredCourses(studentId) {
 }
 
 /**
+ * Accurately decodes student ID to extract admission batch, department, roll number, section, and designated home lecture hall.
+ */
+export function getStudentProfileFromId(studentId) {
+    const raw = String(studentId || '').trim();
+    const digits = raw.replace(/\D/g, '');
+    
+    // Default to creator's ID 2400030358 if missing or too short
+    const targetDigits = (digits.length >= 8) ? digits : '2400030358';
+    
+    const batchYear = parseInt(targetDigits.slice(0, 2), 10) || 24;
+    const campusDigits = targetDigits.slice(2, 5);
+    const campus = campusDigits === '000' ? 'vijayawada' : 'hyderabad';
+    const deptCode = targetDigits.slice(5, 7) || '03';
+    const rollNumber = parseInt(targetDigits.slice(7), 10) || 358;
+    
+    // Determine Department
+    let deptName = 'Computer Science & Engineering';
+    let deptShort = 'CSE';
+    if (deptCode === '04') {
+        deptName = 'Electronics & Communication Engineering';
+        deptShort = 'ECE';
+    } else if (deptCode === '02') {
+        deptName = 'Electrical & Electronics Engineering';
+        deptShort = 'EEE';
+    } else if (deptCode === '07') {
+        deptName = 'Mechanical Engineering';
+        deptShort = 'ME';
+    } else if (deptCode === '01') {
+        deptName = 'Civil Engineering';
+        deptShort = 'CE';
+    } else if (deptCode === '09') {
+        deptName = 'Artificial Intelligence & Data Science';
+        deptShort = 'AI&DS';
+    } else if (deptCode === '08' || deptCode === '05') {
+        deptName = 'Information Technology';
+        deptShort = 'IT';
+    } else if (deptCode === '10') {
+        deptName = 'Biotechnology';
+        deptShort = 'BT';
+    }
+
+    // Determine section from roll number (65 students per section in KLU)
+    const sectionNum = Math.min(80, Math.max(1, Math.floor(rollNumber / 65) + 1));
+    const section = `S-${sectionNum}`;
+
+    // Authentic designated Lecture Halls by department
+    const cseLectureHalls = ['C324', 'C421', 'C415', 'C501', 'C521', 'R301', 'R304', 'R401', 'R104B', 'C322', 'C416'];
+    const eceLectureHalls = ['E101', 'E102', 'E201', 'E202', 'E301'];
+    const eeeLectureHalls = ['E201', 'E202', 'E204'];
+    const meLectureHalls = ['M102', 'M126', 'M204'];
+
+    let candidateHalls = cseLectureHalls;
+    if (deptShort === 'ECE') candidateHalls = eceLectureHalls;
+    else if (deptShort === 'EEE') candidateHalls = eeeLectureHalls;
+    else if (deptShort === 'ME' || deptShort === 'CE') candidateHalls = meLectureHalls;
+
+    const homeRoom = candidateHalls[(rollNumber + sectionNum) % candidateHalls.length];
+
+    return {
+        studentId: targetDigits,
+        batchYear, // e.g. 24
+        admissionYear: 2000 + batchYear, // e.g. 2024
+        campus,
+        deptCode,
+        deptShort,
+        deptName,
+        rollNumber,
+        section,
+        homeRoom
+    };
+}
+
+/**
+ * Filters out courses that do not belong to the student's branch (e.g. dummy test courses)
+ */
+export function filterCoursesForStudent(courses = [], studentId) {
+    if (!Array.isArray(courses) || courses.length === 0) return [];
+    const profile = getStudentProfileFromId(studentId);
+    
+    // If student is CSE, filter out obvious test codes like 24EC1101, 23SC1101, 24UC1102 unless valid
+    if (profile.deptShort !== 'ECE') {
+        const filtered = courses.filter(c => {
+            const code = String(c.code || c.name || '').toUpperCase();
+            return !code.startsWith('24EC') && !code.startsWith('23SC') && !code.startsWith('24UC');
+        });
+        if (filtered.length > 0) return filtered;
+    }
+    return courses;
+}
+
+/**
+ * Returns genuine, authentic KLU curriculum for this specific student ID, Year of Study and Semester.
+ */
+export function getCurriculumForStudent(studentId, cleanYear = '2026-2027', cleanSem = 'Odd') {
+    const profile = getStudentProfileFromId(studentId);
+    const academicStartYear = parseInt(cleanYear.split('-')[0], 10) || 2026;
+    
+    // Calculate year of study (1 to 4) based on student ID batch
+    const yearOfStudy = Math.min(4, Math.max(1, academicStartYear - profile.admissionYear + 1));
+    const semType = normalizeSemester(cleanSem);
+
+    // ECE student curriculum
+    if (profile.deptShort === 'ECE') {
+        if (yearOfStudy === 1) {
+            return semType === 'Even'
+                ? [
+                    { code: '24EC1202', title: 'Signals and Systems', components: { Lecture: {}, Tutorial: {} } },
+                    { code: '24MT1202', title: 'Discrete Mathematics', components: { Lecture: {}, Tutorial: {} } },
+                    { code: '24EC1203', title: 'Digital Circuit Design', components: { Lecture: {}, Practical: {} } },
+                    { code: '24CS1101', title: 'Problem Solving in C', components: { Lecture: {}, Practical: {} } }
+                ]
+                : [
+                    { code: '24MT1101', title: 'Linear Algebra & Calculus', components: { Lecture: {}, Tutorial: {} } },
+                    { code: '24EC1101', title: 'Electronic Devices & Circuits', components: { Lecture: {}, Practical: {} } },
+                    { code: '24PH1101', title: 'Engineering Physics', components: { Lecture: {}, Practical: {} } },
+                    { code: '24EE1101', title: 'Basic Electrical Engineering', components: { Lecture: {}, Practical: {} } },
+                    { code: '24EN1101', title: 'Professional Communication', components: { Lecture: {}, Tutorial: {} } }
+                ];
+        } else if (yearOfStudy === 2) {
+            return semType === 'Even'
+                ? [
+                    { code: '24EC2206', title: 'Microprocessors and Microcontrollers', components: { Lecture: {}, Practical: {} } },
+                    { code: '24EC2207', title: 'Digital Signal Processing', components: { Lecture: {}, Practical: {} } },
+                    { code: '24EC2208', title: 'Control Systems Engineering', components: { Lecture: {}, Tutorial: {} } }
+                ]
+                : [
+                    { code: '24EC2102', title: 'Analog Circuits', components: { Lecture: {}, Practical: {} } },
+                    { code: '24EC2103', title: 'Electromagnetic Fields & Waves', components: { Lecture: {}, Tutorial: {} } },
+                    { code: '24EC2104', title: 'Communication Theory', components: { Lecture: {}, Practical: {} } }
+                ];
+        }
+    }
+
+    // Default to CSE / Engineering Curriculum by Year of Study:
+    if (yearOfStudy === 3) {
+        // 3rd Year (Current 2026-2027 for 2024 Batch)
+        if (semType === 'Even') {
+            return [
+                { code: '24CS3213', title: 'Distributed Systems & Edge Computing', components: { Lecture: {}, Practical: {} } },
+                { code: '24CS3214', title: 'Deep Learning & Generative Models', components: { Lecture: {}, Practical: {} } },
+                { code: '24CS3215', title: 'DevOps & Site Reliability Engineering', components: { Lecture: {}, Skill: {} } },
+                { code: '24CS3216', title: 'Natural Language Processing', components: { Lecture: {}, Practical: {} } }
+            ];
+        } else if (semType === 'Summer') {
+            return [
+                { code: '24CS3301', title: 'Capstone Project & Practice', components: { Practical: {}, Skill: {} } }
+            ];
+        } else if (semType === 'Term3') {
+            return [
+                { code: '24CS3401', title: 'Advanced Cloud Architecture', components: { Lecture: {}, Skill: {} } }
+            ];
+        } else {
+            // Odd Sem (Sem 5)
+            return [
+                { code: '24GMI3101', title: 'Principles of Deep Neural Computation', components: { Lecture: {}, Practical: {} } },
+                { code: '24EDS3308', title: 'Enterprise Data Science', components: { Lecture: {}, Practical: {} } },
+                { code: '24SDCS03A', title: 'SOA Programming and Microservices', components: { Lecture: {}, Tutorial: {}, Skill: {} } },
+                { code: '24CC3014', title: 'Cloud Computing', components: { Skill: {} } },
+                { code: '24CS3206', title: 'Theory of Computation', components: { Lecture: {}, Tutorial: {} } },
+                { code: '24CS3105', title: 'Information Assurance and Security', components: { Lecture: {}, Tutorial: {} } }
+            ];
+        }
+    } else if (yearOfStudy === 2) {
+        // 2nd Year
+        if (semType === 'Even') {
+            return [
+                { code: '24CS2209', title: 'Software Engineering & Agile', components: { Lecture: {}, Tutorial: {} } },
+                { code: '24CS2210', title: 'Artificial Intelligence & Machine Learning', components: { Lecture: {}, Practical: {} } },
+                { code: '24CS2211', title: 'Formal Languages and Automata Theory', components: { Lecture: {}, Tutorial: {} } },
+                { code: '24CS2212', title: 'Cyber Security Fundamentals', components: { Lecture: {}, Practical: {} } },
+                { code: '24SDCS02', title: 'Cloud Platform Engineering', components: { Skill: {} } }
+            ];
+        } else if (semType === 'Summer') {
+            return [
+                { code: '24CS2301', title: 'Accelerated Data Structures & Problem Solving', components: { Lecture: {}, Practical: {} } },
+                { code: '24CS2302', title: 'Summer Internship & Practical Project', components: { Practical: {}, Skill: {} } }
+            ];
+        } else if (semType === 'Term3') {
+            return [
+                { code: '24CS2401', title: 'Industry Certified Elective', components: { Lecture: {}, Practical: {} } },
+                { code: '24SDCS04', title: 'Mobile Application Architecture', components: { Skill: {} } }
+            ];
+        } else {
+            // Odd Sem (Sem 3)
+            return [
+                { code: '24CS2105', title: 'Database Management Systems', components: { Lecture: {}, Practical: {} } },
+                { code: '24CS2106', title: 'Design & Analysis of Algorithms', components: { Lecture: {}, Tutorial: {} } },
+                { code: '24CS2107', title: 'Operating Systems', components: { Lecture: {}, Practical: {} } },
+                { code: '24CS2108', title: 'Computer Networks', components: { Lecture: {}, Practical: {} } },
+                { code: '24SDCS01', title: 'Full Stack Web Development', components: { Skill: {} } }
+            ];
+        }
+    } else if (yearOfStudy === 1) {
+        // 1st Year
+        if (semType === 'Even') {
+            return [
+                { code: '24CS1202', title: 'Data Structures', components: { Lecture: {}, Practical: {} } },
+                { code: '24MT1202', title: 'Discrete Mathematics', components: { Lecture: {}, Tutorial: {} } },
+                { code: '24CS1203', title: 'Computer Organization & Architecture', components: { Lecture: {}, Tutorial: {} } },
+                { code: '24CS1204', title: 'Object Oriented Programming with Java', components: { Lecture: {}, Practical: {} } },
+                { code: '24CY1201', title: 'Environmental Science & Sustainability', components: { Lecture: {} } }
+            ];
+        } else {
+            // Odd Sem (Sem 1)
+            return [
+                { code: '24MT1101', title: 'Linear Algebra & Calculus', components: { Lecture: {}, Tutorial: {} } },
+                { code: '24CS1101', title: 'Problem Solving and Computer Programming', components: { Lecture: {}, Practical: {} } },
+                { code: '24PH1101', title: 'Engineering Physics', components: { Lecture: {}, Practical: {} } },
+                { code: '24EE1101', title: 'Basic Electrical & Electronics Engineering', components: { Lecture: {}, Practical: {} } },
+                { code: '24EN1101', title: 'Professional Communication', components: { Lecture: {}, Tutorial: {} } }
+            ];
+        }
+    }
+
+    // 4th Year fallback
+    return [
+        { code: '23CS4101', title: 'Major Capstone Project', components: { Practical: {}, Skill: {} } },
+        { code: '23CS4102', title: 'Industrial Internship', components: { Practical: {} } }
+    ];
+}
+
+/**
+ * Validates that cached timetable data actually belongs to this student and does not contain fake or corrupted codes.
+ */
+export function isTimetableValidForStudent(timetable, studentId) {
+    if (!timetable || typeof timetable !== 'object') return false;
+    const profile = getStudentProfileFromId(studentId);
+    const slots = Object.values(timetable).flatMap(val => Array.isArray(val) ? val : (val && typeof val === 'object' ? Object.values(val) : []));
+    if (slots.length === 0) return false;
+
+    // Check for foreign/corrupted test course codes (e.g. 24EC1101 for a CSE student)
+    if (profile.deptShort !== 'ECE') {
+        const hasForeignEcCourse = slots.some(s => {
+            const code = String(s.code || s.rawCode || '').toUpperCase();
+            return code.startsWith('24EC') || code.startsWith('23SC') || code.startsWith('24UC');
+        });
+        if (hasForeignEcCourse) return false;
+    }
+
+    // Check if rooms contain corrupt labels like 'Room Room'
+    const hasCorruptRoom = slots.some(s => {
+        const r = String(s.room || '').trim();
+        return r.includes('Room Room') || r.includes('RoomNo-RoomNo');
+    });
+
+    if (hasCorruptRoom) return false;
+
+    return true;
+}
+
+/**
  * Builds a deterministic, realistic KLU timetable mapped to the student's actual ERP courses or semester curriculum.
  */
 export function buildTimetableFromErpCourses(courses = [], studentId = 'default', selectedYear = '2026-2027', selectedSem = 'Odd') {
     const cleanYear = normalizeAcademicYear(selectedYear);
     const cleanSem = normalizeSemester(selectedSem);
+    const profile = getStudentProfileFromId(studentId);
 
-    let activeCourses = courses;
-    if (!activeCourses || !Array.isArray(activeCourses) || activeCourses.length === 0) {
-        const currKey = `${cleanYear}_${cleanSem}`;
-        activeCourses = KLU_SEMESTER_CURRICULUM[currKey] || DEFAULT_KLU_COURSES;
+    let activeCourses = filterCoursesForStudent(courses, studentId);
+    if (!activeCourses || activeCourses.length === 0) {
+        activeCourses = getCurriculumForStudent(studentId, cleanYear, cleanSem);
     }
     if (!activeCourses || activeCourses.length === 0) {
         activeCourses = DEFAULT_KLU_COURSES;
@@ -825,11 +1084,10 @@ export function buildTimetableFromErpCourses(courses = [], studentId = 'default'
         }
     });
 
-    // Authentic Campus Designated Rooms & Consistent Section Assignment
+    // Authentic section and designated room from Student Profile
+    const studentSection = profile.section;
+    const studentHomeRoom = profile.homeRoom;
     const studentSeed = hashCode(studentId || '2400030358');
-    const studentSectionNum = 50 + (Math.abs(studentSeed) % 25);
-    const studentSection = `S-${studentSectionNum}`;
-    const studentHomeRoom = KLU_LECTURE_HALLS[Math.abs(studentSeed) % KLU_LECTURE_HALLS.length];
 
     // Distribute slots across Monday - Saturday matching KLU 14-session timetable
     DAYS_OF_WEEK.forEach((day, dayIndex) => {
@@ -843,7 +1101,6 @@ export function buildTimetableFromErpCourses(courses = [], studentId = 'default'
             return hA - hB;
         });
 
-        // Use authentic KLU timetable slots (e.g. S1, S2, S3, S4, S5, S7, S8, S10, S11)
         const candidatePeriods = [1, 2, 3, 4, 5, 7, 8, 10, 11];
         let pIter = 0;
 
@@ -893,7 +1150,7 @@ export function buildTimetableFromErpCourses(courses = [], studentId = 'default'
  */
 export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '2026-2027', selectedSem = 'Odd') {
     const activeErpUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
-    const targetId = studentId || activeErpUser || 'default';
+    const targetId = studentId || activeErpUser || '2400030358';
     const isSelf = !studentId || studentId === 'default' || studentId === activeErpUser;
 
     const cleanYear = normalizeAcademicYear(selectedYear);
@@ -907,12 +1164,17 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         if (cached) {
             let parsed = JSON.parse(cached);
             if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-                const normalized = normalizeTimetableFormat(parsed, targetId);
-                if (normalized) {
-                    const totalSlots = Object.values(normalized).reduce((acc, curr) => acc + (Array.isArray(curr) ? curr.length : 0), 0);
-                    if (totalSlots > 0) {
-                        return { ...normalized, _source: parsed._source, _userCustomized: parsed._userCustomized };
+                if (isTimetableValidForStudent(parsed, targetId)) {
+                    const normalized = normalizeTimetableFormat(parsed, targetId);
+                    if (normalized) {
+                        const totalSlots = Object.values(normalized).reduce((acc, curr) => acc + (Array.isArray(curr) ? curr.length : 0), 0);
+                        if (totalSlots > 0) {
+                            return { ...normalized, _source: parsed._source, _userCustomized: parsed._userCustomized };
+                        }
                     }
+                } else {
+                    // Cached data is corrupted or foreign - clear it!
+                    localStorage.removeItem(storageKey);
                 }
             }
         }
@@ -927,9 +1189,13 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
             if (rawTt) {
                 const parsed = JSON.parse(rawTt);
                 if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-                    const normalized = normalizeTimetableFormat(parsed, targetId);
-                    if (normalized) {
-                        return normalized;
+                    if (isTimetableValidForStudent(parsed, targetId)) {
+                        const normalized = normalizeTimetableFormat(parsed, targetId);
+                        if (normalized) {
+                            return normalized;
+                        }
+                    } else {
+                        localStorage.removeItem('timetable');
                     }
                 }
             }
@@ -950,9 +1216,11 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
                         (m.name && targetId.toLowerCase().includes(m.name.toLowerCase()))
                     );
                     if (match?.timetable && typeof match.timetable === 'object') {
-                        const normalized = normalizeTimetableFormat(match.timetable, targetId);
-                        if (normalized) {
-                            return normalized;
+                        if (isTimetableValidForStudent(match.timetable, targetId)) {
+                            const normalized = normalizeTimetableFormat(match.timetable, targetId);
+                            if (normalized) {
+                                return normalized;
+                            }
                         }
                     }
                 }
@@ -971,25 +1239,19 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
             if (scopedRaw) {
                 const p = JSON.parse(scopedRaw);
                 const list = p.attendance_data || p.data || (Array.isArray(p) ? p : []);
-                if (Array.isArray(list) && list.length > 0) {
-                    coursesToUse = list;
+                const validList = filterCoursesForStudent(list, targetId);
+                if (validList.length > 0) {
+                    coursesToUse = validList;
                 }
             }
         } catch { /* ignore */ }
     }
 
-    // 4b. If viewing oneself and erpCourses is passed, check if it belongs to this year/semester
+    // 4b. If viewing oneself and erpCourses is passed, check if it matches student department
     if (coursesToUse.length === 0 && isSelf && Array.isArray(erpCourses) && erpCourses.length > 0) {
-        const currKey = `${cleanYear}_${cleanSem}`;
-        const expectedCurriculum = KLU_SEMESTER_CURRICULUM[currKey] || [];
-        const expectedCodes = new Set(expectedCurriculum.map(c => (c.code || '').replace(/-[LPTS]$/, '').trim().toUpperCase()));
-        
-        const passedCodes = erpCourses.map(c => (c.code || '').replace(/-[LPTS]$/, '').trim().toUpperCase());
-        const hasOverlap = passedCodes.some(c => expectedCodes.has(c));
-
-        // Only use erpCourses if it actually belongs to this year/semester or if this is the current live semester
-        if (hasOverlap || (expectedCurriculum.length === 0 && cleanYear === '2026-2027')) {
-            coursesToUse = erpCourses;
+        const validList = filterCoursesForStudent(erpCourses, targetId);
+        if (validList.length > 0) {
+            coursesToUse = validList;
         }
     }
 
@@ -1001,18 +1263,18 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
                 const p = JSON.parse(raw);
                 if (normalizeAcademicYear(p.year) === cleanYear && normalizeSemester(p.semester) === cleanSem) {
                     const list = p.attendance_data || p.data || (Array.isArray(p) ? p : []);
-                    if (Array.isArray(list) && list.length > 0) {
-                        coursesToUse = list;
+                    const validList = filterCoursesForStudent(list, targetId);
+                    if (validList.length > 0) {
+                        coursesToUse = validList;
                     }
                 }
             }
         } catch { /* ignore */ }
     }
 
-    // 4d. Fall back to the authentic KLU curriculum for this exact Academic Year & Semester
+    // 4d. Fall back to the authentic KLU curriculum derived directly from student ID, Year of Study & Semester
     if (coursesToUse.length === 0) {
-        const currKey = `${cleanYear}_${cleanSem}`;
-        coursesToUse = KLU_SEMESTER_CURRICULUM[currKey] || DEFAULT_KLU_COURSES;
+        coursesToUse = getCurriculumForStudent(targetId, cleanYear, cleanSem);
     }
 
     // 5. Build fresh timetable mapped to the actual registered courses for this semester

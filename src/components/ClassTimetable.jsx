@@ -32,7 +32,8 @@ import {
     setSubjectMapping,
     getAllSubjectMappings,
     normalizeAcademicYear,
-    normalizeSemester
+    normalizeSemester,
+    cleanRoomNumber
 } from '../services/timetableService';
 import { getSavedFriends, getMyProfile, saveFriendTimetable } from '../services/friendsService';
 import FriendCaptchaModal from './FriendCaptchaModal';
@@ -838,7 +839,7 @@ export default function ClassTimetable({
                                             <span>•</span>
                                             <span className="text-amber-300 font-bold flex items-center gap-1">
                                                 <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                                                <span>Room {liveStatus.currentClass.room}</span>
+                                                <span>Room {cleanRoomNumber(liveStatus.currentClass.room)}</span>
                                             </span>
                                         </>
                                     )}
@@ -871,7 +872,7 @@ export default function ClassTimetable({
                                 </h4>
                                 {liveStatus.nextWorkingDayFirstClass ? (
                                     <p className="text-xs text-indigo-300 font-medium">
-                                        Next Class: {liveStatus.nextWorkingDayFirstClass.relativeDay || liveStatus.nextWorkingDayFirstClass.day} {liveStatus.nextWorkingDayFirstClass.time} · {liveStatus.nextWorkingDayFirstClass.displayName || liveStatus.nextWorkingDayFirstClass.code} {liveStatus.nextWorkingDayFirstClass.room ? `@ Room ${liveStatus.nextWorkingDayFirstClass.room}` : ''}
+                                        Next Class: {liveStatus.nextWorkingDayFirstClass.relativeDay || liveStatus.nextWorkingDayFirstClass.day} {liveStatus.nextWorkingDayFirstClass.time} · {liveStatus.nextWorkingDayFirstClass.displayName || liveStatus.nextWorkingDayFirstClass.code} {liveStatus.nextWorkingDayFirstClass.room ? `@ Room ${cleanRoomNumber(liveStatus.nextWorkingDayFirstClass.room)}` : ''}
                                     </p>
                                 ) : (
                                     <p className="text-xs text-slate-400">
@@ -930,7 +931,7 @@ export default function ClassTimetable({
                                             <span>•</span>
                                             <span className="text-amber-300 font-bold flex items-center gap-1">
                                                 <MapPin className="w-3.5 h-3.5 text-amber-400" />
-                                                <span>Room {liveStatus.nextClass.room}</span>
+                                                <span>Room {cleanRoomNumber(liveStatus.nextClass.room)}</span>
                                             </span>
                                         </>
                                     )}
@@ -949,7 +950,7 @@ export default function ClassTimetable({
                     </div>
 
                     <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-                        <span>{liveStatus.previousClass ? `Previous: ${liveStatus.previousClass.code} (Rm ${liveStatus.previousClass.room})` : 'Next Period'}</span>
+                        <span>{liveStatus.previousClass ? `Previous: ${liveStatus.previousClass.code} (Rm ${cleanRoomNumber(liveStatus.previousClass.room)})` : 'Next Period'}</span>
                         <span className="text-white font-medium">{liveStatus.nextClass ? liveStatus.nextClass.time : 'None'}</span>
                     </div>
                 </div>
@@ -1138,7 +1139,7 @@ export default function ClassTimetable({
                                                     {slot.room && (
                                                         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900 shadow-2xs">
                                                             <MapPin className="w-3.5 h-3.5 text-amber-600" />
-                                                            <span>Room {slot.room}</span>
+                                                            <span>Room {cleanRoomNumber(slot.room)}</span>
                                                         </div>
                                                     )}
                                                     {onViewCourseAttendance && (
@@ -1232,7 +1233,7 @@ export default function ClassTimetable({
                                                                     {displayMode === 'codes' ? classItem.code : getSlotDisplayTitle(classItem)}
                                                                 </div>
                                                                 <div className="text-[10px] text-slate-600 font-medium">
-                                                                    {classItem.section} · {classItem.room}
+                                                                    {classItem.section} · Room {cleanRoomNumber(classItem.room)}
                                                                 </div>
                                                             </div>
                                                         </td>
@@ -1352,7 +1353,7 @@ export default function ClassTimetable({
                                                 {leftSlot ? (
                                                     <div>
                                                         <span className="font-bold text-white">{leftSlot.code}</span>
-                                                        <span className="text-[10px] text-amber-300 ml-2">Rm {leftSlot.room || '—'}</span>
+                                                        <span className="text-[10px] text-amber-300 ml-2">Rm {cleanRoomNumber(leftSlot.room) || '—'}</span>
                                                     </div>
                                                 ) : (
                                                     <span className="text-slate-500 italic">Free Period</span>
@@ -1379,7 +1380,7 @@ export default function ClassTimetable({
                                                 {rightSlot ? (
                                                     <div>
                                                         <span className="font-bold text-white">{rightSlot.code}</span>
-                                                        <span className="text-[10px] text-amber-300 ml-2">Rm {rightSlot.room || '—'}</span>
+                                                        <span className="text-[10px] text-amber-300 ml-2">Rm {cleanRoomNumber(rightSlot.room) || '—'}</span>
                                                     </div>
                                                 ) : (
                                                     <span className="text-slate-500 italic">Free Period</span>
