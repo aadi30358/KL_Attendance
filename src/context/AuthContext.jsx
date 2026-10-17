@@ -50,6 +50,7 @@ export function AuthProvider({ children }) {
         localStorage.removeItem('sessionCookie');
         localStorage.removeItem('isAdminAuthenticated');
         localStorage.removeItem('admin_token');
+        localStorage.removeItem('kl_active_profile_id');
 
         try {
             Object.keys(localStorage).forEach(key => {

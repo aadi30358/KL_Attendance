@@ -1,0 +1,1686 @@
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+    MapPin,
+    CalendarDays,
+    Coffee,
+    ArrowRight,
+    RefreshCw,
+    Copy,
+    ChevronDown,
+    Printer,
+    Image as ImageIcon,
+    Users,
+    ShieldCheck,
+    Tag,
+    Share2,
+    Utensils,
+    ArrowLeftRight,
+    X
+} from 'lucide-react';
+import {
+    DAYS_OF_WEEK,
+    KLU_SESSIONS,
+    KLU_COURSE_NAMES,
+    getStudentTimetable,
+    saveStudentTimetable,
+    getLiveClassStatus,
+    fetchLiveErpTimetable,
+    parseKluTimetableHtml,
+    getSubjectName,
+    setSubjectMapping,
+    getAllSubjectMappings
+} from '../services/timetableService';
+import { getSavedFriends, getMyProfile, saveFriendTimetable } from '../services/friendsService';
+import FriendCaptchaModal from './FriendCaptchaModal';
+
+const DAY_TABS = [
+    { key: 'MON', full: 'Monday' },
+    { key: 'TUE', full: 'Tuesday' },
+    { key: 'WED', full: 'Wednesday' },
+    { key: 'THU', full: 'Thursday' },
+    { key: 'FRI', full: 'Friday' },
+    { key: 'SAT', full: 'Saturday' }
+];
+
+export default function ClassTimetable({
+    studentId = '2400030358',
+    studentName = 'My Profile',
+    erpCourses = [],
+    onViewCourseAttendance,
+    onRefreshErp,
+    onSelectYear,
+    onSelectSem,
+    onSelectFriend,
+    onSelectProfile,
+    selectedYear = '2026-2027',
+    selectedSem = 'Odd Semester'
+}) {
+    const myProfile = useMemo(() => getMyProfile(), []);
+    const myId = myProfile?.studentId || myProfile?.username || studentId || '2400030358';
+    const myName = myProfile?.nickname || myProfile?.name || studentName || 'My Profile';
+
+    // Combine saved friends with TimeTablekl 'maddys'
+    const allFriends = useMemo(() => {
+        const list = getSavedFriends();
+        try {
+            const rawMaddys = localStorage.getItem('maddys');
+            if (rawMaddys) {
+                const parsedMaddys = JSON.parse(rawMaddys);
+                if (Array.isArray(parsedMaddys)) {
+                    parsedMaddys.forEach(m => {
+                        const sid = m.username || m.studentId || String(m.id || '');
+                        if (sid && !list.some(f => (f.studentId === sid || f.username === sid))) {
+                            list.push({
+                                id: m.id || sid,
+                                nickname: m.name || m.nickname || 'Buddy',
+                                label: m.name || m.nickname || 'Buddy',
+                                studentId: sid,
+                                username: sid
+                            });
+                        }
+                    });
+                }
+            }
+        } catch { /* ignore */ }
+        return list;
+    }, []);
+
+    // Active Profile: Self or Buddy
+    const [activeTargetId, setActiveTargetId] = useState(studentId || myId);
+
+    useEffect(() => {
+        if (studentId) setActiveTargetId(studentId);
+    }, [studentId]);
+
+    const effectiveId = activeTargetId || myId;
+    const effectiveName = useMemo(() => {
+        if (effectiveId === myId || effectiveId === 'main') {
+            return myName;
+        }
+        const fr = allFriends.find(f => (f.studentId === effectiveId || f.username === effectiveId || f.id === effectiveId));
+        return fr ? (fr.nickname || fr.name || fr.label) : effectiveId;
+    }, [effectiveId, myName, myId, allFriends]);
+
+    // Dynamic Academic Year & Semester selector state
+    const [currentYear, setCurrentYear] = useState(() => selectedYear || '2026-2027');
+    const [currentSem, setCurrentSem] = useState(() => {
+        const s = String(selectedSem || '').toLowerCase();
+        if (s.includes('summer')) return 'Summer Term';
+        if (s.includes('term') || s.includes('tri')) return 'Tri Sem / Term 3';
+        if (s.includes('even')) return 'Even Sem';
+        return 'Odd Sem';
+    });
+
+    useEffect(() => {
+        if (selectedYear) setCurrentYear(selectedYear);
+    }, [selectedYear]);
+
+    useEffect(() => {
+        if (selectedSem) {
+            const s = String(selectedSem).toLowerCase();
+            if (s.includes('summer')) setCurrentSem('Summer Term');
+            else if (s.includes('term') || s.includes('tri')) setCurrentSem('Tri Sem / Term 3');
+            else if (s.includes('even')) setCurrentSem('Even Sem');
+            else setCurrentSem('Odd Sem');
+        }
+    }, [selectedSem]);
+
+    const academicYearOptions = useMemo(() => {
+        const curYear = new Date().getFullYear();
+        const years = [];
+        for (let y = curYear + 1; y >= 2021; y--) {
+            years.push(`${y}-${y + 1}`);
+        }
+        return years;
+    }, []);
+
+    const [timetable, setTimetable] = useState(() => getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem));
+
+    const safeTimetable = useMemo(() => {
+        const defaultDays = {
+            Monday: [],
+            Tuesday: [],
+            Wednesday: [],
+            Thursday: [],
+            Friday: [],
+            Saturday: [],
+            Sunday: []
+        };
+        if (!timetable || typeof timetable !== 'object') return defaultDays;
+        const res = { ...defaultDays };
+        for (const d of ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']) {
+            const val = timetable[d];
+            res[d] = Array.isArray(val) ? val : (val && typeof val === 'object' ? Object.values(val) : []);
+        }
+        return res;
+    }, [timetable]);
+
+    const [selectedDay, setSelectedDay] = useState(() => {
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const today = dayNames[new Date().getDay()];
+        return today === 'Sunday' ? 'Monday' : today;
+    });
+
+    // View & Display Modes
+    const [viewMode, setViewMode] = useState('day'); // 'day' | 'week'
+    const [displayMode, setDisplayMode] = useState('names'); // 'names' | 'codes' | 'aliases'
+    const [currentTimeStr, setCurrentTimeStr] = useState('');
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [captchaModalTarget, setCaptchaModalTarget] = useState(null);
+    const [importHtmlInput, setImportHtmlInput] = useState('');
+    const [importError, setImportError] = useState('');
+    const [copySuccess, setCopySuccess] = useState(false);
+    const [showMoreMenu, setShowMoreMenu] = useState(false);
+    const moreMenuRef = useRef(null);
+
+    // Subject Aliases Modal State
+    const [showAliasesModal, setShowAliasesModal] = useState(false);
+    const [aliasEditMap, setAliasEditMap] = useState(() => getAllSubjectMappings());
+
+    // Schedule Compare ("Where's Maddy?") Modal State
+    const [showCompareModal, setShowCompareModal] = useState(false);
+    const [compareLeftId, setCompareLeftId] = useState(effectiveId);
+    const [compareRightId, setCompareRightId] = useState(() => allFriends[0]?.studentId || '');
+    const [compareDay, setCompareDay] = useState(() => selectedDay);
+
+    // Share & Import Modal State
+    const [showShareModal, setShowShareModal] = useState(false);
+    const [shareTab, setShareTab] = useState('share'); // 'share' | 'import'
+    const [importFriendId, setImportFriendId] = useState('');
+    const [importFriendName, setImportFriendName] = useState('');
+    const [importJsonInput, setImportJsonInput] = useState('');
+    const [importFeedback, setImportFeedback] = useState('');
+
+    // Live clock ticker
+    useEffect(() => {
+        const updateClock = () => {
+            const now = new Date();
+            setCurrentTimeStr(now.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true
+            }));
+        };
+        updateClock();
+        const timer = setInterval(updateClock, 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    // Close more dropdown on outside click
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (moreMenuRef.current && !moreMenuRef.current.contains(e.target)) {
+                setShowMoreMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // Sync timetable whenever effectiveId, erpCourses, currentYear or currentSem change
+    useEffect(() => {
+        const cached = getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem);
+        setTimetable(cached);
+
+        // If not yet fetched from live ERP or user refreshed, trigger live ERP fetch in background
+        const hasSession = typeof window !== 'undefined' && (localStorage.getItem('erp_session_cookie') || sessionStorage.getItem('erp_session_cookie') || localStorage.getItem('activeErpUser'));
+        if (hasSession && (!cached || cached._source !== 'erp_live')) {
+            setIsRefreshing(true);
+            fetchLiveErpTimetable(effectiveId, currentYear, currentSem)
+                .then((res) => {
+                    if (res?.success && res?.timetable) {
+                        setTimetable(res.timetable);
+                    }
+                })
+                .catch(() => {})
+                .finally(() => setIsRefreshing(false));
+        }
+    }, [effectiveId, erpCourses, currentYear, currentSem]);
+
+    // Live update when fresh live ERP timetable finishes in background
+    useEffect(() => {
+        const handleTimetableUpdate = (e) => {
+            const detail = e?.detail;
+            if (!detail || detail.studentId === effectiveId) {
+                const fresh = getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem);
+                setTimetable(fresh);
+            }
+        };
+        window.addEventListener('kl_timetable_updated', handleTimetableUpdate);
+        return () => window.removeEventListener('kl_timetable_updated', handleTimetableUpdate);
+    }, [effectiveId, erpCourses, currentYear, currentSem]);
+
+    // Live class status in Indian Standard Time (IST)
+    const liveStatus = useMemo(() => {
+        void currentTimeStr; // Retick live countdown every second
+        return getLiveClassStatus(safeTimetable, effectiveId);
+    }, [safeTimetable, effectiveId, currentTimeStr]);
+
+    // Unique Course Codes for Alias Editing
+    const uniqueCourseCodes = useMemo(() => {
+        const set = new Set();
+        DAYS_OF_WEEK.forEach(day => {
+            const daySlots = safeTimetable[day];
+            if (Array.isArray(daySlots)) {
+                daySlots.forEach(slot => {
+                    const raw = (slot.rawCode || slot.code || '').replace(/-[LPTS]$/, '').trim();
+                    if (raw) set.add(raw);
+                });
+            }
+        });
+        return Array.from(set).sort();
+    }, [safeTimetable]);
+
+    // Handle Timetable Reload
+    const handleReloadTimetable = async () => {
+        setIsRefreshing(true);
+        try {
+            if (onRefreshErp) {
+                await onRefreshErp(currentYear, currentSem);
+            }
+            await fetchLiveErpTimetable(effectiveId, currentYear, currentSem);
+            const fresh = getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem);
+            setTimetable(fresh);
+        } catch {
+            const fresh = getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem);
+            setTimetable(fresh);
+        } finally {
+            setTimeout(() => setIsRefreshing(false), 500);
+        }
+    };
+
+    // Resolve course display label based on Course Codes vs Course Names vs Custom Aliases
+    const getSlotDisplayTitle = (slot) => {
+        if (!slot) return '';
+        const raw = (slot.rawCode || (slot.code || '').replace(/-[LPTS]$/, '')).trim();
+
+        if (displayMode === 'aliases') {
+            const custom = getSubjectName(raw) || getSubjectName(slot.code);
+            if (custom) return custom;
+        }
+
+        if (displayMode === 'codes') {
+            return slot.code || slot.rawCode || 'COURSE';
+        }
+
+        const baseWithoutSuffix = raw.replace(/HF$/, '');
+        let baseName = '';
+        if (Array.isArray(erpCourses) && erpCourses.length > 0) {
+            const match = erpCourses.find(c => {
+                const cCode = (c.code || '').replace(/-[LPTS]$/, '').trim();
+                return cCode === raw || cCode === baseWithoutSuffix;
+            });
+            if (match && (match.title || match.name)) {
+                baseName = match.title || match.name;
+            }
+        }
+
+        if (!baseName && slot.title && slot.title !== raw && slot.title !== slot.code) {
+            baseName = slot.title;
+        }
+
+        if (!baseName) {
+            baseName = getSubjectName(raw) || getSubjectName(baseWithoutSuffix) || KLU_COURSE_NAMES[raw] || KLU_COURSE_NAMES[baseWithoutSuffix];
+        }
+
+        baseName = baseName || raw || slot.code;
+        const cleanBase = baseName.replace(/\s*\((Lab|Tut|Tutorial|Lecture|Skill|Practical)\)$/i, '').trim();
+
+        const compSuffix = slot.code?.endsWith('-P') ? ' (Lab)'
+            : slot.code?.endsWith('-T') ? ' (Tut)'
+            : slot.code?.endsWith('-S') ? ' (Skill)'
+            : '';
+        return `${cleanBase}${compSuffix}`;
+    };
+
+    // High-resolution Canvas Timetable Picture generator
+    const generateHighQualityCanvas = useCallback(() => {
+        if (!timetable || Object.keys(timetable).length === 0) return null;
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+
+        const width = 1600;
+        const height = 950;
+        canvas.width = width;
+        canvas.height = height;
+
+        ctx.fillStyle = '#0a0a0c';
+        ctx.fillRect(0, 0, width, height);
+
+        // Header Title
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 32px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`KL University · Academic Timetable (${selectedYear})`, 60, 65);
+
+        ctx.fillStyle = '#cfff04';
+        ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
+        ctx.fillText(`${effectiveName} (${effectiveId}) · ${selectedSem}`, 60, 95);
+
+        // Grid Dimensions
+        const startX = 60;
+        const startY = 130;
+        const colWidth = (width - 120 - 100) / 9;
+        const rowHeight = (height - 180) / DAYS_OF_WEEK.length;
+
+        // Day rows
+        DAYS_OF_WEEK.forEach((day, rIdx) => {
+            const y = startY + rIdx * rowHeight;
+            const slots = safeTimetable[day] || [];
+
+            ctx.fillStyle = '#17171b';
+            ctx.fillRect(startX, y, 100, rowHeight - 4);
+            ctx.strokeStyle = '#2a2a31';
+            ctx.strokeRect(startX, y, 100, rowHeight - 4);
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 16px system-ui, -apple-system, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(day.slice(0, 3).toUpperCase(), startX + 50, y + rowHeight / 2 + 5);
+
+            for (let p = 1; p <= 9; p++) {
+                const x = startX + 100 + (p - 1) * colWidth;
+                const slot = slots.find(s => s.period === p);
+
+                if (slot && slot.code) {
+                    ctx.fillStyle = '#1e293b';
+                    ctx.fillRect(x + 2, y, colWidth - 4, rowHeight - 4);
+                    ctx.strokeStyle = '#43209e';
+                    ctx.strokeRect(x + 2, y, colWidth - 4, rowHeight - 4);
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 13px system-ui, -apple-system, sans-serif';
+                    ctx.fillText(slot.code, x + colWidth / 2, y + 30);
+
+                    ctx.fillStyle = '#93c5fd';
+                    ctx.font = '11px system-ui, -apple-system, sans-serif';
+                    ctx.fillText(slot.room ? `Room ${slot.room}` : (slot.section || 'Class'), x + colWidth / 2, y + 50);
+                } else {
+                    ctx.fillStyle = '#111115';
+                    ctx.fillRect(x + 2, y, colWidth - 4, rowHeight - 4);
+                    ctx.strokeStyle = '#222228';
+                    ctx.strokeRect(x + 2, y, colWidth - 4, rowHeight - 4);
+
+                    ctx.fillStyle = '#475569';
+                    ctx.font = '14px system-ui, -apple-system, sans-serif';
+                    ctx.fillText('—', x + colWidth / 2, y + rowHeight / 2 + 5);
+                }
+            }
+        });
+
+        // Watermark Footer
+        ctx.fillStyle = '#64748b';
+        ctx.font = '12px system-ui, -apple-system, sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`Generated by KL Attendance & Timetable · https://klattendance.online`, 60, height - 20);
+
+        return canvas;
+    }, [timetable, safeTimetable, effectiveName, effectiveId, selectedYear, selectedSem]);
+
+    // Export Timetable as Image
+    const exportAsImage = useCallback(() => {
+        try {
+            const canvas = generateHighQualityCanvas();
+            if (!canvas) return;
+            const fileName = `KLU_Timetable_${effectiveId}_${new Date().toISOString().split('T')[0]}.png`;
+            canvas.toBlob((blob) => {
+                if (!blob) return;
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }, 'image/png', 1.0);
+        } catch (err) {
+            console.error('Export as image failed:', err);
+        }
+    }, [generateHighQualityCanvas, effectiveId]);
+
+    // Copy timetable text formatted for WhatsApp
+    const handleCopySchedule = () => {
+        let text = `📅 KLU Weekly Timetable (${effectiveName} - ${effectiveId})\n`;
+        text += `Academic Year: ${selectedYear} · ${selectedSem}\n\n`;
+
+        DAYS_OF_WEEK.forEach(day => {
+            const slots = safeTimetable[day] || [];
+            text += `📌 ${day.toUpperCase()}:\n`;
+            if (slots.length === 0) {
+                text += `   No classes scheduled\n\n`;
+                return;
+            }
+            slots.forEach(s => {
+                const title = s.title || KLU_COURSE_NAMES[s.rawCode] || s.code;
+                text += `   • ${s.slotId || `P${s.period}`} (${s.time}): ${s.code} - ${title} [${s.section || 'General'}] @ Room ${s.room || 'Room'}\n`;
+            });
+            text += '\n';
+        });
+
+        navigator.clipboard.writeText(text);
+        setCopySuccess(true);
+        setTimeout(() => setCopySuccess(false), 2000);
+    };
+
+    // Print timetable
+    const handlePrintTimetable = () => {
+        window.print();
+    };
+
+    // Import timetable from HTML
+    const handleImportHtml = () => {
+        if (!importHtmlInput.trim()) return;
+        const parsed = parseKluTimetableHtml(importHtmlInput);
+        if (parsed) {
+            setTimetable(parsed);
+            saveStudentTimetable(effectiveId, parsed, currentYear, currentSem);
+            setShowImportModal(false);
+            setImportHtmlInput('');
+            setImportError('');
+        } else {
+            setImportError('Could not find timetable table in the provided HTML. Please make sure to copy the full table element.');
+        }
+    };
+
+    // Save Custom Subject Aliases
+    const handleSaveAliases = () => {
+        Object.entries(aliasEditMap).forEach(([code, alias]) => {
+            if (alias && alias.trim()) {
+                setSubjectMapping(code, alias.trim());
+            }
+        });
+        setShowAliasesModal(false);
+    };
+
+    // Import Friend's Timetable (No password required)
+    const handleImportFriendSchedule = () => {
+        if (!importFriendId.trim()) {
+            setImportFeedback('Please enter your friend\'s Student ID.');
+            return;
+        }
+        if (!importJsonInput.trim()) {
+            setImportFeedback('Please paste the timetable JSON code.');
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(importJsonInput.trim());
+            const schedule = parsed.timetable || parsed;
+            saveFriendTimetable({
+                studentId: importFriendId.trim(),
+                nickname: importFriendName.trim() || importFriendId.trim(),
+                timetable: schedule,
+                academicYear: currentYear,
+                semester: currentSem
+            });
+            setImportFeedback('Friend\'s timetable imported successfully!');
+            setTimeout(() => {
+                setShowShareModal(false);
+                setImportFeedback('');
+                setImportJsonInput('');
+            }, 1200);
+        } catch {
+            setImportFeedback('Invalid timetable JSON format. Please ensure valid export text was pasted.');
+        }
+    };
+
+
+    const daySchedule = safeTimetable[selectedDay] || [];
+    const todayDayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date().getDay()];
+
+    // Schedule Comparison Timetable data
+    const leftCompareTimetable = useMemo(() => {
+        return getStudentTimetable(compareLeftId, [], currentYear, currentSem);
+    }, [compareLeftId, currentYear, currentSem]);
+
+    const rightCompareTimetable = useMemo(() => {
+        return getStudentTimetable(compareRightId, [], currentYear, currentSem);
+    }, [compareRightId, currentYear, currentSem]);
+
+    return (
+        <div className="w-full max-w-7xl mx-auto space-y-5 pb-16 font-sans select-none">
+            
+            {/* ── Top Header Bar & Profile Switcher ── */}
+            <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-xs border border-slate-200/90 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Timetable</h2>
+                        <span className="text-xs font-mono font-bold bg-slate-100 text-slate-700 px-2.5 py-0.5 rounded-lg border border-slate-200">
+                            {effectiveName} · {effectiveId}
+                        </span>
+                    </div>
+
+                    <div className="text-xs sm:text-sm text-slate-500 font-normal">
+                        View weekly class schedules, live class countdowns, and classrooms
+                    </div>
+
+                    {/* Academic Year & Semester Selectors */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl px-2.5 py-1.5 border border-slate-200 shadow-2xs transition-colors">
+                            <CalendarDays className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <select
+                                value={currentYear}
+                                onChange={(e) => {
+                                    const y = e.target.value;
+                                    setCurrentYear(y);
+                                    if (effectiveId) localStorage.setItem(`activeYear_${effectiveId}`, y);
+                                    const fresh = getStudentTimetable(effectiveId, [], y, currentSem);
+                                    setTimetable(fresh);
+                                    if (onSelectYear) {
+                                        onSelectYear(y);
+                                    } else if (onRefreshErp) {
+                                        onRefreshErp(y, currentSem);
+                                    }
+                                }}
+                                className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer"
+                                title="Select Academic Year"
+                            >
+                                {academicYearOptions.map((yr) => (
+                                    <option key={yr} value={yr}>{yr}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl px-2.5 py-1.5 border border-slate-200 shadow-2xs transition-colors">
+                            <select
+                                value={currentSem}
+                                onChange={(e) => {
+                                    const s = e.target.value;
+                                    setCurrentSem(s);
+                                    if (effectiveId) localStorage.setItem(`activeSem_${effectiveId}`, s);
+                                    const fresh = getStudentTimetable(effectiveId, [], currentYear, s);
+                                    setTimetable(fresh);
+                                    if (onSelectSem) {
+                                        onSelectSem(s);
+                                    } else if (onRefreshErp) {
+                                        onRefreshErp(currentYear, s);
+                                    }
+                                }}
+                                className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer"
+                                title="Select Semester"
+                            >
+                                <option value="Odd Sem">Odd Sem</option>
+                                <option value="Even Sem">Even Sem</option>
+                                <option value="Summer Term">Summer Term</option>
+                                <option value="Tri Sem / Term 3">Tri Sem / Term 3</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Buddy / Friend Switcher Bar */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setActiveTargetId(myId);
+                                if (onSelectFriend) onSelectFriend(myId);
+                                const fresh = getStudentTimetable(myId, myId === studentId ? erpCourses : [], currentYear, currentSem);
+                                setTimetable(fresh);
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
+                                effectiveId === myId
+                                    ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                            }`}
+                        >
+                            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                            <span>{myName} ({myId})</span>
+                        </button>
+
+                        {allFriends.map((friend) => {
+                            const fId = friend.studentId || friend.username || friend.id;
+                            const fName = friend.nickname || friend.name || friend.label || 'Buddy';
+                            const isSelected = effectiveId === fId;
+
+                            return (
+                                <button
+                                    key={friend.id || fId}
+                                    type="button"
+                                    onClick={() => {
+                                        setActiveTargetId(fId);
+                                        if (onSelectFriend) onSelectFriend(fId);
+                                        if (onSelectProfile) onSelectProfile(friend);
+                                        const fresh = getStudentTimetable(fId, [], currentYear, currentSem);
+                                        setTimetable(fresh);
+                                    }}
+                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
+                                        isSelected
+                                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                                    }`}
+                                >
+                                    <Users className="w-3 h-3 text-indigo-500" />
+                                    <span>{fName} ({fId})</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Right Action Controls: Live Status Pill, Save Picture, More Options */}
+                <div className="flex flex-wrap items-center gap-2 self-start md:self-center">
+                    {/* Live Sync Status */}
+                    {isRefreshing ? (
+                        <div className="px-3 py-1.5 rounded-xl text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 flex items-center gap-1.5 shadow-2xs">
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                            <span>Updating...</span>
+                        </div>
+                    ) : (
+                        <div className="px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200/80 flex items-center gap-1.5 shadow-2xs">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                            <span>Live Timetable</span>
+                        </div>
+                    )}
+
+                    {/* Save Picture Button */}
+                    <button
+                        type="button"
+                        onClick={exportAsImage}
+                        className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer shadow-2xs"
+                        title="Export Timetable as HD Picture (PNG)"
+                    >
+                        <ImageIcon className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Save Picture</span>
+                    </button>
+
+                    {/* More Options Dropdown */}
+                    <div className="relative" ref={moreMenuRef}>
+                        <button
+                            type="button"
+                            onClick={() => setShowMoreMenu(prev => !prev)}
+                            className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer shadow-2xs"
+                        >
+                            <span>More</span>
+                            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                        </button>
+
+                        <AnimatePresence>
+                            {showMoreMenu && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    exit={{ opacity: 0, y: 6, scale: 0.96 }}
+                                    transition={{ duration: 0.15 }}
+                                    className="absolute right-0 mt-1.5 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 z-50 text-xs font-bold text-slate-700"
+                                >
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowMoreMenu(false);
+                                            handleReloadTimetable();
+                                        }}
+                                        className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer border-b border-slate-100 text-indigo-700 font-bold"
+                                    >
+                                        <RefreshCw className="w-4 h-4 text-indigo-600" />
+                                        <span>Force Re-fetch from ERP</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowMoreMenu(false);
+                                            const targetProfile = effectiveId === myId
+                                                ? myProfile
+                                                : allFriends.find(f => (f.studentId === effectiveId || f.username === effectiveId || f.id === effectiveId));
+                                            if (targetProfile) {
+                                                setCaptchaModalTarget(targetProfile);
+                                            } else {
+                                                setCaptchaModalTarget({
+                                                    id: effectiveId,
+                                                    studentId: effectiveId,
+                                                    nickname: effectiveName,
+                                                    label: effectiveName
+                                                });
+                                            }
+                                        }}
+                                        className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer border-b border-slate-100"
+                                    >
+                                        <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                                        <span>Re-authenticate ERP</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowMoreMenu(false);
+                                            setShowCompareModal(true);
+                                        }}
+                                        className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                    >
+                                        <ArrowLeftRight className="w-4 h-4 text-purple-600" />
+                                        <span>Compare Schedules</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowMoreMenu(false);
+                                            setAliasEditMap(getAllSubjectMappings());
+                                            setShowAliasesModal(true);
+                                        }}
+                                        className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                    >
+                                        <Tag className="w-4 h-4 text-amber-600" />
+                                        <span>Custom Aliases</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowMoreMenu(false);
+                                            setShowShareModal(true);
+                                        }}
+                                        className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                    >
+                                        <Share2 className="w-4 h-4 text-emerald-600" />
+                                        <span>Share / Import</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowMoreMenu(false);
+                                            handleCopySchedule();
+                                        }}
+                                        className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                    >
+                                        <Copy className="w-4 h-4 text-blue-600" />
+                                        <span>Copy as Text</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowMoreMenu(false);
+                                            handlePrintTimetable();
+                                        }}
+                                        className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                    >
+                                        <Printer className="w-4 h-4 text-rose-600" />
+                                        <span>Print / PDF</span>
+                                    </button>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                </div>
+            </div>
+
+            {/* Buddy Banner when viewing friend's schedule */}
+            {effectiveId !== myId && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-3.5 px-5 flex flex-wrap items-center justify-between gap-3 text-indigo-950">
+                    <div className="flex items-center gap-2.5">
+                        <Users className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <div className="text-xs">
+                            <span className="font-bold">Viewing Buddy&apos;s Schedule:</span>{' '}
+                            <span className="font-extrabold text-indigo-700">{effectiveName}</span>{' '}
+                            <span className="font-mono text-indigo-600">({effectiveId})</span>
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setActiveTargetId(myId);
+                            if (onSelectFriend) onSelectFriend(myId);
+                            const fresh = getStudentTimetable(myId, myId === studentId ? erpCourses : [], currentYear, currentSem);
+                            setTimetable(fresh);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
+                    >
+                        <span>Back to My Timetable</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+            )}
+
+            {/* ── Present (Current) & Next Class Row ── */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Present / Ongoing Class Card */}
+                <div className="p-5 rounded-3xl bg-slate-900 text-white border border-slate-800 shadow-md relative overflow-hidden flex flex-col justify-between">
+                    <div>
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                                <span className={`w-2.5 h-2.5 rounded-full ${liveStatus.currentClass ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'}`} />
+                                <span className="text-[10px] font-mono font-black uppercase tracking-[0.2em] text-slate-400">
+                                    {liveStatus.currentClass ? 'ONGOING CLASS (NOW)' : liveStatus.isLunch ? 'LUNCH BREAK' : 'FREE PERIOD / BREAK'}
+                                </span>
+                            </div>
+                            <span className="text-xs font-mono font-bold text-indigo-300">
+                                {currentTimeStr || 'IST'}
+                            </span>
+                        </div>
+
+                        {liveStatus.currentClass ? (
+                            <div className="space-y-2">
+                                <h4 className="text-lg sm:text-xl font-black text-white leading-tight">
+                                    {getSlotDisplayTitle(liveStatus.currentClass)}
+                                </h4>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 pt-0.5">
+                                    <span className="font-mono font-bold px-2 py-0.5 rounded-md bg-white/10 text-white">
+                                        {liveStatus.currentClass.code}
+                                    </span>
+                                    <span>•</span>
+                                    <span className="text-indigo-300 font-bold">
+                                        {liveStatus.currentClass.slotId} ({liveStatus.currentClass.time})
+                                    </span>
+                                    {liveStatus.currentClass.room && (
+                                        <>
+                                            <span>•</span>
+                                            <span className="text-amber-300 font-bold flex items-center gap-1">
+                                                <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                                                <span>Room {liveStatus.currentClass.room}</span>
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        ) : liveStatus.isLunch ? (
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-1.5 text-amber-300 font-bold text-sm">
+                                    <Utensils className="w-4 h-4 text-amber-400" />
+                                    <span>Lunch Break (12:45 PM – 01:45 PM)</span>
+                                </div>
+                                <p className="text-xs text-slate-400">
+                                    Recharge yourself! Afternoon class sessions commence at 01:45 PM.
+                                </p>
+                            </div>
+                        ) : liveStatus.isFreePeriod ? (
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-1.5 text-blue-300 font-bold text-sm">
+                                    <Coffee className="w-4 h-4 text-blue-400" />
+                                    <span>Free Period / Library Break</span>
+                                </div>
+                                <p className="text-xs text-slate-400">
+                                    No class scheduled right now. Review lecture notes or relax.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="space-y-1">
+                                <h4 className="text-base font-bold text-slate-200">
+                                    {liveStatus.isDayEnded ? 'All Classes Completed for Today' : 'No Classes Today (Weekend)'}
+                                </h4>
+                                {liveStatus.nextWorkingDayFirstClass ? (
+                                    <p className="text-xs text-indigo-300 font-medium">
+                                        Next Class: {liveStatus.nextWorkingDayFirstClass.relativeDay || liveStatus.nextWorkingDayFirstClass.day} {liveStatus.nextWorkingDayFirstClass.time} · {liveStatus.nextWorkingDayFirstClass.displayName || liveStatus.nextWorkingDayFirstClass.code} {liveStatus.nextWorkingDayFirstClass.room ? `@ Room ${liveStatus.nextWorkingDayFirstClass.room}` : ''}
+                                    </p>
+                                ) : (
+                                    <p className="text-xs text-slate-400">
+                                        Rest up and prepare for upcoming academic sessions.
+                                    </p>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {liveStatus.currentClass && (
+                        <div className="mt-4 pt-3 border-t border-slate-800 space-y-2">
+                            <div className="flex items-center justify-between text-xs text-slate-400">
+                                <span>Class in progress ({liveStatus.currentClass.progressPercent || 0}%)</span>
+                                <span className="text-emerald-400 font-bold">
+                                    {liveStatus.currentClass.minutesRemaining}m {liveStatus.currentClass.secondsRemaining}s left
+                                </span>
+                            </div>
+                            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                <div
+                                    className="bg-indigo-500 h-full rounded-full transition-all duration-1000 ease-linear"
+                                    style={{ width: `${liveStatus.currentClass.progressPercent || 0}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Upcoming / Next Class Card */}
+                <div className="p-5 rounded-3xl bg-slate-900 text-white border border-slate-800 shadow-md flex flex-col justify-between">
+                    <div>
+                        <div className="flex items-center justify-between mb-3">
+                            <span className="text-[10px] font-mono font-black uppercase tracking-[0.2em] text-slate-400">
+                                NEXT CLASS (UPCOMING)
+                            </span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                {liveStatus.nextClass ? (liveStatus.nextClass.minutesUntil <= 60 ? `Starts in ${liveStatus.nextClass.minutesUntil}m` : 'Next Up') : 'Concluded'}
+                            </span>
+                        </div>
+
+                        {liveStatus.nextClass ? (
+                            <div className="space-y-2">
+                                <h4 className="text-lg sm:text-xl font-black text-white leading-tight">
+                                    {getSlotDisplayTitle(liveStatus.nextClass)}
+                                </h4>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 pt-0.5">
+                                    <span className="font-mono font-bold px-2 py-0.5 rounded-md bg-white/10 text-white">
+                                        {liveStatus.nextClass.code}
+                                    </span>
+                                    <span>•</span>
+                                    <span className="text-indigo-300 font-bold">
+                                        {liveStatus.nextClass.slotId} ({liveStatus.nextClass.time})
+                                    </span>
+                                    {liveStatus.nextClass.room && (
+                                        <>
+                                            <span>•</span>
+                                            <span className="text-amber-300 font-bold flex items-center gap-1">
+                                                <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                                                <span>Room {liveStatus.nextClass.room}</span>
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-1">
+                                <h4 className="text-base font-bold text-slate-300">
+                                    No More Classes Scheduled Today
+                                </h4>
+                                <p className="text-xs text-slate-400">
+                                    All periods for today have been completed.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                        <span>{liveStatus.previousClass ? `Previous: ${liveStatus.previousClass.code} (Rm ${liveStatus.previousClass.room})` : 'Next Period'}</span>
+                        <span className="text-white font-medium">{liveStatus.nextClass ? liveStatus.nextClass.time : 'None'}</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* ── Main Timetable Card: Clean, Crisp, Modern Light UI ── */}
+            <div className="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200/90 space-y-6 shadow-sm">
+                
+                {/* Header & View Switcher */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <CalendarDays className="w-5 h-5 text-indigo-600" />
+                            <h3 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
+                                Weekly Timetable
+                            </h3>
+                        </div>
+                        <p className="text-xs text-slate-500 font-medium mt-1">
+                            Class schedules, classrooms, and timing breakdown
+                        </p>
+                    </div>
+
+                    {/* View Controls: Codes vs Names vs Aliases & Day vs Week Toggle */}
+                    <div className="flex flex-wrap items-center gap-2.5">
+                        {/* Course Display Mode: Codes vs Names vs Aliases */}
+                        <div className="inline-flex bg-slate-100 p-1 rounded-2xl border border-slate-200/80">
+                            <button
+                                type="button"
+                                onClick={() => setDisplayMode('codes')}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    displayMode === 'codes'
+                                        ? 'bg-white text-indigo-900 shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                Codes
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDisplayMode('names')}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    displayMode === 'names'
+                                        ? 'bg-white text-indigo-900 shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                Names
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setDisplayMode('aliases')}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    displayMode === 'aliases'
+                                        ? 'bg-white text-indigo-900 shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                Aliases 🏷️
+                            </button>
+                        </div>
+
+                        {/* Day Schedule vs Week Matrix */}
+                        <div className="inline-flex bg-slate-100 p-1 rounded-2xl border border-slate-200/80">
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('day')}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    viewMode === 'day'
+                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                Day Schedule
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('week')}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    viewMode === 'week'
+                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                Week Matrix
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                {/* ── DAY SCHEDULE VIEW: Clean Day Tabs ── */}
+                {viewMode === 'day' && (
+                    <div className="space-y-5">
+                        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none" role="tablist">
+                            {DAY_TABS.map((tab) => {
+                                const isSelected = selectedDay === tab.full;
+                                const isToday = todayDayName === tab.full;
+
+                                return (
+                                    <button
+                                        key={tab.key}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={isSelected}
+                                        onClick={() => setSelectedDay(tab.full)}
+                                        className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all cursor-pointer border ${
+                                            isSelected
+                                                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm scale-102'
+                                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200/60'
+                                        }`}
+                                    >
+                                        <span>{tab.key}</span>
+                                        {isToday && <span className="ml-1 text-emerald-400 font-extrabold">•</span>}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Classes for Selected Day */}
+                        {daySchedule.length === 0 ? (
+                            <div className="p-10 text-center rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                                <Coffee className="w-8 h-8 text-slate-400 mx-auto" />
+                                <h4 className="text-base font-bold text-slate-800">No classes scheduled on {selectedDay}</h4>
+                                <p className="text-xs text-slate-500">A full day off or weekend break.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {daySchedule.map((slot, sIdx) => {
+                                    const title = getSlotDisplayTitle(slot);
+                                    const isLab = (slot.component || slot.type || '').toLowerCase().includes('pract') || slot.code.endsWith('-P');
+                                    const isSkill = (slot.component || slot.type || '').toLowerCase().includes('skill') || slot.code.endsWith('-S');
+                                    const isTut = (slot.component || slot.type || '').toLowerCase().includes('tut') || slot.code.endsWith('-T');
+
+                                    return (
+                                        <div
+                                            key={`${slot.period}_${sIdx}`}
+                                            className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between bg-slate-50 hover:bg-slate-100/80 border border-slate-200/90 transition-all rounded-2xl p-4 gap-3.5 shadow-2xs"
+                                        >
+                                            {/* Time Column */}
+                                            <div className="sm:w-36 bg-white border border-slate-200/80 rounded-xl p-2.5 flex sm:flex-col justify-between sm:justify-center items-center sm:items-start text-left shadow-2xs">
+                                                <span className="text-xs font-mono font-bold text-indigo-700">
+                                                    {slot.time || `Period ${slot.period}`}
+                                                </span>
+                                                <span className="text-[10px] font-mono font-semibold text-slate-500 mt-0.5">
+                                                    Slot {slot.period}{slot.periodEnd && slot.periodEnd !== slot.period ? `–${slot.periodEnd}` : ''}
+                                                </span>
+                                            </div>
+
+                                            {/* Course Details */}
+                                            <div className="flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                                <div className="space-y-1">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-800 shadow-2xs">
+                                                            {slot.code}
+                                                        </span>
+                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase border ${
+                                                            isLab ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                                            : isSkill ? 'bg-purple-50 text-purple-800 border-purple-200'
+                                                            : isTut ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                                            : 'bg-blue-50 text-blue-800 border-blue-200'
+                                                        }`}>
+                                                            {slot.type || slot.component || 'Lecture'}
+                                                        </span>
+                                                        {slot.section && (
+                                                            <span className="text-[10px] font-semibold text-slate-500">
+                                                                {slot.section}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <h4 className="text-sm sm:text-base font-extrabold text-slate-900">
+                                                        {title}
+                                                    </h4>
+                                                </div>
+
+                                                {/* Room Badge */}
+                                                <div className="flex items-center gap-3 shrink-0">
+                                                    {slot.room && (
+                                                        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900 shadow-2xs">
+                                                            <MapPin className="w-3.5 h-3.5 text-amber-600" />
+                                                            <span>Room {slot.room}</span>
+                                                        </div>
+                                                    )}
+                                                    {onViewCourseAttendance && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onViewCourseAttendance()}
+                                                            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 cursor-pointer"
+                                                        >
+                                                            <span>Attendance</span>
+                                                            <ArrowRight className="w-3 h-3" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ── WEEK MATRIX VIEW: Full Schedule Grid ── */}
+                {viewMode === 'week' && (
+                    <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-2xs">
+                        <div className="overflow-x-auto relative">
+                            <table className="w-full text-xs border-collapse text-center">
+                                <thead>
+                                    <tr className="border-b border-slate-200 bg-slate-50">
+                                        <th className="sticky left-0 bg-slate-100 text-center p-3 border-r border-slate-200 z-20 min-w-[70px] w-20">
+                                            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                                                Day
+                                            </span>
+                                        </th>
+                                        {KLU_SESSIONS.map((sess) => (
+                                            <th
+                                                key={sess.id}
+                                                className="p-2.5 min-w-[130px] w-[130px] border-r border-slate-200 text-center font-bold text-slate-700 align-middle"
+                                            >
+                                                <div className="inline-block px-2 py-0.5 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 font-bold text-[11px] mb-1">
+                                                    {sess.id}
+                                                </div>
+                                                <div className="text-[10px] text-slate-500 font-normal font-mono whitespace-nowrap">
+                                                    {sess.start}–{sess.end}
+                                                </div>
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+
+                                <tbody className="divide-y divide-slate-200">
+                                    {DAYS_OF_WEEK.map((day) => {
+                                        const slots = safeTimetable[day] || [];
+                                        const isToday = todayDayName === day;
+
+                                        return (
+                                            <tr key={day} className={`hover:bg-slate-50/70 transition-colors ${isToday ? 'bg-indigo-50/30' : ''}`}>
+                                                <td className={`sticky left-0 p-3 border-r border-slate-200 font-bold z-10 ${
+                                                    isToday ? 'bg-indigo-100 text-indigo-900' : 'bg-slate-50 text-slate-800'
+                                                }`}>
+                                                    <span className="block text-xs uppercase">{day.slice(0, 3)}</span>
+                                                    {isToday && <span className="text-[9px] font-black text-indigo-600 block mt-0.5">TODAY</span>}
+                                                </td>
+
+                                                {KLU_SESSIONS.map((sess) => {
+                                                    const classItem = slots.find(s => s.period === sess.slot || s.slotId === sess.id);
+                                                    if (!classItem) {
+                                                        return (
+                                                            <td key={sess.id} className="p-2 border-r border-slate-200 text-slate-300 font-mono text-center">
+                                                                —
+                                                            </td>
+                                                        );
+                                                    }
+
+                                                    const isLab = (classItem.component || classItem.type || '').toLowerCase().includes('pract') || classItem.code.endsWith('-P');
+                                                    const isSkill = (classItem.component || classItem.type || '').toLowerCase().includes('skill') || classItem.code.endsWith('-S');
+                                                    const isTut = (classItem.component || classItem.type || '').toLowerCase().includes('tut') || classItem.code.endsWith('-T');
+
+                                                    return (
+                                                        <td
+                                                            key={sess.id}
+                                                            className={`p-2 border-r border-slate-200 align-middle ${
+                                                                isLab ? 'bg-emerald-50/80 text-emerald-950'
+                                                                : isSkill ? 'bg-purple-50/80 text-purple-950'
+                                                                : isTut ? 'bg-amber-50/80 text-amber-950'
+                                                                : 'bg-blue-50/80 text-blue-950'
+                                                            }`}
+                                                        >
+                                                            <div className="space-y-0.5">
+                                                                <div className="font-mono font-bold text-xs text-slate-900 leading-tight">
+                                                                    {displayMode === 'codes' ? classItem.code : getSlotDisplayTitle(classItem)}
+                                                                </div>
+                                                                <div className="text-[10px] text-slate-600 font-medium">
+                                                                    {classItem.section} · {classItem.room}
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    );
+                                                })}
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* ── Compare Schedules Modal ("Where's Maddy?") ── */}
+            <AnimatePresence>
+                {showCompareModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-[#0e0e11] text-white rounded-3xl p-5 sm:p-7 max-w-4xl w-full shadow-2xl border border-[#2a2a31] max-h-[90vh] overflow-y-auto space-y-5"
+                        >
+                            <div className="flex items-center justify-between border-b border-[#222228] pb-4">
+                                <div>
+                                    <h3 className="text-xl font-bold flex items-center gap-2 text-white">
+                                        <ArrowLeftRight className="w-5 h-5 text-purple-400" />
+                                        <span>Compare Schedules 👥</span>
+                                    </h3>
+                                    <p className="text-xs text-[#8b8b95] mt-0.5">
+                                        Compare period-by-period class schedules to find common free hours and shared classrooms.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCompareModal(false)}
+                                    className="p-1.5 rounded-full text-slate-400 hover:text-white bg-[#17171b] hover:bg-[#202026] cursor-pointer"
+                                >
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            {/* Selectors Bar: Day, Left Student, Right Student */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#131316] p-3.5 rounded-2xl border border-[#2a2a31]">
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase text-[#8b8b95] block mb-1">Select Day</label>
+                                    <select
+                                        value={compareDay}
+                                        onChange={(e) => setCompareDay(e.target.value)}
+                                        className="w-full bg-[#17171b] text-white text-xs font-bold p-2.5 rounded-xl border border-[#2a2a31] outline-none"
+                                    >
+                                        {DAYS_OF_WEEK.map(d => (
+                                            <option key={d} value={d}>{d}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase text-[#8b8b95] block mb-1">Left Profile</label>
+                                    <select
+                                        value={compareLeftId}
+                                        onChange={(e) => setCompareLeftId(e.target.value)}
+                                        className="w-full bg-[#17171b] text-white text-xs font-bold p-2.5 rounded-xl border border-[#2a2a31] outline-none"
+                                    >
+                                        <option value={myId}>{myName} ({myId})</option>
+                                        {allFriends.map(f => (
+                                            <option key={f.id || f.studentId} value={f.studentId || f.username}>{f.nickname || f.name} ({f.studentId})</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-bold uppercase text-[#8b8b95] block mb-1">Right Profile (Buddy)</label>
+                                    <select
+                                        value={compareRightId}
+                                        onChange={(e) => setCompareRightId(e.target.value)}
+                                        className="w-full bg-[#17171b] text-white text-xs font-bold p-2.5 rounded-xl border border-[#2a2a31] outline-none"
+                                    >
+                                        {allFriends.map(f => (
+                                            <option key={f.id || f.studentId} value={f.studentId || f.username}>{f.nickname || f.name} ({f.studentId})</option>
+                                        ))}
+                                        <option value={myId}>{myName} ({myId})</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Comparison Rows */}
+                            <div className="space-y-2">
+                                {KLU_SESSIONS.map((sess) => {
+                                    const leftSlot = (leftCompareTimetable[compareDay] || []).find(s => s.period === sess.slot || s.slotId === sess.id);
+                                    const rightSlot = (rightCompareTimetable[compareDay] || []).find(s => s.period === sess.slot || s.slotId === sess.id);
+
+                                    const isBothFree = !leftSlot && !rightSlot;
+                                    const isSameClass = leftSlot && rightSlot && (leftSlot.code === rightSlot.code || leftSlot.rawCode === rightSlot.rawCode);
+
+                                    return (
+                                        <div
+                                            key={sess.id}
+                                            className={`p-3 rounded-2xl border transition-all flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 ${
+                                                isBothFree
+                                                    ? 'bg-emerald-950/20 border-emerald-500/30'
+                                                    : isSameClass
+                                                    ? 'bg-purple-950/25 border-purple-500/40'
+                                                    : 'bg-[#131316] border-[#2a2a31]'
+                                            }`}
+                                        >
+                                            {/* Time info */}
+                                            <div className="sm:w-28 text-left">
+                                                <span className="text-[11px] font-bold text-[#cfff04]">{sess.id}</span>
+                                                <div className="text-[10px] text-[#8b8b95]">{sess.start}–{sess.end}</div>
+                                            </div>
+
+                                            {/* Left Student Slot */}
+                                            <div className="flex-1 p-2 rounded-xl bg-[#17171b] border border-[#222228] text-xs">
+                                                {leftSlot ? (
+                                                    <div>
+                                                        <span className="font-bold text-white">{leftSlot.code}</span>
+                                                        <span className="text-[10px] text-amber-300 ml-2">Rm {leftSlot.room || '—'}</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-500 italic">Free Period</span>
+                                                )}
+                                            </div>
+
+                                            {/* Comparison Status Badge */}
+                                            <div className="text-center px-2">
+                                                {isBothFree ? (
+                                                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                                        🎉 Both Free!
+                                                    </span>
+                                                ) : isSameClass ? (
+                                                    <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                                        👥 Same Class
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] text-slate-500">vs</span>
+                                                )}
+                                            </div>
+
+                                            {/* Right Student Slot */}
+                                            <div className="flex-1 p-2 rounded-xl bg-[#17171b] border border-[#222228] text-xs">
+                                                {rightSlot ? (
+                                                    <div>
+                                                        <span className="font-bold text-white">{rightSlot.code}</span>
+                                                        <span className="text-[10px] text-amber-300 ml-2">Rm {rightSlot.room || '—'}</span>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-slate-500 italic">Free Period</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* ── Custom Subject Aliases Modal ── */}
+            <AnimatePresence>
+                {showAliasesModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-white rounded-3xl p-6 sm:p-7 max-w-lg w-full shadow-2xl border border-slate-200 relative space-y-4 max-h-[85vh] overflow-y-auto"
+                        >
+                            <button
+                                type="button"
+                                onClick={() => setShowAliasesModal(false)}
+                                className="absolute top-5 right-5 p-1 rounded-full text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                    <Tag className="w-5 h-5 text-amber-600" />
+                                    <span>Custom Subject Aliases</span>
+                                </h3>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    Replace lengthy course codes with short easy-to-read nicknames (e.g., DSA, OS, DBMS, AI, Math).
+                                </p>
+                            </div>
+
+                            <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                                {uniqueCourseCodes.map((code) => {
+                                    return (
+                                        <div key={code} className="flex items-center gap-3 p-2 rounded-xl bg-slate-50 border border-slate-200">
+                                            <span className="w-32 text-xs font-mono font-bold text-slate-800 shrink-0">
+                                                {code}
+                                            </span>
+                                            <input
+                                                type="text"
+                                                maxLength={10}
+                                                placeholder="e.g. DSA"
+                                                value={aliasEditMap[code] || ''}
+                                                onChange={(e) => setAliasEditMap(prev => ({ ...prev, [code]: e.target.value }))}
+                                                className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAliasesModal(false)}
+                                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSaveAliases}
+                                    className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 cursor-pointer shadow-xs"
+                                >
+                                    Save Aliases
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* ── Share / Import Timetable Modal ── */}
+            <AnimatePresence>
+                {showShareModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-white rounded-3xl p-6 sm:p-7 max-w-lg w-full shadow-2xl border border-slate-200 relative space-y-4"
+                        >
+                            <button
+                                type="button"
+                                onClick={() => setShowShareModal(false)}
+                                className="absolute top-5 right-5 p-1 rounded-full text-slate-400 hover:text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+
+                            <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setShareTab('share')}
+                                    className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                        shareTab === 'share' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                                >
+                                    Share My Schedule
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShareTab('import')}
+                                    className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                        shareTab === 'import' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'
+                                    }`}
+                                >
+                                    Import Buddy&apos;s Schedule
+                                </button>
+                            </div>
+
+                            {shareTab === 'share' ? (
+                                <div className="space-y-3">
+                                    <p className="text-xs text-slate-600">
+                                        Send your schedule to your friends without ever sharing your password!
+                                    </p>
+                                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                                        <div className="text-[11px] font-bold text-slate-700">Quick WhatsApp Message:</div>
+                                        <button
+                                            type="button"
+                                            onClick={handleCopySchedule}
+                                            className="w-full py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                                        >
+                                            <Copy className="w-3.5 h-3.5" />
+                                            <span>{copySuccess ? 'Copied WhatsApp Text!' : 'Copy Formatted Text'}</span>
+                                        </button>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                                        <div className="text-[11px] font-bold text-slate-700">Export JSON Code (For Direct Import):</div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const json = JSON.stringify({ studentId: effectiveId, name: effectiveName, timetable }, null, 2);
+                                                navigator.clipboard.writeText(json);
+                                                setCopySuccess(true);
+                                                setTimeout(() => setCopySuccess(false), 2000);
+                                            }}
+                                            className="w-full py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                                        >
+                                            <Copy className="w-3.5 h-3.5" />
+                                            <span>{copySuccess ? 'Copied Timetable JSON!' : 'Copy Export JSON'}</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    <p className="text-xs text-slate-600">
+                                        Paste your buddy&apos;s timetable JSON to save them into your timetable switcher. Zero ERP passwords required.
+                                    </p>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-700 block mb-1">Friend&apos;s Student ID</label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. 2400030123"
+                                            value={importFriendId}
+                                            onChange={(e) => setImportFriendId(e.target.value)}
+                                            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono font-bold outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-700 block mb-1">Friend&apos;s Name / Nickname</label>
+                                        <input
+                                            type="text"
+                                            placeholder="e.g. Rahul"
+                                            value={importFriendName}
+                                            onChange={(e) => setImportFriendName(e.target.value)}
+                                            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-slate-700 block mb-1">Timetable JSON</label>
+                                        <textarea
+                                            rows={4}
+                                            placeholder="Paste the exported JSON code here..."
+                                            value={importJsonInput}
+                                            onChange={(e) => setImportJsonInput(e.target.value)}
+                                            className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-mono outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50"
+                                        />
+                                    </div>
+                                    {importFeedback && (
+                                        <p className={`text-xs font-bold ${importFeedback.includes('successfully') ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                            {importFeedback}
+                                        </p>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={handleImportFriendSchedule}
+                                        className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs cursor-pointer shadow-xs"
+                                    >
+                                        Save Friend Schedule
+                                    </button>
+                                </div>
+                            )}
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* ── HTML Import Modal ── */}
+            <AnimatePresence>
+                {showImportModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-slate-200 space-y-4"
+                        >
+                            <h3 className="text-lg font-bold text-slate-900">Import Timetable from ERP HTML</h3>
+                            <p className="text-xs text-slate-500">
+                                Paste the raw HTML copied from your ERP timetable page. It will automatically be parsed into your schedule.
+                            </p>
+                            <textarea
+                                value={importHtmlInput}
+                                onChange={(e) => setImportHtmlInput(e.target.value)}
+                                rows={6}
+                                placeholder="Paste <table>...</table> HTML from ERP here"
+                                className="w-full p-3 text-xs font-mono border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+                            />
+                            {importError && (
+                                <p className="text-xs text-red-600 font-semibold">{importError}</p>
+                            )}
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowImportModal(false);
+                                        setImportError('');
+                                    }}
+                                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleImportHtml}
+                                    className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 cursor-pointer"
+                                >
+                                    Parse & Save
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Quick Friend / Student ERP Captcha Verification Modal */}
+            <FriendCaptchaModal
+                friend={captchaModalTarget}
+                isOpen={Boolean(captchaModalTarget)}
+                onClose={() => setCaptchaModalTarget(null)}
+                onSuccess={async (friend) => {
+                    setCaptchaModalTarget(null);
+                    setIsRefreshing(true);
+                    try {
+                        const targetId = friend.studentId || friend.username || friend.id;
+                        await fetchLiveErpTimetable(targetId, currentYear, currentSem);
+                        if (onRefreshErp) {
+                            await onRefreshErp(currentYear, currentSem);
+                        }
+                        const fresh = getStudentTimetable(targetId, [], currentYear, currentSem);
+                        setTimetable(fresh);
+                    } catch {
+                        // ignore
+                    } finally {
+                        setIsRefreshing(false);
+                    }
+                }}
+            />
+        </div>
+    );
+}

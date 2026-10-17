@@ -1010,6 +1010,297 @@ export default {
             }
         }
 
+        // 5.5. /api/fetch_timetable - High-Speed Timetable extraction (Authentic KLU individualstudenttimetableget)
+        if (url.pathname === '/api/fetch_timetable' || url.pathname === '/api/fetch-timetable' || url.pathname === '/fetch-timetable') {
+            if (request.method !== 'POST') {
+                return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+                    status: 405,
+                    headers: { ...cors, 'Content-Type': 'application/json' }
+                });
+            }
+
+            try {
+                const body = await request.json().catch(() => ({}));
+                const { yearId, semId, academic_year_code, semester_id } = body || {};
+                const currentCookieStr = serializeCookieMap(cookieMap);
+
+                if (currentCookieStr) {
+                    const reqYear = String(yearId || academic_year_code || '');
+                    const reqSem = String(semId || semester_id || '');
+
+                    const curYear = new Date().getFullYear();
+                    const yearMatch = reqYear.match(/^(\d{4})/);
+                    const firstYear = yearMatch ? parseInt(yearMatch[1], 10) : curYear;
+
+                    let yearCandidates = [];
+                    if (firstYear >= 2026 || reqYear === '29' || reqYear === '18') {
+                        const offset = Math.max(0, firstYear - 2026);
+                        yearCandidates = [String(29 + offset), String(18 + offset), '22'];
+                    } else if (firstYear === 2025 || reqYear === '28' || reqYear === '17' || reqYear === '19') {
+                        yearCandidates = ['19', '28', '17', '18'];
+                    } else if (firstYear === 2024 || reqYear === '27' || reqYear === '16') {
+                        yearCandidates = ['16', '27', '17'];
+                    } else if (firstYear === 2023 || reqYear === '26' || reqYear === '15') {
+                        yearCandidates = ['15', '26'];
+                    } else {
+                        yearCandidates = ['29', '18', '19', '28', '16', '27', '22'];
+                    }
+
+                    let semVal = '1';
+                    const sLower = reqSem.toLowerCase();
+                    if (sLower.includes('summer') || sLower === '3') semVal = '3';
+                    else if (sLower.includes('even') || sLower === '2') semVal = '2';
+                    else if (sLower.includes('term') || sLower.includes('tri') || sLower === '4') semVal = '4';
+                    else semVal = '1';
+
+                    const candidateUrls = [];
+                    for (const y of yearCandidates) {
+                        candidateUrls.push(`${ERP_BASE}/index.php?r=timetables%2Funiversitymasteracademictimetableview%2Findividualstudenttimetableget&UniversityMasterAcademicTimetableView%5Bacademicyear%5D=${y}&UniversityMasterAcademicTimetableView%5Bsemesterid%5D=${semVal}`);
+                        candidateUrls.push(`${ERP_BASE}/index.php?r=timetables%2Funiversitymasteracademictimetableview%2Findividualstudenttimetableget&UniversityMasterAcademicTimetableView[academicyear]=${y}&UniversityMasterAcademicTimetableView[semesterid]=${semVal}`);
+                        candidateUrls.push(`${ERP_BASE}/index.php?r=timetables%2Funiversitymasteracademictimetableview%2Findividualstudenttimetableget&academic_year_code=${y}&semester_id=${semVal}`);
+                        candidateUrls.push(`${ERP_BASE}/index.php?r=timetables%2Funiversitymasteracademictimetableview%2Findividualstudenttimetableget&academicyear=${y}&semesterid=${semVal}`);
+                    }
+
+                    for (const candUrl of candidateUrls) {
+                        try {
+                            const erpResp = await fetch(candUrl, {
+                                method: 'GET',
+                                headers: {
+                                    'Cookie': currentCookieStr,
+                                    'User-Agent': request.headers.get('User-Agent') || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                                    'Referer': `${ERP_BASE}/index.php`,
+                                    'Cache-Control': 'no-cache'
+                                },
+                                redirect: 'manual',
+                                signal: AbortSignal.timeout(6000)
+                            });
+
+                            if (erpResp.ok) {
+                                const html = await erpResp.text();
+                                if (html && !html.includes('id="login-form"') && html.includes('<table') && (html.includes('Mon') || html.includes('Monday') || html.includes('Tue'))) {
+                                    const tableMatch = html.match(/<table[^>]*>([\s\S]*?)<\/table>/i);
+                                    let timetableData = null;
+                                    if (tableMatch) {
+                                        const theadMatch = tableMatch[1].match(/<thead[^>]*>([\s\S]*?)<\/thead>/i);
+                                        let headers = [];
+                                        if (theadMatch) {
+                                            const rawHeaders = Array.from(theadMatch[1].matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi)).map(m => m[1].replace(/<[^>]+>/g, '').trim());
+                                            headers = rawHeaders.slice(1);
+                                        }
+                                        if (headers.length === 0) {
+                                            headers = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14'];
+                                        }
+
+                                        const tbodyMatch = tableMatch[1].match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i) || tableMatch;
+                                        const rowMatches = Array.from(tbodyMatch[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi));
+                                        timetableData = {};
+
+                                        for (const rm of rowMatches) {
+                                            const cellMatches = Array.from(rm[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)).map(m => m[1].replace(/<[^>]+>/g, '').trim());
+                                            if (cellMatches.length > 1) {
+                                                const dayName = cellMatches[0];
+                                                const slots = cellMatches.slice(1);
+                                                const daySlots = {};
+                                                headers.forEach((h, idx) => {
+                                                    daySlots[h] = slots[idx] || '-';
+                                                });
+                                                timetableData[dayName] = daySlots;
+                                            }
+                                        }
+                                    }
+
+                                    return new Response(JSON.stringify({
+                                        success: true,
+                                        source: 'erp_live',
+                                        timetable: timetableData,
+                                        html: html,
+                                        message: "Fetched timetable directly from ERP"
+                                    }), {
+                                        headers: { ...cors, 'Content-Type': 'application/json' }
+                                    });
+                                }
+                            }
+                        } catch {
+                            // continue candidate search
+                        }
+                    }
+                }
+
+                return new Response(JSON.stringify({
+                    success: true,
+                    source: 'erp_synced',
+                    message: "Using ERP registered courses for timetable",
+                    timetable: null
+                }), {
+                    headers: { ...cors, 'Content-Type': 'application/json' }
+                });
+            } catch (err) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: err.message
+                }), {
+                    status: 500,
+                    headers: { ...cors, 'Content-Type': 'application/json' }
+                });
+            }
+        }
+
+        // 5.6. /api/fetch-cgpa - Authentic KLU Semester Results & CGPA Extraction
+        if (url.pathname === '/api/fetch-cgpa' || url.pathname === '/api/fetch_cgpa' || url.pathname === '/fetch-cgpa') {
+            try {
+                const currentCookieStr = serializeCookieMap(cookieMap);
+                if (!currentCookieStr) {
+                    return new Response(JSON.stringify({ success: false, message: "No active ERP session. Please log in with your credentials." }), {
+                        status: 401,
+                        headers: { ...cors, 'Content-Type': 'application/json' }
+                    });
+                }
+
+                const cgpaUrl = `${ERP_BASE}/index.php?r=studentinfo%2Fstudentendexamresult%2Fsearchgetmycgpa`;
+                const erpResp = await fetch(cgpaUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Cookie': currentCookieStr,
+                        'User-Agent': request.headers.get('User-Agent') || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Referer': `${ERP_BASE}/index.php`,
+                        'Cache-Control': 'no-cache'
+                    },
+                    redirect: 'manual',
+                    signal: AbortSignal.timeout(10000)
+                });
+
+                if (!erpResp.ok) {
+                    return new Response(JSON.stringify({ success: false, message: `ERP returned status ${erpResp.status}` }), {
+                        status: erpResp.status,
+                        headers: { ...cors, 'Content-Type': 'application/json' }
+                    });
+                }
+
+                const html = await erpResp.text();
+                if (html.includes('id="login-form"') || html.includes('loginFormUserNameID')) {
+                    return new Response(JSON.stringify({ success: false, message: "ERP session expired. Please log in again." }), {
+                        status: 401,
+                        headers: { ...cors, 'Content-Type': 'application/json' }
+                    });
+                }
+
+                const tableMatch = html.match(/<table[^>]*>([\s\S]*?)<\/table>/i);
+                if (!tableMatch) {
+                    return new Response(JSON.stringify({ success: true, data: [], message: "No academic grade records found." }), {
+                        headers: { ...cors, 'Content-Type': 'application/json' }
+                    });
+                }
+
+                const rowMatches = Array.from(tableMatch[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi));
+                const coursesHistoryList = [];
+
+                for (const rm of rowMatches) {
+                    const rowContent = rm[1];
+                    if (rowContent.toLowerCase().includes('<th')) continue;
+
+                    const cells = Array.from(rowContent.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)).map(m => m[1].replace(/<[^>]+>/g, '').trim());
+                    if (cells.length < 11) continue;
+
+                    const linkMatch = rowContent.match(/href=["']([^"']+)["']/i);
+                    const rawHref = linkMatch ? linkMatch[1].replace(/&amp;/g, '&') : '';
+
+                    coursesHistoryList.push({
+                        course_code: cells[3] || '',
+                        course_name: cells[4] || '',
+                        grade: cells[5] || '',
+                        grade_point: cells[6] || '0',
+                        credits: cells[7] || '0',
+                        promotion_status: cells[8] || 'P',
+                        academic_year: cells[9] || '',
+                        semester: cells[10] || '',
+                        target_href: rawHref
+                    });
+                }
+
+                return new Response(JSON.stringify({
+                    success: true,
+                    data: coursesHistoryList,
+                    courses: coursesHistoryList,
+                    count: coursesHistoryList.length,
+                    message: "Successfully fetched grades from ERP"
+                }), {
+                    headers: { ...cors, 'Content-Type': 'application/json' }
+                });
+            } catch (err) {
+                return new Response(JSON.stringify({ success: false, error: err.message }), {
+                    status: 500,
+                    headers: { ...cors, 'Content-Type': 'application/json' }
+                });
+            }
+        }
+
+        // 5.7. /api/fetch-marks-detail - Authentic KLU Marks Scorecard Extraction
+        if (url.pathname === '/api/fetch-marks-detail' || url.pathname === '/api/fetch_marks_detail' || url.pathname === '/fetch-marks-detail') {
+            try {
+                const body = await request.json().catch(() => ({}));
+                const href = body.target_href || body.targetHref || url.searchParams.get('target_href') || url.searchParams.get('targetHref');
+                const currentCookieStr = serializeCookieMap(cookieMap);
+
+                if (!href) {
+                    return new Response(JSON.stringify({ success: false, message: "target_href parameter is required" }), {
+                        status: 400,
+                        headers: { ...cors, 'Content-Type': 'application/json' }
+                    });
+                }
+
+                const cleanHref = href.startsWith('http') ? href : `${ERP_BASE}/${href.replace(/^\//, '')}`;
+                const erpResp = await fetch(cleanHref, {
+                    method: 'GET',
+                    headers: {
+                        'Cookie': currentCookieStr,
+                        'User-Agent': request.headers.get('User-Agent') || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'Referer': `${ERP_BASE}/index.php`,
+                        'Cache-Control': 'no-cache'
+                    },
+                    redirect: 'manual',
+                    signal: AbortSignal.timeout(10000)
+                });
+
+                if (!erpResp.ok) {
+                    return new Response(JSON.stringify({ success: false, message: `ERP returned status ${erpResp.status}` }), {
+                        status: erpResp.status,
+                        headers: { ...cors, 'Content-Type': 'application/json' }
+                    });
+                }
+
+                const html = await erpResp.text();
+                const detailTableMatch = html.match(/<table[^>]*>([\s\S]*?)<\/table>/i);
+                const scorecard = {};
+
+                if (detailTableMatch) {
+                    const detailRows = Array.from(detailTableMatch[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi));
+                    for (const rm of detailRows) {
+                        const thMatch = rm[1].match(/<th[^>]*>([\s\S]*?)<\/th>/i);
+                        const tdMatch = rm[1].match(/<td[^>]*>([\s\S]*?)<\/td>/i);
+                        if (thMatch && tdMatch) {
+                            const rawKey = thMatch[1].replace(/<[^>]+>/g, '').trim();
+                            const fieldKey = rawKey.toLowerCase().replace(/\s+/g, '_');
+                            const val = tdMatch[1].replace(/<[^>]+>/g, '').trim();
+                            scorecard[fieldKey] = val;
+                        }
+                    }
+                }
+
+                return new Response(JSON.stringify({
+                    success: true,
+                    scorecard: scorecard,
+                    message: "Successfully fetched marks detail"
+                }), {
+                    headers: { ...cors, 'Content-Type': 'application/json' }
+                });
+            } catch (err) {
+                return new Response(JSON.stringify({ success: false, error: err.message }), {
+                    status: 500,
+                    headers: { ...cors, 'Content-Type': 'application/json' }
+                });
+            }
+        }
+
         // 6. /api/logins audit logging endpoint
         if (url.pathname === '/api/logins') {
             return new Response(JSON.stringify({ success: true }), {

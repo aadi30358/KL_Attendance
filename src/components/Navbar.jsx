@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Menu, X, Bell, LogOut, Download, Check } from 'lucide-react';
+import { Menu, X, Bell, LogOut, Download, Check, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 import { useAuth } from '../context/useAuth';
@@ -9,6 +9,8 @@ import { db } from '../firebase';
 import { cn } from '../lib/utils';
 import { subscribeCrossDomainSync } from '../services/crossDomainSync';
 import { openInstallModal, isMarkedInstalled } from '../services/pwaInstallManager';
+import FriendsManagerModal from './FriendsManagerModal';
+import { getActiveProfileDetails } from '../services/friendsService';
 
 const Navbar = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -16,6 +18,8 @@ const Navbar = () => {
     const [announcement, setAnnouncement] = useState("");
     const [maintenanceConfig, setMaintenanceConfig] = useState({ enabled: false, title: 'ERP Login is Under Maintenance' });
     const [isAppInstalled, setIsAppInstalled] = useState(() => isMarkedInstalled());
+    const [showFriendsModal, setShowFriendsModal] = useState(false);
+    const [activeProfile, setActiveProfile] = useState(() => getActiveProfileDetails());
 
     const { currentUser, erpUser, setErpUser, logout } = useAuth(); // Import erpUser here
     const location = useLocation();
@@ -54,7 +58,9 @@ const Navbar = () => {
         localStorage.removeItem('kleData'); // Fallback
         sessionStorage.setItem('manual_sem_reset', 'true');
         window.dispatchEvent(new CustomEvent('kl_reset_selection'));
-        navigate('/attendance-register');
+        if (location.pathname !== '/timetable') {
+            navigate('/attendance-register');
+        }
         setIsOpen(false);
     };
 
@@ -129,9 +135,18 @@ const Navbar = () => {
         };
         window.addEventListener('kl_app_installed_event', handleInstalledSync);
 
+        // 5. Instant synchronization for friends & active profile
+        const handleProfileSync = () => {
+            setActiveProfile(getActiveProfileDetails());
+        };
+        window.addEventListener('kl_friends_updated', handleProfileSync);
+        window.addEventListener('kl_active_profile_updated', handleProfileSync);
+
         return () => {
             window.removeEventListener('scroll', handleScroll);
             window.removeEventListener('kl_app_installed_event', handleInstalledSync);
+            window.removeEventListener('kl_friends_updated', handleProfileSync);
+            window.removeEventListener('kl_active_profile_updated', handleProfileSync);
             if (unsubAnnounce) unsubAnnounce();
             if (unsubMaintenance) unsubMaintenance();
             if (unsubCrossSync) unsubCrossSync();
@@ -142,11 +157,13 @@ const Navbar = () => {
     const rawHtml = typeof window !== 'undefined' ? localStorage.getItem('erpDashboardHtml') : null;
     const hasValidHtml = Boolean(rawHtml && !rawHtml.includes('site-error') && !rawHtml.includes('id="login-form"'));
     const isErpLoggedIn = Boolean(activeId && hasValidHtml);
-    const isLoginPage = location.pathname === '/login';
-    const showLogout = isErpLoggedIn && !isLoginPage;
+    const isErpPortal = location.pathname === '/login' || location.pathname === '/attendance-register' || location.pathname === '/timetable';
+    const showLogout = isErpLoggedIn && !isErpPortal;
 
     const navItems = [
         { name: 'HOME', path: '/' },
+        { name: 'TIMETABLE', path: '/timetable' },
+        { name: 'GRADES & CGPA', path: '/grades' },
         { name: 'ATTENDANCE BY L-T-P-S', path: '/ltps' },
         { name: 'BUNK SIMULATOR', path: '/bunk-simulator' },
         { name: 'ATTENDANCE WHEN ABSENT', path: '/attendance' },
@@ -163,10 +180,15 @@ const Navbar = () => {
             isMaintenance: Boolean(maintenanceConfig?.enabled)
         }] : []),
         ...(currentUser?.email === 'yaswanthadithyareddy11@gmail.com' ? [{ name: 'ADMIN', path: '/admin' }] : []),
-        ...(isErpLoggedIn && !isLoginPage ? [{ name: 'CHANGE SELECTION', path: '/attendance-register', isReset: true }] : [])
+        ...(isErpLoggedIn && !isErpPortal ? [{ name: 'CHANGE SELECTION', path: '/attendance-register', isReset: true }] : [])
     ];
 
     const isActive = (path) => location.pathname === path;
+
+    // Dedicated KLERP Portal layout on /login and /attendance-register has its own left sidebar and top bar
+    if (isErpPortal) {
+        return null;
+    }
 
     return (
         <header className="fixed top-0 left-0 w-full z-50">
@@ -324,6 +346,25 @@ const Navbar = () => {
                             ))}
 
 
+                            {/* Desktop Friends / Profiles Switcher Button */}
+                            <button
+                                onClick={() => setShowFriendsModal(true)}
+                                title={activeProfile?.isFriend ? `Viewing ${activeProfile.label}` : "Check Friend's Attendance"}
+                                className={cn(
+                                    "flex items-center gap-1.5 px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all duration-300 cursor-pointer shadow-md active:scale-95 shrink-0",
+                                    activeProfile?.isFriend
+                                        ? "bg-pink-100 text-pink-900 border-2 border-pink-400 dark:bg-pink-950/80 dark:text-pink-200 dark:border-pink-600 animate-pulse"
+                                        : (scrolled
+                                            ? "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                                            : "bg-white/20 hover:bg-white/30 text-white border border-white/40")
+                                )}
+                            >
+                                <Users className="w-3.5 h-3.5 shrink-0" />
+                                <span className="font-black drop-shadow-xs truncate max-w-[100px]">
+                                    {activeProfile?.isFriend ? activeProfile.nickname : "Friends"}
+                                </span>
+                            </button>
+
                             {/* Desktop User Account Section */}
                             {showLogout && (
                                 <div className={cn(
@@ -356,6 +397,21 @@ const Navbar = () => {
 
                         {/* Mobile Menu Button */}
                         <div className="lg:hidden flex items-center gap-2">
+                            {/* Mobile Friends Button */}
+                            <button
+                                onClick={() => setShowFriendsModal(true)}
+                                title="Check Friend's Attendance"
+                                className={cn(
+                                    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95",
+                                    activeProfile?.isFriend
+                                        ? "bg-pink-100 text-pink-900 border border-pink-300"
+                                        : (scrolled ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-white/15 text-white border border-white/40")
+                                )}
+                            >
+                                <Users className="w-3.5 h-3.5 shrink-0" />
+                                <span className="truncate max-w-[60px]">{activeProfile?.isFriend ? activeProfile.nickname : "Friends"}</span>
+                            </button>
+
                             {/* Quick Install Button on Mobile Header */}
                             <button
                                 onClick={() => openInstallModal()}
@@ -404,6 +460,32 @@ const Navbar = () => {
                             className="lg:hidden bg-white dark:bg-[#0f172a] border-t border-slate-100 dark:border-slate-800 shadow-2xl overflow-hidden"
                         >
                             <div className="px-4 pt-4 pb-6 space-y-2">
+
+                                {/* Mobile Friends Switcher Card */}
+                                <button
+                                    onClick={() => {
+                                        setIsOpen(false);
+                                        setShowFriendsModal(true);
+                                    }}
+                                    className="w-full flex items-center justify-between p-3.5 bg-gradient-to-r from-pink-50 to-indigo-50 dark:from-slate-800 dark:to-slate-800/60 border-2 border-indigo-200 dark:border-slate-700 rounded-2xl text-left cursor-pointer transition-all mb-3 shadow-xs"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
+                                            <Users className="w-4 h-4 text-indigo-700" />
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                                                {activeProfile?.isFriend ? 'Viewing Friend' : 'Friend Attendance'}
+                                            </span>
+                                            <span className="text-sm font-black text-slate-900 dark:text-white">
+                                                {activeProfile?.isFriend ? activeProfile.nickname : 'Check Friend\'s Attendance'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <span className="text-[10px] bg-indigo-600 text-white font-black px-2.5 py-1 rounded-full uppercase">
+                                        {activeProfile?.isFriend ? 'Switch' : 'Open'}
+                                    </span>
+                                </button>
 
                                 {showLogout && activeId && (
                                     <div className="mx-0 mb-4 p-4 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-slate-100 dark:border-slate-700 flex items-center justify-between">
@@ -494,6 +576,12 @@ const Navbar = () => {
 
             {/* Height Spacer to prevent layout jump when sticky */}
             <div className="h-1" />
+
+            {/* Friends Manager & Captcha Switcher Modal */}
+            <FriendsManagerModal
+                isOpen={showFriendsModal}
+                onClose={() => setShowFriendsModal(false)}
+            />
         </header>
     );
 };

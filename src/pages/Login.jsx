@@ -1,6 +1,27 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogIn, RefreshCcw, Loader2, Check, Sparkles, Eye, EyeOff, Wrench, ShieldAlert, Clock, ArrowLeft, AlertTriangle, ShieldCheck, Lock, Key, X } from 'lucide-react';
+import { 
+    LogIn, 
+    RefreshCcw, 
+    Loader2, 
+    Sparkles, 
+    Eye, 
+    EyeOff, 
+    Wrench, 
+    ShieldAlert, 
+    Clock, 
+    ArrowLeft, 
+    AlertTriangle, 
+    ShieldCheck, 
+    Lock, 
+    Key, 
+    X, 
+    User, 
+    Users,
+    Plus, 
+    Trash2, 
+    Edit2
+} from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { erpService, isVerifiedErpDashboard } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
@@ -10,6 +31,20 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { subscribeCrossDomainSync } from '../services/crossDomainSync';
 import SEO from '../components/SEO';
+import AddFriendModal from '../components/AddFriendModal';
+import ErpSidebar from '../components/ErpSidebar';
+import ClassTimetable from '../components/ClassTimetable';
+import { 
+    saveFriend, 
+    saveMyProfile,
+    deleteFriend, 
+    getAllProfiles, 
+    decodePassword, 
+    setActiveProfileId, 
+    getActiveProfileId, 
+    stripEmojis, 
+    FRIEND_NICKNAMES 
+} from '../services/friendsService';
 
 const Login = () => {
     const { setErpUser, currentUser } = useAuth();
@@ -68,16 +103,82 @@ const Login = () => {
         setBypassError('');
     };
 
+    // Profiles & active selection
+    const [allProfilesList, setAllProfilesList] = useState(() => getAllProfiles());
+    const [selectedProfileId, setSelectedProfileId] = useState(() => {
+        const list = getAllProfiles();
+        const activeId = getActiveProfileId();
+        if (activeId && list.some(p => p.id === activeId)) return activeId;
+        return list.length > 0 ? list[0].id : 'new';
+    });
+
+    // Form inputs for new buddy / manual login
     const [idNumber, setIdNumber] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
+    const [newProfileName, setNewProfileName] = useState('');
+    const [rememberMe, setRememberMe] = useState(true);
+
+    // Captcha & submission
     const [captcha, setCaptcha] = useState('');
-    const [captchaUrl, setCaptchaUrl] = useState(''); // This will be the Blob URL
+    const [captchaUrl, setCaptchaUrl] = useState('');
     const [csrfToken, setCsrfToken] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [logoutNotice, setLogoutNotice] = useState('');
-    const [rememberMe, setRememberMe] = useState(localStorage.getItem('rememberedId') ? true : false);
+
+    // Modals & UI
+    const [showAddFriendModal, setShowAddFriendModal] = useState(false);
+    const [editingFriend, setEditingFriend] = useState(null);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [activeView, setActiveView] = useState('attendance');
+
+    // Cross-component switch view listener
+    useEffect(() => {
+        const handleSwitch = (e) => {
+            if (e.detail === 'timetable' || e.detail === 'attendance') {
+                setActiveView(e.detail);
+            }
+        };
+        window.addEventListener('kl_switch_view', handleSwitch);
+        return () => window.removeEventListener('kl_switch_view', handleSwitch);
+    }, []);
+
+    // Retrieve cached ERP courses for timetable
+    const getCachedCourses = (id) => {
+        try {
+            if (!id) return [];
+            const raw = localStorage.getItem(`kleData_${id}`) || localStorage.getItem('kleData');
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
+                    return parsed.attendance_data;
+                }
+            }
+        } catch {
+            // ignore
+        }
+        return [];
+    };
+
+    // Sync saved friends and profiles
+    useEffect(() => {
+        const updateAll = () => {
+            const updated = getAllProfiles();
+            setAllProfilesList(updated);
+            if (selectedProfileId !== 'new' && !updated.some(p => p.id === selectedProfileId)) {
+                setSelectedProfileId(updated.length > 0 ? updated[0].id : 'new');
+            }
+        };
+        window.addEventListener('kl_friends_updated', updateAll);
+        window.addEventListener('kl_active_profile_updated', updateAll);
+        window.addEventListener('storage', updateAll);
+        return () => {
+            window.removeEventListener('kl_friends_updated', updateAll);
+            window.removeEventListener('kl_active_profile_updated', updateAll);
+            window.removeEventListener('storage', updateAll);
+        };
+    }, [selectedProfileId]);
 
     // Check for inactivity or session expiration logout reason
     useEffect(() => {
@@ -134,34 +235,13 @@ const Login = () => {
             window.removeEventListener('storage', handleStorage);
         };
     }, []);
-    
-    // Support for PWA Repair
-    useEffect(() => {
-        const handleResetPWA = async () => {
-            console.log("Resetting PWA System...");
-            if ('serviceWorker' in navigator) {
-                const registrations = await navigator.serviceWorker.getRegistrations();
-                for (let registration of registrations) {
-                    await registration.unregister();
-                }
-            }
-            // Clear specific PWA caches
-            const cacheNames = await caches.keys();
-            for (let name of cacheNames) {
-                await caches.delete(name);
-            }
-            window.location.reload(true);
-        };
-
-        window.addEventListener('resetPWA', handleResetPWA);
-        return () => window.removeEventListener('resetPWA', handleResetPWA);
-    }, []);
 
     const navigate = useNavigate();
     const captchaUrlRef = useRef('');
     const csrfTokenRef = useRef('');
     const isSubmittingRef = useRef(false);
     const initCounterRef = useRef(0);
+    const captchaInputRef = useRef(null);
 
     const refreshCaptcha = useCallback(async (keepError = false) => {
         const refreshId = ++initCounterRef.current;
@@ -200,7 +280,6 @@ const Login = () => {
     const isMaintenanceBlocked = Boolean(maintenanceConfig?.enabled && !adminBypassed);
 
     useEffect(() => {
-        // Skip ERP initialization if maintenance mode is active and not bypassed
         if (isMaintenanceBlocked) return;
 
         let isMounted = true;
@@ -208,7 +287,6 @@ const Login = () => {
 
         const init = async () => {
             try {
-                // Clear any stale broken session state on login screen mount
                 erpService.clearStoredErpCookies();
                 sessionStorage.removeItem('erp_authenticated');
 
@@ -241,25 +319,27 @@ const Login = () => {
         };
         init();
 
-        // Load saved credentials
-        const savedId = localStorage.getItem('rememberedId');
-        const savedPass = localStorage.getItem('rememberedPassword');
-        if (savedId) {
-            setIdNumber(savedId);
-            if (savedPass) {
-                try {
-                    setPassword(atob(savedPass)); // Simple decode
-                } catch (e) {
-                    console.error("Failed to decode saved password", e);
-                }
-            }
-            setRememberMe(true);
-        }
-
         return () => {
             isMounted = false;
         };
     }, [isMaintenanceBlocked, refreshCaptcha]);
+
+    // Active profile when not in 'new' mode
+    const isNewProfile = selectedProfileId === 'new';
+    const activeProfile = !isNewProfile
+        ? (allProfilesList.find(p => p.id === selectedProfileId) || allProfilesList[0] || null)
+        : null;
+    const timetableStudentId = activeProfile?.studentId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '2400030358';
+    const timetableStudentName = activeProfile?.nickname || activeProfile?.name || 'My Profile';
+
+    // Focus captcha input whenever selected profile changes
+    useEffect(() => {
+        setCaptcha('');
+        setError('');
+        if (captchaInputRef.current) {
+            captchaInputRef.current.focus();
+        }
+    }, [selectedProfileId]);
 
     const handleLogin = async () => {
         if (maintenanceConfig?.enabled && !adminBypassed) {
@@ -267,12 +347,36 @@ const Login = () => {
             return;
         }
         if (isSubmittingRef.current) return;
-        const cleanId = idNumber.trim();
-        const cleanPass = password.trim();
+
+        let cleanId = '';
+        let cleanPass = '';
+
+        if (!isNewProfile && activeProfile) {
+            cleanId = (activeProfile.studentId || '').trim();
+            cleanPass = decodePassword(activeProfile.password) || (activeProfile.id === 'main' ? decodePassword(localStorage.getItem('rememberedPassword') || '') : '');
+            if (!cleanPass) {
+                setEditingFriend(activeProfile);
+                setShowAddFriendModal(true);
+                setError(`Please save the ERP password for ${activeProfile.nickname}.`);
+                return;
+            }
+        } else {
+            cleanId = idNumber.trim();
+            cleanPass = password.trim();
+        }
+
         const cleanCaptcha = captcha.trim();
 
-        if (!cleanId || !cleanPass || !cleanCaptcha) {
-            setError("Please fill all fields");
+        if (!cleanId) {
+            setError("Please enter your Student ID Number.");
+            return;
+        }
+        if (!cleanPass) {
+            setError("Please enter your ERP Password.");
+            return;
+        }
+        if (!cleanCaptcha) {
+            setError("Please enter the Captcha code.");
             return;
         }
 
@@ -284,7 +388,6 @@ const Login = () => {
             const activeToken = csrfTokenRef.current || erpService.getStoredCsrfToken() || csrfToken || '';
             const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken);
 
-            // STRICT: ONLY record and navigate if ERP authentication is 100% verified and confirmed
             if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, cleanId)) {
                 localStorage.setItem('erpDashboardHtml', loginResult.html);
                 localStorage.removeItem('kleData');
@@ -292,15 +395,36 @@ const Login = () => {
                 setErpUser(cleanId);
                 localStorage.setItem('activeErpUser', cleanId);
 
-                if (rememberMe) {
-                    localStorage.setItem('rememberedId', cleanId);
-                    localStorage.setItem('rememberedPassword', btoa(cleanPass));
+                if (!isNewProfile && activeProfile) {
+                    setActiveProfileId(activeProfile.id);
+                    if (activeProfile.id === 'main') {
+                        saveMyProfile({
+                            nickname: activeProfile.nickname || localStorage.getItem('rememberedName') || 'Adithya',
+                            studentId: cleanId,
+                            password: cleanPass
+                        });
+                    }
                 } else {
-                    localStorage.removeItem('rememberedId');
-                    localStorage.removeItem('rememberedPassword');
+                    const cleanName = stripEmojis(newProfileName).trim();
+                    if (cleanName && cleanName.toLowerCase() !== 'my account' && cleanName.toLowerCase() !== 'adithya') {
+                        const saved = saveFriend({
+                            nickname: cleanName,
+                            studentId: cleanId,
+                            password: cleanPass
+                        });
+                        if (saved) {
+                            setActiveProfileId(saved.id);
+                        }
+                    } else {
+                        saveMyProfile({
+                            nickname: cleanName || localStorage.getItem('rememberedName') || 'Adithya',
+                            studentId: cleanId,
+                            password: cleanPass
+                        });
+                        setActiveProfileId('main');
+                    }
                 }
 
-                // STRICT: ONLY record login AFTER ERP login is confirmed and verified
                 try {
                     await Promise.allSettled([
                         typeof recordStudentLogin === 'function' ? recordStudentLogin(cleanId) : Promise.resolve(),
@@ -312,11 +436,11 @@ const Login = () => {
 
                 navigate('/attendance-register');
             } else {
-                throw new Error("Incorrect Student ID, Password, or Captcha.");
+                throw new Error("Incorrect Captcha, Student ID, or Password. Please try again.");
             }
         } catch (err) {
             console.error("Login attempt failed:", err);
-            setError(err.message || "Login failed. Please check your credentials.");
+            setError(err.message || "Login failed. Please check the captcha code.");
             setCaptcha('');
             refreshCaptcha(true);
         } finally {
@@ -333,10 +457,8 @@ const Login = () => {
                     title="ERP Login — Under Maintenance"
                     description={maintenanceConfig.message || "ERP Login is currently under maintenance."}
                 />
-                {/* Ambient Background */}
                 <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
                     <div className="absolute inset-0 bg-gradient-to-b from-amber-50/50 via-white to-amber-50/20 opacity-80" />
-                    <div className="hidden sm:block absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-amber-200/50 via-orange-100/40 to-amber-100/30 blur-3xl opacity-50" />
                 </div>
 
                 <motion.div
@@ -346,14 +468,12 @@ const Login = () => {
                     transition={{ type: "spring", stiffness: 220, damping: 25 }}
                     className="w-full max-w-md relative z-10"
                 >
-                    <div className="bg-white/90 backdrop-blur-xl border-[3px] border-slate-900 rounded-[2.5rem] p-6 sm:p-8 shadow-2xl relative overflow-hidden text-center">
-                        {/* Status Beacon */}
+                    <div className="bg-white border-[3px] border-slate-900 rounded-[2.5rem] p-6 sm:p-8 shadow-2xl relative overflow-hidden text-center">
                         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-xs font-black uppercase tracking-wider mb-6 shadow-xs">
                             <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
                             <span>System Under Maintenance</span>
                         </div>
 
-                        {/* Animated Icon Avatar */}
                         <div className="relative w-20 h-20 mx-auto mb-6">
                             <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-amber-500 to-red-500 flex items-center justify-center shadow-lg shadow-amber-500/25 border-2 border-black">
                                 <ShieldAlert className="w-10 h-10 text-white" />
@@ -371,7 +491,6 @@ const Login = () => {
                             {maintenanceConfig.message || 'ERP login is currently under maintenance. Please check back shortly.'}
                         </p>
 
-                        {/* Status Details */}
                         <div className="bg-amber-50/80 border-2 border-amber-200 rounded-2xl p-4 text-left mb-6 space-y-2.5">
                             {maintenanceConfig.eta && (
                                 <div className="flex items-center gap-2 text-xs font-bold text-amber-950">
@@ -385,7 +504,6 @@ const Login = () => {
                             </div>
                         </div>
 
-                        {/* Action Buttons */}
                         <div className="space-y-2.5">
                             <Link
                                 to="/"
@@ -490,226 +608,520 @@ const Login = () => {
     }
 
     return (
-        <div className="min-h-screen pt-32 pb-12 overflow-hidden bg-[#FAFAFA] flex items-center justify-center px-4 relative font-sans selection:bg-indigo-500 selection:text-white">
-            {/* Ambient Background - High Performance Static Gradient */}
-            <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-white to-indigo-50/30" />
-                <div className="absolute -top-32 -left-32 w-96 h-96 rounded-full bg-gradient-to-br from-indigo-200/50 via-purple-100/40 to-pink-100/30 blur-3xl opacity-70" />
-                <div className="absolute top-1/3 -right-32 w-96 h-96 rounded-full bg-gradient-to-bl from-blue-200/50 via-teal-100/40 to-emerald-100/30 blur-3xl opacity-60" />
-                <div className="absolute inset-0 bg-[url('/noise.svg')] opacity-[0.02] mix-blend-overlay" />
-            </div>
+        <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+            <SEO
+                title="KLERP Attendance Portal"
+                description="Sign in to university ERP portal to view live attendance"
+            />
 
-            <motion.div
-                initial={{ opacity: 0, y: 30, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ type: "spring", stiffness: 200, damping: 25 }}
-                className="w-full max-w-md relative z-10"
-            >
-                {/* Card */}
-                <div className="bg-white/80 backdrop-blur-xl border-[3px] border-slate-900 rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden">
-                    {/* Shine */}
-                    <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/80 via-transparent to-transparent opacity-50 pointer-events-none" />
-
-                    {/* Admin Bypass Notice (if active) */}
-                    {adminBypassed && (
-                        <div className="mb-4 bg-amber-50 border border-amber-300 rounded-2xl p-3 flex items-center justify-between text-xs text-amber-900 font-bold relative z-10">
-                            <div className="flex items-center gap-2">
-                                <ShieldCheck className="w-4 h-4 text-amber-700" />
-                                <span>Maintenance Bypass Active</span>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={handleRelock}
-                                className="text-[10px] text-amber-700 underline font-black cursor-pointer hover:text-amber-950"
-                            >
-                                Re-lock
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Header */}
-                    <div className="text-center mb-8 relative z-10">
-                        <motion.div
-                            initial={{ scale: 0, rotate: -180 }}
-                            animate={{ scale: 1, rotate: 0 }}
-                            transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.1 }}
-                            className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200"
+            {/* KLERP Top Header */}
+            <header className="bg-[#0088cc] text-white px-4 sm:px-6 py-2.5 shadow-md z-40 sticky top-0 shrink-0 w-full select-none border-b border-black/10">
+                <div className="w-full relative flex items-center justify-between min-h-[46px]">
+                    {/* Left Column: Mobile Drawer Toggle */}
+                    <div className="flex items-center gap-2 z-10">
+                        <button
+                            type="button"
+                            onClick={() => setSidebarOpen(prev => !prev)}
+                            className="lg:hidden flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 active:scale-95 text-white text-xs font-bold transition-all border border-white/20 shadow-2xs cursor-pointer"
+                            title="Student Profiles & Friends"
                         >
-                            <Sparkles className="w-8 h-8 text-white" />
-                        </motion.div>
-                        <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-                            KL ERP Attendance
-                        </h1>
-                        <p className="text-slate-500 text-sm font-medium mt-1">Sign in to access your attendance details</p>
+                            <Users className="w-4 h-4" />
+                            <span className="hidden sm:inline text-[11px] font-bold">Profiles</span>
+                        </button>
                     </div>
 
-                    <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-4 relative z-10">
-                        {/* Inactivity / Session Expired Notice */}
-                        <AnimatePresence>
-                            {logoutNotice && (
-                                <motion.div
-                                    initial={{ opacity: 0, scale: 0.95 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.95 }}
-                                    className="bg-amber-50 border border-amber-200 text-amber-900 p-3.5 rounded-2xl text-xs font-bold flex items-center justify-between gap-3 shadow-2xs"
-                                >
-                                    <div className="flex items-center gap-2.5">
-                                        <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse shrink-0" />
-                                        <span>{logoutNotice}</span>
+                    {/* Center Column: Logo + KLERP + Image 5 Subtitle (True 100% Mathematical Center) */}
+                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center text-center pointer-events-auto">
+                        <div className="flex items-center gap-2 sm:gap-2.5">
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white flex items-center justify-center p-0.5 shadow-sm ring-1 ring-white/30 shrink-0">
+                                <img
+                                    src="/Koneru Lakshmaiah University Logo Banner.png"
+                                    alt="KLU"
+                                    className="w-full h-full object-contain"
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                />
+                            </div>
+                            <span className="font-serif italic font-extrabold text-xl sm:text-2xl text-white tracking-wider drop-shadow-xs">
+                                KLERP
+                            </span>
+                        </div>
+                        <span className="text-[10px] sm:text-[11px] font-semibold text-white/95 tracking-wide leading-none mt-1 whitespace-nowrap">
+                            Attendance Calculator for KLU students
+                        </span>
+                    </div>
+
+                    {/* Right Column: Back to Home */}
+                    <div className="flex items-center gap-2 z-10 ml-auto">
+                        <Link
+                            to="/"
+                            className="text-xs font-black uppercase tracking-wider bg-white/15 hover:bg-white/25 active:scale-95 text-white px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs border border-white/20"
+                        >
+                            <ArrowLeft className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Back to Home</span>
+                        </Link>
+                    </div>
+                </div>
+            </header>
+
+            {/* Page Body: Left Sidebar + Centered Content Area */}
+            <div className="flex-1 flex overflow-hidden relative">
+                {/* Left Sidebar (Image 3 Style with Buddies, Bunk Simulator, LTPS, Absent) */}
+                <ErpSidebar
+                    isOpen={sidebarOpen}
+                    onToggle={() => setSidebarOpen(false)}
+                    activePage="login"
+                    activeView={activeView}
+                    onSelectView={setActiveView}
+                    onSelectProfile={(prof) => {
+                        setSelectedProfileId(prof.id);
+                        setCaptcha('');
+                        setError('');
+                    }}
+                    onAddNewProfile={() => {
+                        setSelectedProfileId('new');
+                        setCaptcha('');
+                        setError('');
+                    }}
+                />
+
+                {/* Main Content Area: Centered, Fit for Screen */}
+                <main className={`flex-1 overflow-y-auto ${activeView === 'timetable' ? 'p-4 sm:p-6 lg:p-8 font-sans' : 'p-4 sm:p-8 lg:p-12 flex items-center justify-center min-h-[calc(100vh-64px)] relative'}`}>
+                    {activeView === 'timetable' ? (
+                        <div className="w-full max-w-7xl mx-auto">
+                            <ClassTimetable
+                                studentId={timetableStudentId}
+                                studentName={timetableStudentName}
+                                erpCourses={getCachedCourses(timetableStudentId)}
+                                onViewCourseAttendance={() => setActiveView('attendance')}
+                            />
+                        </div>
+                    ) : (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ type: "spring", stiffness: 220, damping: 25 }}
+                        className="w-full max-w-xl lg:max-w-2xl relative z-10 my-auto"
+                    >
+                        {/* Main Login Card */}
+                        <div className="bg-white border border-slate-200/90 rounded-3xl p-7 sm:p-9 lg:p-10 shadow-2xl shadow-slate-300/40 relative overflow-hidden transform-gpu">
+                            {/* Shine bar */}
+                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-t-3xl" />
+
+                            {/* Admin Bypass Notice (if active) */}
+                            {adminBypassed && (
+                                <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-2.5 flex items-center justify-between text-xs text-amber-900 font-bold relative z-10">
+                                    <div className="flex items-center gap-2">
+                                        <ShieldCheck className="w-4 h-4 text-amber-700" />
+                                        <span>Maintenance Bypass Active</span>
                                     </div>
                                     <button
                                         type="button"
-                                        onClick={() => setLogoutNotice('')}
-                                        className="text-amber-600 hover:text-amber-800 text-xs font-black cursor-pointer px-1"
+                                        onClick={handleRelock}
+                                        className="text-[10px] text-amber-700 underline font-black cursor-pointer hover:text-amber-950"
                                     >
-                                        ✕
+                                        Re-lock
                                     </button>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-
-                        {/* Error banner */}
-                        <AnimatePresence>
-                            {error && (
-                                <motion.div
-                                    initial={{ opacity: 0, scale: 0.95 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    exit={{ opacity: 0, scale: 0.95 }}
-                                    className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-2xl text-xs font-bold flex items-center gap-3"
-                                >
-                                    <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shrink-0" />
-                                    {error}
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-
-                        {/* Student ID */}
-                        <div className="space-y-3">
-                            <label className="text-slate-500 text-[11px] font-black uppercase tracking-widest ml-1">Student ID</label>
-                            <input
-                                type="text"
-                                value={idNumber}
-                                onChange={(e) => setIdNumber(e.target.value)}
-                                placeholder="Enter your ID Number"
-                                className="w-full bg-white border border-slate-200 rounded-2xl py-4 px-5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium shadow-sm"
-                            />
-                        </div>
-
-                        {/* Password */}
-                        <div className="space-y-3">
-                            <label className="text-slate-500 text-[11px] font-black uppercase tracking-widest ml-1">Password</label>
-                            <div className="relative">
-                                <input
-                                    type={showPassword ? "text" : "password"}
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    placeholder="Enter your password"
-                                    className="w-full bg-white border border-slate-200 rounded-2xl py-4 pl-5 pr-12 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium shadow-sm"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
-                                    title={showPassword ? "Hide password" : "Show password"}
-                                >
-                                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Remember Me */}
-                        <div className="flex items-center gap-3 ml-1">
-                            <button
-                                type="button"
-                                onClick={() => setRememberMe(!rememberMe)}
-                                className={`w-4 h-4 rounded-[4px] border-2 flex items-center justify-center transition-all ${rememberMe ? 'bg-indigo-600 border-indigo-600' : 'bg-transparent border-slate-300'}`}
-                            >
-                                {rememberMe && <Check className="w-3 h-3 text-white" strokeWidth={4} />}
-                            </button>
-                            <span
-                                className="text-slate-500 text-[13px] font-bold select-none cursor-pointer hover:text-slate-700 transition-colors"
-                                onClick={() => setRememberMe(!rememberMe)}
-                            >
-                                Remember me
-                            </span>
-                        </div>
-
-                        {/* Captcha */}
-                        <div className="space-y-3">
-                            <label className="text-slate-500 text-[11px] font-black uppercase tracking-widest ml-1">Captcha</label>
-                            <div className="flex gap-3">
-                                <div className="relative flex-1">
-                                    <input
-                                        type="text"
-                                        value={captcha}
-                                        onChange={(e) => setCaptcha(e.target.value)}
-                                        placeholder="Enter Captcha"
-                                        className="w-full h-[56px] bg-white border border-slate-200 rounded-2xl px-5 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-bold tracking-widest shadow-sm"
-                                    />
-
                                 </div>
-                                <div className="w-[110px] h-[56px] bg-slate-100 rounded-2xl flex items-center justify-center overflow-hidden relative shrink-0">
-                                    {captchaUrl ? (
-                                        <img 
-                                            src={captchaUrl} 
-                                            alt="Captcha" 
-                                            className="h-10 object-contain mix-blend-multiply opacity-80" 
-                                        />
-                                    ) : (
-                                        <div className="animate-pulse bg-slate-200 w-full h-full" />
+                            )}
+
+                            {/* Header */}
+                            <div className="text-center mb-6 relative z-10">
+                                <div className="w-14 h-14 mx-auto mb-2.5 rounded-2xl bg-[#0088cc] flex items-center justify-center shadow-md text-white">
+                                    <Sparkles className="w-7 h-7 text-white" />
+                                </div>
+                                <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                                    KL ERP Attendance
+                                </h1>
+                                <p className="text-slate-400 text-xs sm:text-sm font-medium mt-1">
+                                    Sign in with ERP Captcha
+                                </p>
+                            </div>
+
+                            {/* Profile Selection Bar (Chips) */}
+                            <div className="mb-4 relative z-10">
+                                <div className="flex items-center justify-between mb-1.5 px-0.5">
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                        Select Profile
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedProfileId('new');
+                                            setNewProfileName('');
+                                            setIdNumber('');
+                                            setPassword('');
+                                        }}
+                                        className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 transition-colors flex items-center gap-1 cursor-pointer"
+                                    >
+                                        <Plus className="w-3 h-3" />
+                                        <span>Add Buddy</span>
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                                    {allProfilesList.map((prof) => {
+                                        const isSelected = selectedProfileId === prof.id;
+                                        return (
+                                            <button
+                                                key={prof.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    setSelectedProfileId(prof.id);
+                                                    setCaptcha('');
+                                                    setError('');
+                                                }}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap cursor-pointer active:scale-95 shrink-0 ${
+                                                    isSelected
+                                                        ? 'bg-slate-900 text-white shadow-xs'
+                                                        : 'bg-slate-100 hover:bg-slate-200/80 text-slate-700'
+                                                }`}
+                                            >
+                                                <User className="w-3.5 h-3.5" />
+                                                <span>{prof.nickname}</span>
+                                            </button>
+                                        );
+                                    })}
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedProfileId('new');
+                                            setNewProfileName('');
+                                            setIdNumber('');
+                                            setPassword('');
+                                            setCaptcha('');
+                                            setError('');
+                                        }}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 whitespace-nowrap cursor-pointer active:scale-95 shrink-0 ${
+                                            selectedProfileId === 'new'
+                                                ? 'bg-indigo-600 text-white shadow-xs'
+                                                : 'bg-indigo-50/60 hover:bg-indigo-50 text-indigo-700 border border-dashed border-indigo-300'
+                                        }`}
+                                    >
+                                        <Plus className="w-3.5 h-3.5" />
+                                        <span>+ Add</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }} className="space-y-4 relative z-10">
+                                {/* Inactivity / Session Expired Notice */}
+                                <AnimatePresence>
+                                    {logoutNotice && (
+                                        <motion.div
+                                            initial={{ opacity: 0, scale: 0.95 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            exit={{ opacity: 0, scale: 0.95 }}
+                                            className="bg-amber-50 border border-amber-200 text-amber-900 p-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-3 shadow-2xs"
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse shrink-0" />
+                                                <span>{logoutNotice}</span>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setLogoutNotice('')}
+                                                className="text-amber-600 hover:text-amber-800 text-xs font-black cursor-pointer px-1"
+                                            >
+                                                ✕
+                                            </button>
+                                        </motion.div>
                                     )}
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => refreshCaptcha(false)}
-                                    className="w-[56px] h-[56px] bg-white border border-slate-200 rounded-2xl flex items-center justify-center hover:bg-slate-50 transition-colors text-slate-400 hover:text-slate-700 shadow-sm shrink-0"
-                                    title="Refresh Captcha"
-                                >
-                                    <RefreshCcw className="w-4 h-4" />
-                                </button>
+                                </AnimatePresence>
+
+                                {/* Error banner */}
+                                <AnimatePresence>
+                                    {error && (
+                                        <motion.div
+                                            initial={{ opacity: 0, scale: 0.95 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            exit={{ opacity: 0, scale: 0.95 }}
+                                            className="bg-red-50 border border-red-200 text-red-600 p-2.5 rounded-xl text-xs font-bold flex items-center gap-2"
+                                        >
+                                            <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse shrink-0" />
+                                            <span>{error}</span>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+
+                                {/* MODE 1: Profile is selected -> Enter Captcha Only */}
+                                {!isNewProfile && activeProfile ? (
+                                    <div className="space-y-3.5">
+                                        {/* Minimal Active Profile Badge */}
+                                        <div className="flex items-center justify-between px-3 py-2 bg-slate-50/80 border border-slate-200/80 rounded-xl text-xs">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                                <User className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                                <span className="font-bold text-slate-800 truncate">{activeProfile.nickname}</span>
+                                                <span className="text-slate-300">·</span>
+                                                <span className="text-[11px] text-slate-500 font-medium truncate">ID: {activeProfile.studentId}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
+                                                    Captcha Only
+                                                </span>
+                                                {activeProfile.isFriend && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setEditingFriend(activeProfile);
+                                                            setShowAddFriendModal(true);
+                                                        }}
+                                                        className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                                                        title="Edit details"
+                                                    >
+                                                        <Edit2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                                {activeProfile.isFriend && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (window.confirm(`Delete ${activeProfile.nickname}?`)) {
+                                                                deleteFriend(activeProfile.id);
+                                                                const updated = getAllProfiles();
+                                                                setAllProfilesList(updated);
+                                                                setSelectedProfileId(updated.length > 0 ? updated[0].id : 'new');
+                                                            }
+                                                        }}
+                                                        className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                                                        title="Remove profile"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Fast Captcha Section */}
+                                        <div className="space-y-2">
+                                            <label className="text-slate-400 text-xs font-bold uppercase tracking-wider block ml-0.5">
+                                                Enter Captcha
+                                            </label>
+                                            <div className="flex gap-2.5">
+                                                <div className="relative flex-1">
+                                                    <input
+                                                        ref={captchaInputRef}
+                                                        type="text"
+                                                        value={captcha}
+                                                        onChange={(e) => setCaptcha(e.target.value)}
+                                                        placeholder="CAPTCHA"
+                                                        autoFocus
+                                                        className="w-full h-14 bg-slate-50/80 border border-slate-300 focus:border-indigo-600 focus:bg-white focus:ring-2 focus:ring-indigo-100 rounded-2xl px-4 text-slate-900 placeholder:text-slate-300 focus:outline-none transition-all font-black tracking-widest shadow-2xs uppercase text-lg text-center"
+                                                    />
+                                                </div>
+                                                <div className="w-36 sm:w-44 h-14 bg-slate-100/70 border border-slate-200 rounded-2xl flex items-center justify-center overflow-hidden shrink-0">
+                                                    {captchaUrl ? (
+                                                        <img 
+                                                            src={captchaUrl} 
+                                                            alt="Captcha" 
+                                                            className="h-10 sm:h-11 object-contain mix-blend-multiply opacity-90" 
+                                                        />
+                                                    ) : (
+                                                        <div className="animate-pulse bg-slate-200 w-full h-full" />
+                                                    )}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => refreshCaptcha(false)}
+                                                    className="w-14 h-14 bg-white border border-slate-200 rounded-2xl flex items-center justify-center hover:bg-slate-50 transition-colors text-slate-400 hover:text-slate-700 shadow-2xs shrink-0 cursor-pointer"
+                                                    title="Refresh Captcha"
+                                                >
+                                                    <RefreshCcw className="w-5 h-5" />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Submit Button */}
+                                        <button
+                                            type="submit"
+                                            disabled={isLoading}
+                                            className={`w-full bg-slate-900 hover:bg-slate-800 active:scale-98 text-white font-black py-4 text-base rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-slate-900/15 transition-all mt-2 cursor-pointer ${isLoading ? 'opacity-85 cursor-wait' : ''}`}
+                                        >
+                                            {isLoading ? (
+                                                <>
+                                                    <Loader2 className="w-5 h-5 animate-spin text-white" />
+                                                    <span>Checking Attendance…</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <LogIn className="w-5 h-5" />
+                                                    <span>Check Attendance as {activeProfile.nickname}</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                ) : (
+                                    /* MODE 2: Add Buddy or New Sign In */
+                                    <div className="space-y-4">
+                                        {/* Profile Name & 10 Quick Names */}
+                                        <div className="space-y-1.5">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-slate-600 text-[11px] font-black uppercase tracking-widest ml-1">
+                                                    Profile Name
+                                                </label>
+                                                <span className="text-[10px] text-slate-400 font-bold">Tap a quick name or type</span>
+                                            </div>
+                                            <input
+                                                type="text"
+                                                value={newProfileName}
+                                                onChange={(e) => setNewProfileName(e.target.value)}
+                                                placeholder="Enter name (e.g. Buddy, Pookie, Rahul...)"
+                                                className="w-full bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-2xl py-3 px-4 text-slate-900 font-bold text-sm transition-all"
+                                            />
+                                            {/* 10 Quick Text Presets (No Emojis) */}
+                                            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 scrollbar-none">
+                                                {FRIEND_NICKNAMES.map((preset) => (
+                                                    <button
+                                                        key={preset.id}
+                                                        type="button"
+                                                        onClick={() => setNewProfileName(preset.name)}
+                                                        className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 text-[11px] font-bold rounded-lg border border-slate-200 transition-all shrink-0 cursor-pointer"
+                                                    >
+                                                        {preset.name}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        {/* Student ID */}
+                                        <div className="space-y-1.5">
+                                            <label className="text-slate-600 text-[11px] font-black uppercase tracking-widest ml-1 block">
+                                                Student ID
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={idNumber}
+                                                onChange={(e) => setIdNumber(e.target.value)}
+                                                placeholder="Enter Student ID"
+                                                className="w-full bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-2xl py-3 px-4 text-slate-900 font-bold text-sm transition-all"
+                                            />
+                                        </div>
+
+                                        {/* Password */}
+                                        <div className="space-y-1.5">
+                                            <label className="text-slate-600 text-[11px] font-black uppercase tracking-widest ml-1 block">
+                                                ERP Password
+                                            </label>
+                                            <div className="relative">
+                                                <input
+                                                    type={showPassword ? "text" : "password"}
+                                                    value={password}
+                                                    onChange={(e) => setPassword(e.target.value)}
+                                                    placeholder="Enter ERP Password"
+                                                    className="w-full bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-2xl py-3 pl-4 pr-11 text-slate-900 font-bold text-sm transition-all"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowPassword(!showPassword)}
+                                                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1 cursor-pointer"
+                                                >
+                                                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Captcha */}
+                                        <div className="space-y-1.5">
+                                            <label className="text-slate-600 text-[11px] font-black uppercase tracking-widest ml-1 block">
+                                                Captcha
+                                            </label>
+                                            <div className="flex gap-2.5">
+                                                <div className="relative flex-1">
+                                                    <input
+                                                        type="text"
+                                                        value={captcha}
+                                                        onChange={(e) => setCaptcha(e.target.value)}
+                                                        placeholder="Enter Captcha"
+                                                        className="w-full h-[52px] bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-2xl px-4 text-slate-900 placeholder:text-slate-400 focus:outline-none transition-all font-black tracking-widest shadow-xs uppercase text-lg text-center"
+                                                    />
+                                                </div>
+                                                <div className="w-[110px] h-[52px] bg-slate-100 border-2 border-slate-200 rounded-2xl flex items-center justify-center overflow-hidden relative shrink-0">
+                                                    {captchaUrl ? (
+                                                        <img 
+                                                            src={captchaUrl} 
+                                                            alt="Captcha" 
+                                                            className="h-10 object-contain mix-blend-multiply opacity-85" 
+                                                        />
+                                                    ) : (
+                                                        <div className="animate-pulse bg-slate-200 w-full h-full" />
+                                                    )}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => refreshCaptcha(false)}
+                                                    className="w-[52px] h-[52px] bg-white border-2 border-slate-200 rounded-2xl flex items-center justify-center hover:bg-slate-50 transition-colors text-slate-500 hover:text-slate-800 shadow-xs shrink-0 cursor-pointer"
+                                                    title="Refresh Captcha"
+                                                >
+                                                    <RefreshCcw className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Remember Me Checkbox */}
+                                        <label className="flex items-center gap-2 cursor-pointer select-none ml-1">
+                                            <input
+                                                type="checkbox"
+                                                checked={rememberMe}
+                                                onChange={(e) => setRememberMe(e.target.checked)}
+                                                className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
+                                            />
+                                            <span className="text-xs font-bold text-slate-700">Save this profile for 1-click captcha login next time</span>
+                                        </label>
+
+                                        {/* Submit Button */}
+                                        <motion.button
+                                            whileHover={{ scale: 1.01 }}
+                                            whileTap={{ scale: 0.98 }}
+                                            type="submit"
+                                            disabled={isLoading}
+                                            className={`w-full bg-slate-900 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-lg shadow-slate-900/20 hover:bg-slate-800 transition-all mt-2 cursor-pointer ${isLoading ? 'opacity-90 cursor-wait' : ''}`}
+                                        >
+                                            {isLoading ? (
+                                                <>
+                                                    <Loader2 className="w-5 h-5 animate-spin text-white" />
+                                                    <span>Signing In & Saving…</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <LogIn className="w-5 h-5" />
+                                                    <span>Sign In & Save Profile</span>
+                                                </>
+                                            )}
+                                        </motion.button>
+                                    </div>
+                                )}
+                            </form>
+
+                            <div className="mt-5 pt-3 border-t border-slate-100 relative z-10 flex flex-col items-center gap-1.5">
+                                <p className="text-slate-400 text-[10px] text-center font-medium leading-relaxed flex items-center gap-1">
+                                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span>Your credentials are stored securely in your browser only.</span>
+                                </p>
                             </div>
                         </div>
+                    </motion.div>
+                    )}
+                </main>
+            </div>
 
-                        {/* Submit Button */}
-                        <motion.button
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
-                            type="submit"
-                            disabled={isLoading}
-                            className={`w-full bg-slate-900 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-slate-900/20 hover:bg-slate-800 transition-all mt-2 ${isLoading ? 'opacity-90 cursor-wait' : ''}`}
-                        >
-                            {isLoading ? (
-                                <>
-                                    <Loader2 className="w-5 h-5 animate-spin text-white" />
-                                    <span>Verifying Credentials…</span>
-                                </>
-                            ) : (
-                                <>
-                                    <LogIn className="w-5 h-5" />
-                                    <span>Sign In</span>
-                                </>
-                            )}
-                        </motion.button>
-                    </form>
-
-                    <div className="mt-6 pt-4 border-t border-slate-100 relative z-10 flex flex-col items-center gap-3">
-                        <p className="text-slate-400 text-[10px] text-center font-medium leading-relaxed">
-                            Your credentials are only used to authenticate and fetch attendance details locally on your device.
-                        </p>
-                        <button 
-                            type="button"
-                            onClick={() => {
-                                if(confirm("This will reset the PWA system and reload the page. Continue?")) {
-                                    window.dispatchEvent(new Event('resetPWA'));
-                                }
-                            }}
-                            className="text-[10px] font-black text-indigo-600/50 hover:text-indigo-600 uppercase tracking-widest transition-colors"
-                        >
-                            Reset PWA System
-                        </button>
-                    </div>
-                </div>
-            </motion.div>
+            {/* Add / Edit Friend Modal */}
+            <AddFriendModal
+                isOpen={showAddFriendModal}
+                initialFriend={editingFriend}
+                onClose={() => {
+                    setShowAddFriendModal(false);
+                    setEditingFriend(null);
+                }}
+                onFriendSaved={(newFriend) => {
+                    const updated = getAllProfiles();
+                    setAllProfilesList(updated);
+                    setShowAddFriendModal(false);
+                    setEditingFriend(null);
+                    if (newFriend) {
+                        setSelectedProfileId(newFriend.id);
+                    }
+                }}
+            />
         </div>
     );
 };

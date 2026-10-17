@@ -7,7 +7,7 @@ const CURRENT_BUILD_TIME = typeof __APP_BUILD_TIME__ !== 'undefined' ? __APP_BUI
 
 export function useDeploymentSync() {
     useEffect(() => {
-        if (typeof window === 'undefined') return;
+        if (typeof window === 'undefined' || import.meta.env.DEV) return;
 
         let isChecking = false;
 

@@ -173,7 +173,7 @@ export const clearStoredErpCookies = () => {
     }
 };
 
-const buildErpHeaders = (extraHeaders = {}) => {
+export const buildErpHeaders = (extraHeaders = {}) => {
     const headers = { ...extraHeaders };
     const cookie = getStoredErpCookies();
     if (cookie) {
@@ -1133,6 +1133,25 @@ export const erpService = {
                 }
             });
         });
+
+        try {
+            if (typeof window !== 'undefined') {
+                const mappings = JSON.parse(localStorage.getItem('subjectMappings') || '{}');
+                let updated = false;
+                subjectMap.forEach(subj => {
+                    if (subj.code && subj.title && subj.title !== subj.code) {
+                        mappings[subj.code] = subj.title;
+                        const cleanCode = subj.code.replace(/-[LPTS]$/, '').trim();
+                        mappings[cleanCode] = subj.title;
+                        updated = true;
+                    }
+                });
+                if (updated) {
+                    localStorage.setItem('subjectMappings', JSON.stringify(mappings));
+                    window.dispatchEvent(new CustomEvent('kl_subject_mappings_updated'));
+                }
+            }
+        } catch { /* ignore storage error */ }
 
         return Array.from(subjectMap.values()).map(subj => {
             const percent = subj.totalConducted > 0

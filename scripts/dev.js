@@ -9,28 +9,39 @@ const rootDir = path.resolve(__dirname, '..');
 console.log('🚀 Starting KL Attendance Dev Environment...');
 
 // Start Express Backend Server
-const serverProcess = spawn('node', ['server/server.js'], {
+const serverProcess = spawn(process.execPath, ['server/server.js'], {
     cwd: rootDir,
-    stdio: 'inherit',
-    shell: true
+    stdio: 'inherit'
 });
 
 // Start Vite Dev Server
-const viteProcess = spawn('npx', ['vite', ...process.argv.slice(2)], {
+const viteBin = path.resolve(rootDir, 'node_modules', 'vite', 'bin', 'vite.js');
+const viteProcess = spawn(process.execPath, [viteBin, ...process.argv.slice(2)], {
     cwd: rootDir,
-    stdio: 'inherit',
-    shell: true
+    stdio: 'inherit'
 });
 
 function cleanup() {
     console.log('\n🛑 Shutting down dev servers...');
     try {
-        serverProcess.kill();
+        if (serverProcess?.pid) {
+            if (process.platform === 'win32') {
+                spawn('taskkill', ['/pid', serverProcess.pid.toString(), '/T', '/F']);
+            } else {
+                serverProcess.kill();
+            }
+        }
     } catch (err) {
         console.warn('Backend process kill notice:', err.message);
     }
     try {
-        viteProcess.kill();
+        if (viteProcess?.pid) {
+            if (process.platform === 'win32') {
+                spawn('taskkill', ['/pid', viteProcess.pid.toString(), '/T', '/F']);
+            } else {
+                viteProcess.kill();
+            }
+        }
     } catch (err) {
         console.warn('Vite process kill notice:', err.message);
     }

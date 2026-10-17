@@ -51,6 +51,13 @@ export class ErrorBoundary extends React.Component {
               Don&apos;t worry! Your attendance and login data are safe. A temporary display issue occurred.
             </p>
 
+            {this.state.error && (
+              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-left text-xs font-mono text-red-700 overflow-auto max-h-48 whitespace-pre-wrap select-text">
+                <div className="font-bold mb-1">{this.state.error.toString()}</div>
+                <div className="text-[10px] text-red-500 leading-normal">{this.state.error.stack}</div>
+              </div>
+            )}
+
             <div className="mt-6 flex flex-col gap-2.5">
               <button
                 onClick={this.handleReload}
