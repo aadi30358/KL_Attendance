@@ -12,7 +12,8 @@ import {
     CalendarDays,
     BarChart3,
     GraduationCap,
-    SlidersHorizontal
+    SlidersHorizontal,
+    AlertTriangle
 } from 'lucide-react';
 import { 
     getMyProfile,
@@ -20,6 +21,7 @@ import {
     getActiveProfileDetails, 
     deleteFriend 
 } from '../services/friendsService';
+import { useMaintenance } from '../services/useMaintenance';
 import AddFriendModal from './AddFriendModal';
 import FriendCaptchaModal from './FriendCaptchaModal';
 
@@ -32,6 +34,7 @@ export default function ErpSidebar({
     onSelectView 
 }) {
     const navigate = useNavigate();
+    const { isMaintenance, maintenanceConfig } = useMaintenance();
     const [myProfile, setMyProfile] = useState(() => getMyProfile());
     const [friends, setFriends] = useState(() => getSavedFriends());
     const [activeProfile, setActiveProfile] = useState(() => getActiveProfileDetails());
@@ -71,6 +74,11 @@ export default function ErpSidebar({
 
     // Profile Click (Self or Friend)
     const handleProfileClick = (profile) => {
+        if (isMaintenance) {
+            alert(maintenanceConfig?.message || 'ERP login is currently under maintenance. Direct login is paused.');
+            return;
+        }
+
         if (onSelectProfile) {
             onSelectProfile(profile);
             if (onToggle) onToggle();
@@ -245,6 +253,22 @@ export default function ErpSidebar({
             {/* Scrollable Container */}
             <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
                 
+                {/* ERP Maintenance Notice */}
+                {isMaintenance && (
+                    <div className="p-3 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs shadow-2xs">
+                        <div className="flex items-center gap-1.5 font-black text-amber-900 text-xs">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>ERP Under Maintenance</span>
+                        </div>
+                        <p className="mt-1 text-[11px] font-semibold text-amber-800 leading-snug">
+                            {maintenanceConfig?.message || 'Direct login is temporarily paused.'}
+                        </p>
+                        <span className="mt-2 inline-block text-[9px] font-black uppercase tracking-wider bg-amber-200/90 text-amber-900 px-2 py-0.5 rounded-md border border-amber-300">
+                            Unable to Login
+                        </span>
+                    </div>
+                )}
+
                 {/* 1. MY PROFILE */}
                 <div>
                     <div className="flex items-center justify-between mb-2 px-1">

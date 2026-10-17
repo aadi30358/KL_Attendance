@@ -349,9 +349,9 @@ const Navbar = () => {
                             {/* Desktop Friends / Profiles Switcher Button */}
                             <button
                                 onClick={() => setShowFriendsModal(true)}
-                                title={activeProfile?.isFriend ? `Viewing ${activeProfile.label}` : "Check Friend's Attendance"}
+                                title={maintenanceConfig?.enabled ? "ERP is under maintenance (Login paused)" : (activeProfile?.isFriend ? `Viewing ${activeProfile.label}` : "Check Friend's Attendance")}
                                 className={cn(
-                                    "flex items-center gap-1.5 px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all duration-300 cursor-pointer shadow-md active:scale-95 shrink-0",
+                                    "flex items-center gap-1.5 px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all duration-300 cursor-pointer shadow-md active:scale-95 shrink-0 relative",
                                     activeProfile?.isFriend
                                         ? "bg-pink-100 text-pink-900 border-2 border-pink-400 dark:bg-pink-950/80 dark:text-pink-200 dark:border-pink-600 animate-pulse"
                                         : (scrolled
@@ -363,6 +363,12 @@ const Navbar = () => {
                                 <span className="font-black drop-shadow-xs truncate max-w-[100px]">
                                     {activeProfile?.isFriend ? activeProfile.nickname : "Friends"}
                                 </span>
+                                {maintenanceConfig?.enabled && (
+                                    <span className="flex h-2 w-2 relative ml-0.5" title="ERP Under Maintenance">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                    </span>
+                                )}
                             </button>
 
                             {/* Desktop User Account Section */}
@@ -400,9 +406,9 @@ const Navbar = () => {
                             {/* Mobile Friends Button */}
                             <button
                                 onClick={() => setShowFriendsModal(true)}
-                                title="Check Friend's Attendance"
+                                title={maintenanceConfig?.enabled ? "ERP Under Maintenance" : "Check Friend's Attendance"}
                                 className={cn(
-                                    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95",
+                                    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all cursor-pointer shadow-sm active:scale-95 relative",
                                     activeProfile?.isFriend
                                         ? "bg-pink-100 text-pink-900 border border-pink-300"
                                         : (scrolled ? "bg-indigo-50 text-indigo-700 border border-indigo-200" : "bg-white/15 text-white border border-white/40")
@@ -410,6 +416,12 @@ const Navbar = () => {
                             >
                                 <Users className="w-3.5 h-3.5 shrink-0" />
                                 <span className="truncate max-w-[60px]">{activeProfile?.isFriend ? activeProfile.nickname : "Friends"}</span>
+                                {maintenanceConfig?.enabled && (
+                                    <span className="flex h-1.5 w-1.5 relative ml-0.5">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
+                                    </span>
+                                )}
                             </button>
 
                             {/* Quick Install Button on Mobile Header */}
@@ -470,15 +482,26 @@ const Navbar = () => {
                                     className="w-full flex items-center justify-between p-3.5 bg-gradient-to-r from-pink-50 to-indigo-50 dark:from-slate-800 dark:to-slate-800/60 border-2 border-indigo-200 dark:border-slate-700 rounded-2xl text-left cursor-pointer transition-all mb-3 shadow-xs"
                                 >
                                     <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
-                                            <Users className="w-4 h-4 text-indigo-700" />
+                                        <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-slate-700 flex items-center justify-center shrink-0 relative">
+                                            <Users className="w-4 h-4 text-indigo-700 dark:text-indigo-300" />
+                                            {maintenanceConfig?.enabled && (
+                                                <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500 border border-white dark:border-slate-900"></span>
+                                                </span>
+                                            )}
                                         </div>
                                         <div>
-                                            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">
+                                            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider block">
                                                 {activeProfile?.isFriend ? 'Viewing Friend' : 'Friend Attendance'}
                                             </span>
-                                            <span className="text-sm font-black text-slate-900 dark:text-white">
-                                                {activeProfile?.isFriend ? activeProfile.nickname : 'Check Friend\'s Attendance'}
+                                            <span className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-1.5">
+                                                <span>{activeProfile?.isFriend ? activeProfile.nickname : "Check Friend's Attendance"}</span>
+                                                {maintenanceConfig?.enabled && (
+                                                    <span className="text-[9px] bg-amber-400 text-slate-950 font-black px-1.5 py-0.5 rounded tracking-wider uppercase">
+                                                        Maint.
+                                                    </span>
+                                                )}
                                             </span>
                                         </div>
                                     </div>

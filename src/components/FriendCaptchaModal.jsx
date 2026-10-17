@@ -3,12 +3,14 @@ import { motion } from 'framer-motion';
 import { ShieldCheck, RefreshCcw, Loader2, X, AlertCircle } from 'lucide-react';
 import { erpService, isVerifiedErpDashboard } from '../services/erpService';
 import { decodePassword, setActiveProfileId } from '../services/friendsService';
+import { useMaintenance } from '../services/useMaintenance';
 import { useAuth } from '../context/useAuth';
 import { useNavigate } from 'react-router-dom';
 
 export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess }) {
     const { setErpUser } = useAuth();
     const navigate = useNavigate();
+    const { isMaintenance, maintenanceConfig } = useMaintenance();
 
     const [captcha, setCaptcha] = useState('');
     const [captchaUrl, setCaptchaUrl] = useState('');
@@ -69,6 +71,11 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
     const handleLogin = async (e) => {
         if (e) e.preventDefault();
         if (isSubmitting || !friend) return;
+
+        if (isMaintenance) {
+            setError(maintenanceConfig?.message || 'ERP login is currently under maintenance. Direct login is paused.');
+            return;
+        }
 
         const cleanCaptcha = captcha.trim();
         if (!cleanCaptcha) {
@@ -170,10 +177,23 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 </div>
 
                 {/* Auto-filled Notice */}
-                <div className="mb-4 bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 flex items-center gap-2 text-emerald-800 text-xs font-bold">
+                <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 flex items-center gap-2 text-emerald-800 text-xs font-bold">
                     <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>ID & Password saved. Enter Captcha only.</span>
                 </div>
+
+                {/* ERP Maintenance Notice */}
+                {isMaintenance && (
+                    <div className="mb-4 p-3 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs shadow-2xs">
+                        <div className="font-black flex items-center gap-1.5 text-amber-900">
+                            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>ERP Under Maintenance · Unable to Login</span>
+                        </div>
+                        <p className="mt-1 text-[11px] font-semibold text-amber-800 leading-snug">
+                            {maintenanceConfig?.message || 'Direct ERP login is temporarily paused. Access will resume once maintenance completes.'}
+                        </p>
+                    </div>
+                )}
 
                 <form onSubmit={handleLogin} className="space-y-4">
                     {/* Captcha Display & Refresh */}
@@ -241,10 +261,16 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     {/* Submit Button */}
                     <button
                         type="submit"
-                        disabled={isSubmitting || !captcha.trim()}
-                        className="w-full py-3.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-sm rounded-xl shadow-lg shadow-slate-900/25 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed active:scale-98"
+                        disabled={isSubmitting || !captcha.trim() || isMaintenance}
+                        className={`w-full py-3.5 text-white font-black text-sm rounded-xl transition-all flex items-center justify-center gap-2 ${
+                            isMaintenance
+                                ? 'bg-amber-600 cursor-not-allowed opacity-90'
+                                : 'bg-slate-900 hover:bg-slate-800 shadow-lg shadow-slate-900/25 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed active:scale-98'
+                        }`}
                     >
-                        {isSubmitting ? (
+                        {isMaintenance ? (
+                            <span>Unable to Login (ERP Maintenance)</span>
+                        ) : isSubmitting ? (
                             <>
                                 <Loader2 className="w-4 h-4 animate-spin text-white" />
                                 <span>Verifying {friend.nickname || 'Student'}...</span>

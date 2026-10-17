@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, UserPlus, Users, User, Trash2, ArrowRight } from 'lucide-react';
+import { X, UserPlus, Users, User, Trash2, ArrowRight, AlertTriangle } from 'lucide-react';
 import { getSavedFriends, deleteFriend, getActiveProfileDetails, setActiveProfileId, getMyProfile } from '../services/friendsService';
+import { useMaintenance } from '../services/useMaintenance';
 import AddFriendModal from './AddFriendModal';
 import FriendCaptchaModal from './FriendCaptchaModal';
 import { useAuth } from '../context/useAuth';
 
 export default function FriendsManagerModal({ isOpen, onClose }) {
     const { setErpUser } = useAuth();
+    const { isMaintenance, maintenanceConfig } = useMaintenance();
     const [friends, setFriends] = useState(() => getSavedFriends());
     const [myProfile, setMyProfile] = useState(() => getMyProfile());
     const [activeProfile, setActiveProfile] = useState(() => getActiveProfileDetails());
@@ -54,6 +56,10 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
     };
 
     const handleCheckAttendance = (profile) => {
+        if (isMaintenance) {
+            alert(maintenanceConfig?.message || 'ERP login is currently under maintenance. Direct login is paused.');
+            return;
+        }
         setTargetFriendForCaptcha(profile);
     };
 
@@ -75,7 +81,7 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                     </button>
 
                     {/* Header */}
-                    <div className="text-center mb-5 shrink-0">
+                    <div className="text-center mb-4 shrink-0">
                         <div className="w-14 h-14 mx-auto mb-2 rounded-2xl bg-gradient-to-tr from-pink-100 via-purple-100 to-indigo-100 border-2 border-slate-900 flex items-center justify-center text-indigo-700 shadow-sm">
                             <Users className="w-7 h-7" />
                         </div>
@@ -86,6 +92,36 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                             Switch and check attendance with just Captcha verification!
                         </p>
                     </div>
+
+                    {/* ERP Maintenance Notice */}
+                    {isMaintenance && (
+                        <div className="mb-4 p-3.5 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 text-amber-950 shadow-xs shrink-0">
+                            <div className="flex items-start gap-3">
+                                <div className="p-2 rounded-xl bg-amber-500 text-white shrink-0 mt-0.5 shadow-xs">
+                                    <AlertTriangle className="w-5 h-5 stroke-[2.5]" />
+                                </div>
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <h4 className="text-xs sm:text-sm font-black text-amber-900 tracking-tight">
+                                            {maintenanceConfig?.title || 'ERP Under Maintenance'}
+                                        </h4>
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-200/90 text-amber-900 border border-amber-300">
+                                            Unable to Login
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] sm:text-xs text-amber-800 font-semibold mt-1 leading-relaxed">
+                                        {maintenanceConfig?.message || 'KL ERP login is currently undergoing scheduled maintenance. Direct authentication and live sync are temporarily paused.'}
+                                    </p>
+                                    {maintenanceConfig?.eta && (
+                                        <div className="mt-2 text-[10px] sm:text-[11px] font-bold text-amber-900 bg-amber-100/90 px-2.5 py-1 rounded-lg inline-block border border-amber-200">
+                                            <span>Note: </span>
+                                            <span className="font-extrabold">{maintenanceConfig.eta}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Currently Viewing Banner */}
                     <div className="mb-4 p-3 bg-slate-50 border-2 border-slate-200 rounded-2xl flex items-center justify-between gap-3 shrink-0">
@@ -153,18 +189,24 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                                     </div>
 
                                     <div className="flex items-center gap-2 shrink-0">
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleCheckAttendance(myProfile);
-                                            }}
-                                            className="px-3 py-1.5 bg-slate-900 hover:bg-indigo-600 text-white text-xs font-black rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
-                                            title="Check my attendance with Captcha"
-                                        >
-                                            <span>Check</span>
-                                            <ArrowRight className="w-3.5 h-3.5" />
-                                        </button>
+                                        {isMaintenance ? (
+                                            <span className="px-2.5 py-1 bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-black rounded-xl">
+                                                Unable to Login
+                                            </span>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleCheckAttendance(myProfile);
+                                                }}
+                                                className="px-3 py-1.5 bg-slate-900 hover:bg-indigo-600 text-white text-xs font-black rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+                                                title="Check my attendance with Captcha"
+                                            >
+                                                <span>Check</span>
+                                                <ArrowRight className="w-3.5 h-3.5" />
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -220,18 +262,24 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                                                 </div>
 
                                                 <div className="flex items-center gap-2 shrink-0">
-                                                    <button
-                                                        type="button"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleCheckAttendance(friend);
-                                                        }}
-                                                        className="px-3 py-1.5 bg-slate-900 hover:bg-indigo-600 text-white text-xs font-black rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
-                                                        title="Check this friend's attendance"
-                                                    >
-                                                        <span>Check</span>
-                                                        <ArrowRight className="w-3.5 h-3.5" />
-                                                    </button>
+                                                    {isMaintenance ? (
+                                                        <span className="px-2.5 py-1 bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-black rounded-xl">
+                                                            Unable to Login
+                                                        </span>
+                                                    ) : (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleCheckAttendance(friend);
+                                                            }}
+                                                            className="px-3 py-1.5 bg-slate-900 hover:bg-indigo-600 text-white text-xs font-black rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+                                                            title="Check this friend's attendance"
+                                                        >
+                                                            <span>Check</span>
+                                                            <ArrowRight className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    )}
 
                                                     <button
                                                         type="button"
