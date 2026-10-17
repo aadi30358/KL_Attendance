@@ -82,21 +82,38 @@ export function detectCampus(username) {
 export function normalizeAcademicYear(year) {
     if (!year) return '2026-2027';
     const str = String(year).trim();
-    if (str === '29' || str === '18' || str.includes('2026')) return '2026-2027';
-    if (str === '28' || str === '17' || str.includes('2025')) return '2025-2026';
-    if (str === '27' || str === '16' || str.includes('2024')) return '2024-2025';
-    if (str === '26' || str === '15' || str.includes('2023')) return '2023-2024';
-    if (str === '25' || str === '14' || str.includes('2022')) return '2022-2023';
-    if (str === '24' || str === '13' || str.includes('2021')) return '2021-2022';
+
+    // 1. If it's already in YYYY-YYYY format, extract directly
     const match = str.match(/\b(20\d\d)-(20\d\d)\b/);
     if (match) return `${match[1]}-${match[2]}`;
+
+    // 2. Parse first year if it starts with 4 digits (e.g. "2025", "2024")
+    const firstYear = parseInt(str.split('-')[0], 10);
+    if (!isNaN(firstYear) && firstYear >= 2020 && firstYear <= 2040) {
+        return `${firstYear}-${firstYear + 1}`;
+    }
+
+    // 3. Candidate ERP year integer IDs
+    if (/^\d+$/.test(str)) {
+        const num = parseInt(str, 10);
+        if (num >= 30) {
+            const yr = 2026 + (num - 29);
+            return `${yr}-${yr + 1}`;
+        }
+    }
+    if (str === '29' || str === '18') return '2026-2027';
+    if (str === '28' || str === '17' || str === '19') return '2025-2026';
+    if (str === '27' || str === '16') return '2024-2025';
+    if (str === '26' || str === '15') return '2023-2024';
+    if (str === '25' || str === '14') return '2022-2023';
+    if (str === '24' || str === '13') return '2021-2022';
     return str;
 }
 
 export function normalizeSemester(sem) {
     const str = String(sem || '').trim().toLowerCase();
     if (str.includes('summer') || str === '3') return 'Summer';
-    if (str.includes('term') || str.includes('tri') || str === '4') return 'Term3';
+    if ((str.includes('term') && !str.includes('summer')) || str.includes('tri') || str === '4') return 'Term3';
     if (str.includes('even') || str === '2') return 'Even';
     return 'Odd';
 }
@@ -214,6 +231,35 @@ export const KLU_SEMESTER_CURRICULUM = {
     ],
     '2026-2027_Term3': [
         { code: '24CS3401', title: 'Advanced Cloud Architecture', components: { Lecture: {}, Skill: {} } }
+    ],
+    // 2023-2024
+    '2023-2024_Odd': [
+        { code: '23MT1101', title: 'Mathematics for Computing', components: { Lecture: {}, Tutorial: {} } },
+        { code: '23CS1101', title: 'Introduction to Programming in C', components: { Lecture: {}, Practical: {} } },
+        { code: '23PH1101', title: 'Applied Physics', components: { Lecture: {}, Practical: {} } },
+        { code: '23EE1101', title: 'Electrical Science', components: { Lecture: {}, Practical: {} } }
+    ],
+    '2023-2024_Even': [
+        { code: '23CS1202', title: 'Advanced Data Structures', components: { Lecture: {}, Practical: {} } },
+        { code: '23CS1204', title: 'Java Programming Paradigm', components: { Lecture: {}, Practical: {} } },
+        { code: '23CS1203', title: 'Digital Logic & Computer Design', components: { Lecture: {}, Tutorial: {} } }
+    ],
+    // 2022-2023
+    '2022-2023_Odd': [
+        { code: '22MT1101', title: 'Linear Algebra and Differential Equations', components: { Lecture: {}, Tutorial: {} } },
+        { code: '22CS1101', title: 'Computer Programming Fundamentals', components: { Lecture: {}, Practical: {} } }
+    ],
+    '2022-2023_Even': [
+        { code: '22CS1202', title: 'Data Structures with C++', components: { Lecture: {}, Practical: {} } },
+        { code: '22CS1204', title: 'Object Oriented Programming', components: { Lecture: {}, Practical: {} } }
+    ],
+    // 2021-2022
+    '2021-2022_Odd': [
+        { code: '21MT1101', title: 'Calculus and Numerical Analysis', components: { Lecture: {}, Tutorial: {} } },
+        { code: '21CS1101', title: 'Problem Solving and Python Programming', components: { Lecture: {}, Practical: {} } }
+    ],
+    '2021-2022_Even': [
+        { code: '21CS1202', title: 'Data Structures and Algorithms', components: { Lecture: {}, Practical: {} } }
     ]
 };
 
@@ -863,8 +909,8 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         const passedCodes = erpCourses.map(c => (c.code || '').replace(/-[LPTS]$/, '').trim().toUpperCase());
         const hasOverlap = passedCodes.some(c => expectedCodes.has(c));
 
-        // Only use erpCourses if it actually belongs to this year/semester or if no curriculum is defined
-        if (hasOverlap || expectedCurriculum.length === 0) {
+        // Only use erpCourses if it actually belongs to this year/semester or if this is the current live semester
+        if (hasOverlap || (expectedCurriculum.length === 0 && cleanYear === '2026-2027')) {
             coursesToUse = erpCourses;
         }
     }
@@ -940,18 +986,15 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
     else if (cleanSem === 'Term3') semVal = '4';
 
     // Candidate year IDs according to KLU ERP registration tables
+    const firstYear = parseInt(cleanYear.split('-')[0], 10);
     let yearCandidates = ['29', '18'];
-    if (cleanYear.includes('2026') || cleanYear.includes('2027')) yearCandidates = ['29', '18'];
-    else if (cleanYear.includes('2025')) yearCandidates = ['19', '28', '17', '18'];
-    else if (cleanYear.includes('2024')) yearCandidates = ['16', '27', '17'];
-    else if (cleanYear.includes('2023')) yearCandidates = ['15', '26'];
-    else {
-        const yrMatch = cleanYear.match(/(\d{4})/);
-        if (yrMatch) {
-            const yr = parseInt(yrMatch[1], 10);
-            const diff = yr - 2026;
-            yearCandidates = [String(29 + diff), String(18 + diff), '29', '18'];
-        }
+    if (firstYear === 2026) yearCandidates = ['29', '18'];
+    else if (firstYear === 2025) yearCandidates = ['19', '28', '17', '18'];
+    else if (firstYear === 2024) yearCandidates = ['16', '27', '17'];
+    else if (firstYear === 2023) yearCandidates = ['15', '26'];
+    else if (!isNaN(firstYear)) {
+        const diff = firstYear - 2026;
+        yearCandidates = [String(29 + diff), String(18 + diff), '29', '18'];
     }
 
     // 1. First try backend proxy /api/fetch_timetable

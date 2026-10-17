@@ -16,7 +16,8 @@ import {
     Share2,
     Utensils,
     ArrowLeftRight,
-    X
+    X,
+    SlidersHorizontal
 } from 'lucide-react';
 import {
     DAYS_OF_WEEK,
@@ -29,7 +30,9 @@ import {
     parseKluTimetableHtml,
     getSubjectName,
     setSubjectMapping,
-    getAllSubjectMappings
+    getAllSubjectMappings,
+    normalizeAcademicYear,
+    normalizeSemester
 } from '../services/timetableService';
 import { getSavedFriends, getMyProfile, saveFriendTimetable } from '../services/friendsService';
 import FriendCaptchaModal from './FriendCaptchaModal';
@@ -48,9 +51,8 @@ export default function ClassTimetable({
     studentName = 'My Profile',
     erpCourses = [],
     onViewCourseAttendance,
+    onChangeSelection,
     onRefreshErp,
-    onSelectYear,
-    onSelectSem,
     onSelectFriend,
     onSelectProfile,
     selectedYear = '2026-2027',
@@ -102,38 +104,15 @@ export default function ClassTimetable({
         return fr ? (fr.nickname || fr.name || fr.label) : effectiveId;
     }, [effectiveId, myName, myId, allFriends]);
 
-    // Dynamic Academic Year & Semester selector state
-    const [currentYear, setCurrentYear] = useState(() => selectedYear || '2026-2027');
-    const [currentSem, setCurrentSem] = useState(() => {
-        const s = String(selectedSem || '').toLowerCase();
-        if (s.includes('summer')) return 'Summer Term';
-        if (s.includes('term') || s.includes('tri')) return 'Tri Sem / Term 3';
-        if (s.includes('even')) return 'Even Sem';
+    // Dynamic Academic Year & Semester selector state derived directly from props
+    const currentYear = useMemo(() => normalizeAcademicYear(selectedYear), [selectedYear]);
+    const currentSem = useMemo(() => {
+        const s = normalizeSemester(selectedSem);
+        if (s === 'Summer') return 'Summer Term';
+        if (s === 'Term3') return 'Tri Sem / Term 3';
+        if (s === 'Even') return 'Even Sem';
         return 'Odd Sem';
-    });
-
-    useEffect(() => {
-        if (selectedYear) setCurrentYear(selectedYear);
-    }, [selectedYear]);
-
-    useEffect(() => {
-        if (selectedSem) {
-            const s = String(selectedSem).toLowerCase();
-            if (s.includes('summer')) setCurrentSem('Summer Term');
-            else if (s.includes('term') || s.includes('tri')) setCurrentSem('Tri Sem / Term 3');
-            else if (s.includes('even')) setCurrentSem('Even Sem');
-            else setCurrentSem('Odd Sem');
-        }
     }, [selectedSem]);
-
-    const academicYearOptions = useMemo(() => {
-        const curYear = new Date().getFullYear();
-        const years = [];
-        for (let y = curYear + 1; y >= 2021; y--) {
-            years.push(`${y}-${y + 1}`);
-        }
-        return years;
-    }, []);
 
     const [timetable, setTimetable] = useState(() => getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem));
 
@@ -560,57 +539,35 @@ export default function ClassTimetable({
                         View weekly class schedules, live class countdowns, and classrooms
                     </div>
 
-                    {/* Academic Year & Semester Selectors */}
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
-                        <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl px-2.5 py-1.5 border border-slate-200 shadow-2xs transition-colors">
-                            <CalendarDays className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                            <select
-                                value={currentYear}
-                                onChange={(e) => {
-                                    const y = e.target.value;
-                                    setCurrentYear(y);
-                                    if (effectiveId) localStorage.setItem(`activeYear_${effectiveId}`, y);
-                                    const fresh = getStudentTimetable(effectiveId, [], y, currentSem);
-                                    setTimetable(fresh);
-                                    if (onSelectYear) {
-                                        onSelectYear(y);
-                                    } else if (onRefreshErp) {
-                                        onRefreshErp(y, currentSem);
-                                    }
-                                }}
-                                className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer"
-                                title="Select Academic Year"
+                    {/* Academic Year & Semester Session Bar with Change Selection */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1 text-slate-500 text-xs sm:text-sm font-medium">
+                        {onChangeSelection && (
+                            <button
+                                type="button"
+                                onClick={onChangeSelection}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-indigo-50 text-indigo-700 hover:text-indigo-900 border border-indigo-200/90 shadow-2xs transition-all cursor-pointer active:scale-95"
+                                title="Change Academic Year or Semester"
                             >
-                                {academicYearOptions.map((yr) => (
-                                    <option key={yr} value={yr}>{yr}</option>
-                                ))}
-                            </select>
-                        </div>
+                                <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>Change Selection</span>
+                            </button>
+                        )}
 
-                        <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 rounded-xl px-2.5 py-1.5 border border-slate-200 shadow-2xs transition-colors">
-                            <select
-                                value={currentSem}
-                                onChange={(e) => {
-                                    const s = e.target.value;
-                                    setCurrentSem(s);
-                                    if (effectiveId) localStorage.setItem(`activeSem_${effectiveId}`, s);
-                                    const fresh = getStudentTimetable(effectiveId, [], currentYear, s);
-                                    setTimetable(fresh);
-                                    if (onSelectSem) {
-                                        onSelectSem(s);
-                                    } else if (onRefreshErp) {
-                                        onRefreshErp(currentYear, s);
-                                    }
-                                }}
-                                className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer"
-                                title="Select Semester"
-                            >
-                                <option value="Odd Sem">Odd Sem</option>
-                                <option value="Even Sem">Even Sem</option>
-                                <option value="Summer Term">Summer Term</option>
-                                <option value="Tri Sem / Term 3">Tri Sem / Term 3</option>
-                            </select>
-                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (onChangeSelection) onChangeSelection();
+                            }}
+                            title="Click to change academic year or semester"
+                            className="hover:text-indigo-600 hover:underline transition-colors cursor-pointer text-left font-semibold text-xs text-slate-700 bg-slate-100 hover:bg-slate-200/80 px-2.5 py-1.5 rounded-xl border border-slate-200"
+                        >
+                            <span>{currentYear} · {currentSem}</span>
+                        </button>
+
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Live
+                        </span>
                     </div>
 
                     {/* Buddy / Friend Switcher Bar */}
@@ -709,6 +666,19 @@ export default function ClassTimetable({
                                     transition={{ duration: 0.15 }}
                                     className="absolute right-0 mt-1.5 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 z-50 text-xs font-bold text-slate-700"
                                 >
+                                    {onChangeSelection && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowMoreMenu(false);
+                                                onChangeSelection();
+                                            }}
+                                            className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer border-b border-slate-100 text-indigo-700 font-bold"
+                                        >
+                                            <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+                                            <span>Change Academic Year / Sem</span>
+                                        </button>
+                                    )}
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -1099,10 +1069,20 @@ export default function ClassTimetable({
 
                         {/* Classes for Selected Day */}
                         {daySchedule.length === 0 ? (
-                            <div className="p-10 text-center rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                            <div className="p-10 text-center rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
                                 <Coffee className="w-8 h-8 text-slate-400 mx-auto" />
                                 <h4 className="text-base font-bold text-slate-800">No classes scheduled on {selectedDay}</h4>
                                 <p className="text-xs text-slate-500">A full day off or weekend break.</p>
+                                {onChangeSelection && (
+                                    <button
+                                        type="button"
+                                        onClick={onChangeSelection}
+                                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-slate-100 text-indigo-700 border border-slate-200 transition-all cursor-pointer shadow-2xs active:scale-95 mx-auto"
+                                    >
+                                        <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
+                                        <span>Change Academic Year / Semester</span>
+                                    </button>
+                                )}
                             </div>
                         ) : (
                             <div className="space-y-3">

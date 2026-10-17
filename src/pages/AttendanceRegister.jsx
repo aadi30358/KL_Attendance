@@ -10,7 +10,7 @@ import {
     playAttendanceChime
 } from '../services/attendanceAlerts';
 import { getActiveProfileDetails } from '../services/friendsService';
-import { fetchLiveErpTimetable } from '../services/timetableService';
+import { fetchLiveErpTimetable, normalizeAcademicYear, normalizeSemester } from '../services/timetableService';
 import FriendsManagerModal from '../components/FriendsManagerModal';
 import ErpSidebar from '../components/ErpSidebar';
 import ClassTimetable from '../components/ClassTimetable';
@@ -173,8 +173,9 @@ const generateDefaultYears = () => {
     const currentYear = new Date().getFullYear();
     const currentMonth = new Date().getMonth();
     const startYear = (currentMonth >= 5) ? currentYear : currentYear - 1;
+    const topYear = Math.max(startYear + 1, 2026);
     const years = [];
-    for (let y = startYear; y >= 2021; y--) {
+    for (let y = topYear; y >= 2021; y--) {
         const text = `${y}-${y + 1}`;
         years.push({ value: text, text, isCurrent: y === startYear });
     }
@@ -292,9 +293,6 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
     useEffect(() => {
         if (initialView) {
             setActiveView(initialView);
-            if (initialView === 'timetable') {
-                setShowDashboard(true);
-            }
         }
     }, [initialView]);
 
@@ -317,6 +315,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
     const location = useLocation();
     const subjectsRef = useRef(subjects);
     subjectsRef.current = subjects;
+    const hasRestoredCacheRef = useRef(false);
 
     // Listen for "Change Selection" from Navbar or cross-component reset
     useEffect(() => {
@@ -352,27 +351,23 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
         setJustCheckedNotice(null);
 
         // Resolve clean query year string (e.g. '2025-2026' or '2026-2027')
-        const yearObj = availableYears.find(y => 
-            y.value === fetchYear || 
-            y.text === fetchYear || 
-            (fetchYear && y.text?.includes(fetchYear)) || 
-            (y.value && fetchYear.includes(y.value))
-        );
-        const queryYear = yearObj?.text || (fetchYear === '29' || fetchYear === '18' ? '2026-2027' : (fetchYear === '28' || fetchYear === '17' ? '2025-2026' : (fetchYear === '27' || fetchYear === '16' ? '2024-2025' : fetchYear)));
+        const normYear = normalizeAcademicYear(fetchYear);
+        const normSem = normalizeSemester(fetchSemester);
+        const queryYear = normYear;
         const targetId = customId || activeId || localStorage.getItem('activeErpUser') || '';
 
         // If in timetable view, immediately apply year & semester so timetable renders instantly without lagging on candidate loops
         if (activeView === 'timetable') {
-            setYear(fetchYear);
-            setSemester(fetchSemester);
+            setYear(normYear);
+            setSemester(normSem);
             if (targetId) {
-                localStorage.setItem(`activeYear_${targetId}`, fetchYear);
-                localStorage.setItem(`activeSem_${targetId}`, fetchSemester);
-                localStorage.setItem(`manualYear_${targetId}`, fetchYear);
-                localStorage.setItem(`manualSem_${targetId}`, fetchSemester);
+                localStorage.setItem(`activeYear_${targetId}`, normYear);
+                localStorage.setItem(`activeSem_${targetId}`, normSem);
+                localStorage.setItem(`manualYear_${targetId}`, normYear);
+                localStorage.setItem(`manualSem_${targetId}`, normSem);
 
                 // Load scoped cached courses if available for this student + year + sem
-                const cachedPayload = localStorage.getItem(`kleData_${targetId}_${fetchYear}_${fetchSemester}`);
+                const cachedPayload = localStorage.getItem(`kleData_${targetId}_${normYear}_${normSem}`);
                 if (cachedPayload) {
                     try {
                         const parsed = JSON.parse(cachedPayload);
@@ -393,8 +388,8 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
             const validCourses = Array.isArray(data) ? data : [];
             setSubjects(validCourses);
             setShowDashboard(true);
-            setYear(fetchYear);
-            setSemester(fetchSemester);
+            setYear(normYear);
+            setSemester(normSem);
             setLastUpdated(Date.now());
             setSessionStatus('active');
 
@@ -403,7 +398,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                 fetchLiveErpTimetable(targetId, queryYear, fetchSemester).then((res) => {
                     if (res?.timetable) {
                         window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                            detail: { studentId: targetId, year: fetchYear, sem: fetchSemester }
+                            detail: { studentId: targetId, year: normYear, sem: normSem }
                         }));
                     }
                 }).catch(() => null);
@@ -413,17 +408,17 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
             try {
                 const payload = JSON.stringify({ 
                     attendance_data: validCourses, 
-                    year: fetchYear, 
-                    semester: fetchSemester, 
+                    year: normYear, 
+                    semester: normSem, 
                     timestamp: Date.now() 
                 });
                 localStorage.setItem(keyToUse, payload);
                 if (targetId) {
-                    localStorage.setItem(`activeYear_${targetId}`, fetchYear);
-                    localStorage.setItem(`activeSem_${targetId}`, fetchSemester);
-                    localStorage.setItem(`manualYear_${targetId}`, fetchYear);
-                    localStorage.setItem(`manualSem_${targetId}`, fetchSemester);
-                    localStorage.setItem(`kleData_${targetId}_${fetchYear}_${fetchSemester}`, payload);
+                    localStorage.setItem(`activeYear_${targetId}`, normYear);
+                    localStorage.setItem(`activeSem_${targetId}`, normSem);
+                    localStorage.setItem(`manualYear_${targetId}`, normYear);
+                    localStorage.setItem(`manualSem_${targetId}`, normSem);
+                    localStorage.setItem(`kleData_${targetId}_${normYear}_${normSem}`, payload);
                     localStorage.setItem(`attendanceLastUpdated_${targetId}`, String(Date.now()));
                 }
             } catch (storageErr) {
@@ -433,14 +428,14 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
             console.warn('[ERP] Attendance query notice:', error.message);
 
             // Restore from scoped cache if available for this specific year & semester
-            const cachedPayload = targetId ? localStorage.getItem(`kleData_${targetId}_${fetchYear}_${fetchSemester}`) : null;
+            const cachedPayload = targetId ? localStorage.getItem(`kleData_${targetId}_${normYear}_${normSem}`) : null;
             if (cachedPayload) {
                 try {
                     const parsed = JSON.parse(cachedPayload);
                     if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
                         setSubjects(parsed.attendance_data);
-                        setYear(fetchYear);
-                        setSemester(fetchSemester);
+                        setYear(normYear);
+                        setSemester(normSem);
                         setShowDashboard(true);
                         return;
                     }
@@ -450,18 +445,18 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
             // In timetable mode, NEVER block the student with an error! Apply selection and render timetable
             if (activeView === 'timetable') {
                 setSubjects([]); // Clear stale previous semester courses so timetable generates curriculum for this exact year & semester
-                setYear(fetchYear);
-                setSemester(fetchSemester);
+                setYear(normYear);
+                setSemester(normSem);
                 if (targetId) {
-                    localStorage.setItem(`activeYear_${targetId}`, fetchYear);
-                    localStorage.setItem(`activeSem_${targetId}`, fetchSemester);
-                    localStorage.setItem(`manualYear_${targetId}`, fetchYear);
-                    localStorage.setItem(`manualSem_${targetId}`, fetchSemester);
+                    localStorage.setItem(`activeYear_${targetId}`, normYear);
+                    localStorage.setItem(`activeSem_${targetId}`, normSem);
+                    localStorage.setItem(`manualYear_${targetId}`, normYear);
+                    localStorage.setItem(`manualSem_${targetId}`, normSem);
                 }
                 fetchLiveErpTimetable(targetId, queryYear, fetchSemester).then((res) => {
                     if (res?.timetable) {
                         window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                            detail: { studentId: targetId, year: fetchYear, sem: fetchSemester }
+                            detail: { studentId: targetId, year: normYear, sem: normSem }
                         }));
                     }
                 }).catch(() => null);
@@ -478,7 +473,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
         } finally { 
             setLoading(false); 
         }
-    }, [availableYears, activeId, year, semester, activeView]);
+    }, [activeId, year, semester, activeView]);
 
     // Listen for profile switches (via quick Captcha modal or sidebar)
     useEffect(() => {
@@ -545,6 +540,9 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
 
     // Initial mount and cache restoration
     useEffect(() => {
+        if (hasRestoredCacheRef.current) return;
+        hasRestoredCacheRef.current = true;
+
         const html = localStorage.getItem('erpDashboardHtml');
 
         if (initialView !== 'timetable') {
@@ -635,7 +633,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
             } else if (sessionData.selectedSemester) {
                 const sText = sessionData.selectedSemester.text.toLowerCase();
                 const matched = sText.includes('summer') ? 'Summer'
-                    : (sText.includes('term') || sText.includes('tri')) ? 'Term3'
+                    : ((sText.includes('term') && !sText.includes('summer')) || sText.includes('tri')) ? 'Term3'
                     : sText.includes('even') ? 'Even'
                     : 'Odd';
                 setSemester(matched);
@@ -810,24 +808,12 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
 
     // ── DASHBOARD VIEW ──────────────────────────────────────────────
     if (showDashboard) {
-        const displayYearText = (() => {
-            const found = availableYears.find(y => y.value === year || y.text === year);
-            if (found?.text) {
-                return (found.text || '').replace(/\s*\([^)]*\)/g, '').trim();
-            }
-            if (year === '29' || year === '18' || year?.includes?.('2026')) return '2026-2027';
-            if (year === '28' || year === '17' || year?.includes?.('2025')) return '2025-2026';
-            if (year === '27' || year === '16' || year?.includes?.('2024')) return '2024-2025';
-            if (year === '26' || year === '15' || year?.includes?.('2023')) return '2023-2024';
-            if (year === '25' || year === '14' || year?.includes?.('2022')) return '2022-2023';
-            if (year === '24' || year === '13' || year?.includes?.('2021')) return '2021-2022';
-            return (year || '2026-2027').replace(/\s*\([^)]*\)/g, '').trim();
-        })();
+        const displayYearText = normalizeAcademicYear(year);
         const displaySemesterText = (() => {
-            const s = String(semester || '').toLowerCase();
-            if (s.includes('summer') || s === '3') return 'Summer Term';
-            if (s.includes('term') || s.includes('tri') || s === '4') return 'Tri Sem / Term 3';
-            if (s.includes('even') || s === '2') return 'Even Sem';
+            const s = normalizeSemester(semester);
+            if (s === 'Summer') return 'Summer Term';
+            if (s === 'Term3') return 'Tri Sem / Term 3';
+            if (s === 'Even') return 'Even Sem';
             return 'Odd Sem';
         })();
         const cleanSemesterLabel = (() => {
@@ -1105,17 +1091,11 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                             studentId={activeId}
                             studentName={activeProfile?.nickname || 'My Profile'}
                             erpCourses={subjects}
+                            selectedYear={displayYearText}
+                            selectedSem={cleanSemesterLabel}
                             onViewCourseAttendance={() => setActiveView('attendance')}
                             onChangeSelection={handleBack}
                             onRefreshErp={(y, s) => handleSearch(y, s, activeId)}
-                            onSelectYear={(y) => {
-                                setYear(y);
-                                handleSearch(y, semester, activeId);
-                            }}
-                            onSelectSem={(s) => {
-                                setSemester(s);
-                                handleSearch(year, s, activeId);
-                            }}
                             onSelectFriend={(friendId) => {
                                 if (friendId && friendId !== activeId) {
                                     setActiveId(friendId);
@@ -1150,8 +1130,6 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                                     }
                                 }
                             }}
-                            selectedYear={displayYearText || year}
-                            selectedSem={cleanSemesterLabel || semester}
                         />
                     ) : (
                         <>
@@ -1390,9 +1368,11 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                                     <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
                                     <div className="relative">
                                         <select
-                                            value={availableYears.some(y => y.value === year) 
-                                                ? year 
-                                                : (availableYears.find(y => y.text === year || (year && y.text?.includes(year)) || (y.value && year.includes(y.value)))?.value || year)}
+                                            value={(() => {
+                                                const norm = normalizeAcademicYear(year);
+                                                const match = availableYears.find(y => y.value === year || y.value === norm || normalizeAcademicYear(y.text) === norm);
+                                                return match ? match.value : (year || '2026-2027');
+                                            })()}
                                             onChange={e => {
                                                 setYear(e.target.value);
                                                 if (activeId) localStorage.setItem(`manualYear_${activeId}`, e.target.value);
@@ -1429,7 +1409,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                                     <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Semester</label>
                                     <div className="relative">
                                         <select
-                                            value={semester}
+                                            value={normalizeSemester(semester)}
                                             onChange={e => {
                                                 setSemester(e.target.value);
                                                 if (activeId) localStorage.setItem(`manualSem_${activeId}`, e.target.value);
@@ -1442,7 +1422,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                                                 availableSemesters.forEach(s => {
                                                     const sLow = (s.text || '').toLowerCase();
                                                     const val = sLow.includes('summer') ? 'Summer'
-                                                        : (sLow.includes('term') || sLow.includes('tri')) ? 'Term3'
+                                                        : ((sLow.includes('term') && !sLow.includes('summer')) || sLow.includes('tri')) ? 'Term3'
                                                         : sLow.includes('even') ? 'Even'
                                                         : 'Odd';
                                                     if (!seenVals.has(val)) {

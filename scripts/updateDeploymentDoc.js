@@ -28,18 +28,24 @@ async function syncDeployment() {
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        await setDoc(doc(db, 'config', 'deployment'), {
-            version: Number(versionData.version),
-            buildTime: versionData.buildTime,
-            deployedAt: new Date().toISOString()
-        }, { merge: true });
+        const writePromises = Promise.all([
+            setDoc(doc(db, 'config', 'deployment'), {
+                version: Number(versionData.version),
+                buildTime: versionData.buildTime,
+                deployedAt: new Date().toISOString()
+            }, { merge: true }),
+            setDoc(doc(db, 'config', 'sync'), {
+                type: 'DEPLOYMENT_EVENT',
+                data: versionData,
+                timestamp: Date.now()
+            }, { merge: true })
+        ]);
 
-        // Also touch config/sync
-        await setDoc(doc(db, 'config', 'sync'), {
-            type: 'DEPLOYMENT_EVENT',
-            data: versionData,
-            timestamp: Date.now()
-        }, { merge: true });
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Firestore sync timed out after 3s (continuing with deployment)')), 3000)
+        );
+
+        await Promise.race([writePromises, timeoutPromise]);
 
         console.log('✓ Deployment version successfully registered in Firestore for 0ms cross-domain sync:', versionData.version);
         process.exit(0);

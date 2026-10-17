@@ -300,9 +300,10 @@ export const saveFriendTimetable = ({ studentId, nickname, timetable, academicYe
 
         // Save timetable to storage
         if (timetable) {
-            const semClean = String(semester).toLowerCase().includes('summer') ? 'Summer Term'
-                : String(semester).toLowerCase().includes('even') ? 'Even Sem'
-                : String(semester).toLowerCase().includes('term') || String(semester).toLowerCase().includes('tri') ? 'Tri Sem / Term 3'
+            const sLow = String(semester || '').trim().toLowerCase();
+            const semClean = sLow.includes('summer') || sLow === '3' ? 'Summer Term'
+                : sLow.includes('even') || sLow === '2' ? 'Even Sem'
+                : ((sLow.includes('term') && !sLow.includes('summer')) || sLow.includes('tri') || sLow === '4') ? 'Tri Sem / Term 3'
                 : 'Odd Sem';
             localStorage.setItem(`kl_timetable_${cleanId}_${academicYear}_${semClean}`, JSON.stringify(timetable));
             localStorage.setItem(`kl_timetable_${cleanId}`, JSON.stringify(timetable));
