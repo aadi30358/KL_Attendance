@@ -10,10 +10,9 @@ import {
     playAttendanceChime
 } from '../services/attendanceAlerts';
 import { getActiveProfileDetails } from '../services/friendsService';
-import { fetchLiveErpTimetable, normalizeAcademicYear, normalizeSemester } from '../services/timetableService';
+import { fetchLiveErpTimetable, normalizeAcademicYear, normalizeSemester, getPresentAcademicYearAndSem } from '../services/timetableService';
 import FriendsManagerModal from '../components/FriendsManagerModal';
 import ErpSidebar from '../components/ErpSidebar';
-import ClassTimetable from '../components/ClassTimetable';
 
 function formatTimeAgo(timestamp) {
     if (!timestamp) return null;
@@ -184,9 +183,16 @@ const generateDefaultYears = () => {
 
 const DEFAULT_YEARS = generateDefaultYears();
 
-const AttendanceRegister = ({ initialView = 'attendance' }) => {
+const AttendanceRegister = () => {
     const { logout } = useAuth();
-    const [activeId, setActiveId] = useState(() => localStorage.getItem('activeErpUser') || '');
+    const initialProfile = getActiveProfileDetails();
+    const [activeProfile, setActiveProfile] = useState(() => initialProfile);
+    const [activeId, setActiveId] = useState(() => {
+        if (initialProfile?.isFriend && initialProfile?.studentId) {
+            return initialProfile.studentId;
+        }
+        return localStorage.getItem('activeErpUser') || initialProfile?.studentId || '2400030358';
+    });
     const myId = (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '2400030358';
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
@@ -224,18 +230,16 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
         if (manualYear) return manualYear;
         const savedYear = activeId ? localStorage.getItem(`activeYear_${activeId}`) : null;
         if (savedYear) return savedYear;
-        const currentYear = new Date().getFullYear();
-        const currentMonth = new Date().getMonth();
-        const curStart = (currentMonth >= 5) ? currentYear : currentYear - 1;
-        const currentYearStr = `${curStart}-${curStart + 1}`;
-        const found = DEFAULT_YEARS.find(y => y.value === currentYearStr);
-        return found ? found.value : (DEFAULT_YEARS[0]?.value || '2026-2027');
+        const present = getPresentAcademicYearAndSem(activeId);
+        return present.year;
     });
     const [semester, setSemester] = useState(() => {
         const manualSem = activeId ? localStorage.getItem(`manualSem_${activeId}`) : null;
         if (manualSem) return manualSem;
         const savedSem = activeId ? localStorage.getItem(`activeSem_${activeId}`) : null;
-        return savedSem || 'Odd';
+        if (savedSem) return savedSem;
+        const present = getPresentAcademicYearAndSem(activeId);
+        return present.sem;
     });
     const [availableYears, setAvailableYears] = useState(getInitialYears);
     const [availableSemesters, setAvailableSemesters] = useState([
@@ -262,11 +266,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
     const [refreshing, setRefreshing] = useState(false);
     const [debugHtml, setDebugHtml] = useState(null);
     const [fetchError, setFetchError] = useState(null);
-    const [showDashboard, setShowDashboard] = useState(() => {
-        if (initialView === 'timetable') return true;
-        if (typeof window !== 'undefined' && window.location.pathname === '/timetable') return true;
-        return false;
-    });
+    const [showDashboard, setShowDashboard] = useState(false);
     const [sessionStatus, setSessionStatus] = useState('active'); // 'active' | 'checking' | 'expired'
     const [lastUpdated, setLastUpdated] = useState(() => {
         if (!activeId) return null;
@@ -280,21 +280,8 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
     const [attendanceNotification, setAttendanceNotification] = useState(null);
     const [justCheckedNotice, setJustCheckedNotice] = useState(null);
     const [recentlyUpdatedCodes, setRecentlyUpdatedCodes] = useState(new Set());
-    const [activeProfile, setActiveProfile] = useState(() => getActiveProfileDetails());
     const [showFriendsModal, setShowFriendsModal] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [activeView, setActiveView] = useState(() => {
-        if (initialView) return initialView;
-        if (typeof window !== 'undefined' && window.location.pathname === '/timetable') return 'timetable';
-        return 'attendance';
-    });
-
-    // Synchronize activeView with route initialView prop
-    useEffect(() => {
-        if (initialView) {
-            setActiveView(initialView);
-        }
-    }, [initialView]);
 
     // Listen for switch view event from ErpSidebar or external triggers
 
@@ -356,49 +343,54 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
         const queryYear = normYear;
         const targetId = customId || activeId || localStorage.getItem('activeErpUser') || '';
 
-        // If in timetable view, immediately apply year & semester so timetable renders instantly without lagging on candidate loops
-        if (activeView === 'timetable') {
-            setYear(normYear);
-            setSemester(normSem);
-            if (targetId) {
-                localStorage.setItem(`activeYear_${targetId}`, normYear);
-                localStorage.setItem(`activeSem_${targetId}`, normSem);
-                localStorage.setItem(`manualYear_${targetId}`, normYear);
-                localStorage.setItem(`manualSem_${targetId}`, normSem);
-
-                // Load scoped cached courses if available for this student + year + sem
-                const cachedPayload = localStorage.getItem(`kleData_${targetId}_${normYear}_${normSem}`);
-                if (cachedPayload) {
-                    try {
-                        const parsed = JSON.parse(cachedPayload);
-                        if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
-                            setSubjects(parsed.attendance_data);
-                        }
-                    } catch { /* ignore */ }
-                } else {
-                    setSubjects([]);
-                }
-            }
-            setShowDashboard(true);
-        }
-
         try {
             console.log(`[ERP] Fetching records for Year: "${queryYear}" (${fetchYear}), Sem: "${fetchSemester}"...`);
             const data = await erpService.fetchAttendance(queryYear, fetchSemester);
-            const validCourses = Array.isArray(data) ? data : [];
-            setSubjects(validCourses);
+            let finalCourses = Array.isArray(data) ? data : [];
+            let finalYear = normYear;
+            let finalSem = normSem;
+
+            // If 0 courses found for initial query, try candidate year fallbacks based on student ID batch
+            if (finalCourses.length === 0 && targetId) {
+                const matchBatch = targetId.match(/^(\d{2})/);
+                if (matchBatch) {
+                    const startBatch = 2000 + parseInt(matchBatch[1], 10);
+                    const candidateYears = [];
+                    for (let y = Math.min(new Date().getFullYear(), startBatch + 4); y >= startBatch; y--) {
+                        const cand = `${y}-${y + 1}`;
+                        if (cand !== normYear) candidateYears.push(cand);
+                    }
+                    const candSems = ['Even', 'Odd', 'Summer'];
+                    for (const candY of candidateYears) {
+                        for (const candS of candSems) {
+                            try {
+                                const altData = await erpService.fetchAttendance(candY, candS);
+                                if (Array.isArray(altData) && altData.length > 0) {
+                                    finalCourses = altData;
+                                    finalYear = candY;
+                                    finalSem = candS;
+                                    break;
+                                }
+                            } catch { /* continue */ }
+                        }
+                        if (finalCourses.length > 0) break;
+                    }
+                }
+            }
+
+            setSubjects(finalCourses);
             setShowDashboard(true);
-            setYear(normYear);
-            setSemester(normSem);
+            setYear(finalYear);
+            setSemester(finalSem);
             setLastUpdated(Date.now());
             setSessionStatus('active');
 
             // Trigger live ERP timetable sync in background
-            if (activeView === 'timetable' || targetId) {
-                fetchLiveErpTimetable(targetId, queryYear, fetchSemester).then((res) => {
+            if (targetId) {
+                fetchLiveErpTimetable(targetId, finalYear, finalSem).then((res) => {
                     if (res?.timetable) {
                         window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                            detail: { studentId: targetId, year: normYear, sem: normSem }
+                            detail: { studentId: targetId, year: finalYear, sem: finalSem }
                         }));
                     }
                 }).catch(() => null);
@@ -407,18 +399,18 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
             const keyToUse = targetId ? `kleData_${targetId}` : 'kleData';
             try {
                 const payload = JSON.stringify({ 
-                    attendance_data: validCourses, 
-                    year: normYear, 
-                    semester: normSem, 
+                    attendance_data: finalCourses, 
+                    year: finalYear, 
+                    semester: finalSem, 
                     timestamp: Date.now() 
                 });
                 localStorage.setItem(keyToUse, payload);
                 if (targetId) {
-                    localStorage.setItem(`activeYear_${targetId}`, normYear);
-                    localStorage.setItem(`activeSem_${targetId}`, normSem);
-                    localStorage.setItem(`manualYear_${targetId}`, normYear);
-                    localStorage.setItem(`manualSem_${targetId}`, normSem);
-                    localStorage.setItem(`kleData_${targetId}_${normYear}_${normSem}`, payload);
+                    localStorage.setItem(`activeYear_${targetId}`, finalYear);
+                    localStorage.setItem(`activeSem_${targetId}`, finalSem);
+                    localStorage.setItem(`manualYear_${targetId}`, finalYear);
+                    localStorage.setItem(`manualSem_${targetId}`, finalSem);
+                    localStorage.setItem(`kleData_${targetId}_${finalYear}_${finalSem}`, payload);
                     localStorage.setItem(`attendanceLastUpdated_${targetId}`, String(Date.now()));
                 }
             } catch (storageErr) {
@@ -427,7 +419,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
         } catch (error) {
             console.warn('[ERP] Attendance query notice:', error.message);
 
-            // Restore from scoped cache if available for this specific year & semester
+            // 1. Restore from scoped cache if available for this specific year & semester
             const cachedPayload = targetId ? localStorage.getItem(`kleData_${targetId}_${normYear}_${normSem}`) : null;
             if (cachedPayload) {
                 try {
@@ -442,26 +434,21 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                 } catch { /* ignore */ }
             }
 
-            // In timetable mode, NEVER block the student with an error! Apply selection and render timetable
-            if (activeView === 'timetable') {
-                setSubjects([]); // Clear stale previous semester courses so timetable generates curriculum for this exact year & semester
-                setYear(normYear);
-                setSemester(normSem);
-                if (targetId) {
-                    localStorage.setItem(`activeYear_${targetId}`, normYear);
-                    localStorage.setItem(`activeSem_${targetId}`, normSem);
-                    localStorage.setItem(`manualYear_${targetId}`, normYear);
-                    localStorage.setItem(`manualSem_${targetId}`, normSem);
-                }
-                fetchLiveErpTimetable(targetId, queryYear, fetchSemester).then((res) => {
-                    if (res?.timetable) {
-                        window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                            detail: { studentId: targetId, year: normYear, sem: normSem }
-                        }));
+            // 2. Restore from student's general cached attendance (kleData_id or kleData)
+            const fallbackKey = targetId ? `kleData_${targetId}` : 'kleData';
+            const fallbackRaw = localStorage.getItem(fallbackKey) || (targetId ? localStorage.getItem('kleData') : null);
+            if (fallbackRaw) {
+                try {
+                    const parsed = JSON.parse(fallbackRaw);
+                    const list = parsed?.attendance_data || parsed?.data || (Array.isArray(parsed) ? parsed : []);
+                    if (Array.isArray(list) && list.length > 0) {
+                        setSubjects(list);
+                        setYear(parsed.year || normYear);
+                        setSemester(parsed.semester || normSem);
+                        setShowDashboard(true);
+                        return;
                     }
-                }).catch(() => null);
-                setShowDashboard(true);
-                return;
+                } catch { /* ignore */ }
             }
 
             if (error.message?.startsWith('DEBUG_HTML:') || error.message?.startsWith('No table found')) { 
@@ -473,7 +460,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
         } finally { 
             setLoading(false); 
         }
-    }, [activeId, year, semester, activeView]);
+    }, [activeId, year, semester]);
 
     // Listen for profile switches (via quick Captcha modal or sidebar)
     useEffect(() => {
@@ -545,24 +532,23 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
 
         const html = localStorage.getItem('erpDashboardHtml');
 
-        if (initialView !== 'timetable') {
-            if (!html || html.includes('site-error') || html.includes('The above error occurred') || html.includes('id="login-form"')) {
-                localStorage.removeItem('erpDashboardHtml');
-                localStorage.removeItem('activeErpUser');
-                sessionStorage.removeItem('erp_authenticated');
-                navigate('/login');
-                return;
-            }
+        if (!html || html.includes('site-error') || html.includes('The above error occurred') || html.includes('id="login-form"')) {
+            localStorage.removeItem('erpDashboardHtml');
+            localStorage.removeItem('activeErpUser');
+            sessionStorage.removeItem('erp_authenticated');
+            navigate('/login');
+            return;
         }
 
         // Cleanup any old flags
         sessionStorage.removeItem('manual_sem_reset');
 
         // Restore cached attendance so student doesn't lose their dashboard on return/refresh
-        const savedYear = activeId ? localStorage.getItem(`activeYear_${activeId}`) : null;
-        const savedSem = activeId ? localStorage.getItem(`activeSem_${activeId}`) : null;
-        const initY = savedYear || '2026-2027';
-        const initS = savedSem || 'Odd';
+        const savedYear = activeId ? (localStorage.getItem(`activeYear_${activeId}`) || localStorage.getItem(`manualYear_${activeId}`)) : null;
+        const savedSem = activeId ? (localStorage.getItem(`activeSem_${activeId}`) || localStorage.getItem(`manualSem_${activeId}`)) : null;
+        const present = getPresentAcademicYearAndSem(activeId);
+        const initY = savedYear || present.year;
+        const initS = savedSem || present.sem;
         const scopedKey = activeId ? `kleData_${activeId}_${initY}_${initS}` : null;
         const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
         const cachedRaw = scopedRaw || localStorage.getItem(storageKey);
@@ -578,10 +564,10 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
             } catch {
                 // ignore
             }
-        } else if (initialView === 'timetable') {
-            setShowDashboard(true);
         } else {
             // Auto fetch attendance immediately so user does not need to click "Fetch Attendance"
+            setYear(initY);
+            setSemester(initS);
             handleSearch(initY, initS, activeId);
         }
 
@@ -619,16 +605,21 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
             }
             // Auto-select active year directly: prioritize saved manual selection if available
             const userManualYear = activeId ? (localStorage.getItem(`manualYear_${activeId}`) || localStorage.getItem(`activeYear_${activeId}`)) : null;
+            let nextYear = '2026-2027';
             if (userManualYear) {
+                nextYear = userManualYear;
                 setYear(userManualYear);
             } else if (sessionData.selectedYear?.value) {
+                nextYear = sessionData.selectedYear.value;
                 setYear(sessionData.selectedYear.value);
             } else {
                 setYear('2026-2027');
             }
 
             const userManualSem = activeId ? (localStorage.getItem(`manualSem_${activeId}`) || localStorage.getItem(`activeSem_${activeId}`)) : null;
+            let nextSem = 'Odd';
             if (userManualSem) {
+                nextSem = userManualSem;
                 setSemester(userManualSem);
             } else if (sessionData.selectedSemester) {
                 const sText = sessionData.selectedSemester.text.toLowerCase();
@@ -636,18 +627,24 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                     : ((sText.includes('term') && !sText.includes('summer')) || sText.includes('tri')) ? 'Term3'
                     : sText.includes('even') ? 'Even'
                     : 'Odd';
+                nextSem = matched;
                 setSemester(matched);
+            }
+
+            // If subjects are currently empty and discovered session differs from initial query, query immediately
+            if (subjectsRef.current.length === 0 && (nextYear !== initY || nextSem !== initS)) {
+                handleSearch(nextYear, nextSem, activeId);
             }
         }).catch(err => {
             console.warn('[AttendanceRegister] Could not preload sessions:', err);
         });
 
         return () => { isMounted = false; };
-    }, [navigate, storageKey, activeId, handleSearch, initialView]);
+    }, [navigate, storageKey, activeId, handleSearch]);
 
     // Keep ERP session alive while dashboard is open (pings every 4 mins)
     useEffect(() => {
-        if (!showDashboard || activeView === 'timetable') return;
+        if (!showDashboard) return;
 
         let isMounted = true;
         const doPing = async () => {
@@ -658,9 +655,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                     setSessionStatus('active');
                 } else if (res?.reason === 'Session expired' || res?.sessionActive === false) {
                     // Session is inactive or expired on university server -> auto logout
-                    if (activeView !== 'timetable') {
-                        handleLogoutAction('session_expired');
-                    }
+                    handleLogoutAction('session_expired');
                 }
             } catch {
                 // ignore
@@ -674,15 +669,15 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
             clearInterval(pingInterval);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showDashboard, activeView]);
+    }, [showDashboard]);
 
     // Automatically log out before or upon university ERP session expiration
     useEffect(() => {
-        if (sessionStatus === 'expired' && activeView !== 'timetable') {
+        if (sessionStatus === 'expired') {
             handleLogoutAction('session_expired');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sessionStatus, activeView]);
+    }, [sessionStatus]);
 
     // Live background auto-check (only active while viewing current live semester)
     useEffect(() => {
@@ -856,7 +851,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                                 </span>
                             </div>
                             <span className="text-[10px] sm:text-[11px] font-semibold text-white/95 tracking-wide leading-none mt-1 whitespace-nowrap">
-                                Attendance Calculator for KLU students
+                                Attendance Register • {activeProfile?.nickname || 'My Profile'} ({activeId})
                             </span>
                         </div>
 
@@ -879,8 +874,6 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                         isOpen={sidebarOpen}
                         onToggle={() => setSidebarOpen(false)}
                         activePage="attendance-register"
-                        activeView={activeView}
-                        onSelectView={setActiveView}
                         onSelectProfile={(profile) => {
                             const newId = profile.studentId || profile.username || (profile.id !== 'main' ? profile.id : '');
                             if (newId) {
@@ -903,48 +896,14 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                     <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 font-sans">
                         <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 pointer-events-none" />
 
-                        {/* Top Attendance Header (Only shown in Attendance view) */}
-                        {activeView === 'attendance' && (
+                        {/* Top Attendance Header */}
                         <div className="flex flex-col gap-3 mb-6 max-w-7xl mx-auto">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                 <div>
                                     <div className="flex flex-wrap items-center gap-2 mb-2">
                                         <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                                            {activeView === 'timetable' ? (
-                                                <>Class <span className="text-indigo-600">Timetable</span></>
-                                            ) : (
-                                                <>Attendance <span className="text-indigo-600">Dashboard</span></>
-                                            )}
+                                            Attendance <span className="text-indigo-600">Dashboard</span>
                                         </h1>
-
-                                        {/* View Switcher Pill */}
-                                        <div className="inline-flex p-1 bg-slate-200/80 rounded-2xl border border-slate-300/60 shadow-2xs ml-1">
-                                            <button
-                                                type="button"
-                                                onClick={() => setActiveView('attendance')}
-                                                className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                                                    activeView === 'attendance'
-                                                        ? 'bg-white text-indigo-950 shadow-xs'
-                                                        : 'text-slate-600 hover:text-slate-900'
-                                                }`}
-                                            >
-                                                <BarChart3 className="w-3.5 h-3.5" />
-                                                <span>Attendance</span>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setActiveView('timetable')}
-                                                className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                                                    activeView === 'timetable'
-                                                        ? 'bg-white text-indigo-950 shadow-xs'
-                                                        : 'text-slate-600 hover:text-slate-900'
-                                                }`}
-                                            >
-                                                <CalendarDays className="w-3.5 h-3.5" />
-                                                <span>Timetable</span>
-                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                            </button>
-                                        </div>
 
                                         {/* ERP Session Status Pill */}
                                         <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-colors shadow-2xs ${
@@ -1075,7 +1034,6 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                         </motion.div>
                     )}
                 </div>
-                )}
 
                 {/* Debug view */}
                 {debugHtml && (
@@ -1085,56 +1043,8 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                     </div>
                 )}
 
-                    {/* View Specific Body Content: Timetable vs Attendance Subjects */}
-                    {activeView === 'timetable' ? (
-                        <ClassTimetable
-                            studentId={activeId}
-                            studentName={activeProfile?.nickname || 'My Profile'}
-                            erpCourses={subjects}
-                            selectedYear={displayYearText}
-                            selectedSem={cleanSemesterLabel}
-                            onViewCourseAttendance={() => setActiveView('attendance')}
-                            onChangeSelection={handleBack}
-                            onRefreshErp={(y, s) => handleSearch(y, s, activeId)}
-                            onSelectFriend={(friendId) => {
-                                if (friendId && friendId !== activeId) {
-                                    setActiveId(friendId);
-                                    const isSelf = friendId === myId || friendId === 'main';
-                                    const cached = localStorage.getItem(`kleData_${friendId}`) || (isSelf ? localStorage.getItem('kleData') : null);
-                                    if (cached) {
-                                        try {
-                                            const p = JSON.parse(cached);
-                                            const list = p.attendance_data || p.data || (Array.isArray(p) ? p : []);
-                                            setSubjects(Array.isArray(list) ? list : []);
-                                        } catch { setSubjects([]); }
-                                    } else {
-                                        setSubjects([]);
-                                    }
-                                }
-                            }}
-                            onSelectProfile={(profile) => {
-                                const newId = profile.studentId || profile.username || (profile.id !== 'main' ? profile.id : '');
-                                if (newId) {
-                                    setActiveId(newId);
-                                    setActiveProfile(profile);
-                                    const isSelf = newId === myId || profile.id === 'main';
-                                    const cached = localStorage.getItem(`kleData_${newId}`) || (isSelf ? localStorage.getItem('kleData') : null);
-                                    if (cached) {
-                                        try {
-                                            const p = JSON.parse(cached);
-                                            const list = p.attendance_data || p.data || (Array.isArray(p) ? p : []);
-                                            setSubjects(Array.isArray(list) ? list : []);
-                                        } catch { setSubjects([]); }
-                                    } else {
-                                        setSubjects([]);
-                                    }
-                                }
-                            }}
-                        />
-                    ) : (
-                        <>
-                            {/* Loading state skeleton */}
-                            {loading && subjects.length === 0 ? (
+                {/* Attendance Subjects */}
+                {loading && subjects.length === 0 ? (
                                 <div className="max-w-2xl mx-auto bg-white border-2 border-slate-900 rounded-[2.5rem] p-12 text-center shadow-lg my-8">
                                     <div className="w-14 h-14 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-5" />
                                     <h3 className="text-xl font-black text-slate-900 mb-2">Fetching Academic Record</h3>
@@ -1251,8 +1161,6 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                                     </div>
                                 </motion.div>
                             )}
-                        </>
-                    )}
 
                     </main>
                 </div>
@@ -1268,7 +1176,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
 
     // ── SELECTION FORM ───────────────────────────────────────────────
     return (
-        <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+        <div className="min-h-screen bg-[#F4F6F9] dark:bg-[#0b1120] flex flex-col font-sans selection:bg-indigo-500 selection:text-white transition-colors duration-200">
             {/* KLERP Top Header */}
             <header className="bg-[#0088cc] text-white px-4 sm:px-6 py-2.5 shadow-md z-40 sticky top-0 shrink-0 w-full select-none border-b border-black/10">
                 <div className="w-full relative flex items-center justify-between min-h-[46px]">
@@ -1301,7 +1209,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                             </span>
                         </div>
                         <span className="text-[10px] sm:text-[11px] font-semibold text-white/95 tracking-wide leading-none mt-1 whitespace-nowrap">
-                            Attendance Calculator for KLU students
+                            Attendance Register • {activeProfile?.nickname || 'My Profile'} ({activeId})
                         </span>
                     </div>
 
@@ -1324,60 +1232,54 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                     isOpen={sidebarOpen}
                     onToggle={() => setSidebarOpen(false)}
                     activePage="attendance-register"
-                    activeView={activeView}
-                    onSelectView={setActiveView}
                 />
 
                 <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10 flex items-center justify-center relative">
                     <div className="w-full max-w-md relative z-10 my-auto">
                         <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 200, damping: 25 }}
-                            className="bg-white border-2 border-slate-900 rounded-[2.5rem] p-6 sm:p-8 shadow-xl relative overflow-hidden transform-gpu">
-                            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500 rounded-t-[2.5rem]" />
+                            className="bg-white/95 dark:bg-[#0c1322] border border-slate-200/90 dark:border-slate-800 rounded-[2.5rem] p-6 sm:p-8 shadow-2xl relative overflow-hidden transform-gpu transition-all duration-300">
+                            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 rounded-t-[2.5rem]" />
 
                             <div className="text-center mb-6 sm:mb-8 relative z-10">
                                 <motion.div initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: 'spring', stiffness: 200, damping: 20, delay: 0.1 }}
-                                    className="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200">
-                                    {activeView === 'timetable' ? (
-                                        <CalendarDays className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
-                                    ) : (
-                                        <BookOpen className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
-                                    )}
+                                    className="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-3 sm:mb-4 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
+                                    <BookOpen className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
                                 </motion.div>
-                                <h1 className="text-2xl font-black text-slate-900 tracking-tight">
-                                    {activeView === 'timetable' ? 'KL ERP Timetable' : 'KL ERP Attendance'}
+                                <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">
+                                    KL ERP Attendance
                                 </h1>
-                                <p className="text-slate-500 text-xs sm:text-sm font-medium mt-1">
-                                    {activeView === 'timetable' ? 'Select Academic Year & Semester for Schedule' : 'Select your Academic Year and Semester'}
+                                <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm font-medium mt-1">
+                                    Select your Academic Year and Semester
                                 </p>
 
                                 <div className="mt-3 flex items-center justify-center">
                                     <button
                                         type="button"
                                         onClick={() => setShowFriendsModal(true)}
-                                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 transition-all cursor-pointer shadow-2xs"
+                                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-200 border border-indigo-200/80 dark:border-indigo-800/60 transition-all cursor-pointer shadow-2xs"
                                     >
-                                        <User className="w-3.5 h-3.5 text-indigo-700" />
-                                        <span>Student: <strong className="font-black text-indigo-950">{activeProfile?.label || 'My Account'}</strong></span>
-                                        <span className="text-[10px] text-indigo-600 underline font-black ml-0.5">(Switch)</span>
+                                        <User className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                        <span>Student: <strong className="font-black text-indigo-950 dark:text-white">{activeProfile?.label || activeProfile?.nickname || 'My Account'}</strong></span>
+                                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 underline font-black ml-0.5">(Switch)</span>
                                     </button>
                                 </div>
                             </div>
 
                             <div className="space-y-5 relative z-10">
                                 <div className="space-y-1.5">
-                                    <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
+                                    <label className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
                                     <div className="relative">
                                         <select
                                             value={(() => {
                                                 const norm = normalizeAcademicYear(year);
                                                 const match = availableYears.find(y => y.value === year || y.value === norm || normalizeAcademicYear(y.text) === norm);
-                                                return match ? match.value : (year || '2026-2027');
+                                                return match ? match.value : (year || '2025-2026');
                                             })()}
                                             onChange={e => {
                                                 setYear(e.target.value);
                                                 if (activeId) localStorage.setItem(`manualYear_${activeId}`, e.target.value);
                                             }}
-                                            className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
+                                            className="w-full appearance-none bg-slate-50/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700/80 rounded-2xl py-3.5 px-5 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/50 transition-all font-semibold cursor-pointer shadow-2xs">
                                             <option value="">Select Academic Year</option>
                                             {availableYears.length > 0 ? (
                                                 availableYears
@@ -1401,12 +1303,12 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                                                 ))
                                             )}
                                         </select>
-                                        <Calendar className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                                        <Calendar className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500 pointer-events-none" />
                                     </div>
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-slate-600 text-xs font-bold uppercase tracking-widest ml-1">Semester</label>
+                                    <label className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-widest ml-1">Semester</label>
                                     <div className="relative">
                                         <select
                                             value={normalizeSemester(semester)}
@@ -1414,7 +1316,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                                                 setSemester(e.target.value);
                                                 if (activeId) localStorage.setItem(`manualSem_${activeId}`, e.target.value);
                                             }}
-                                            className="w-full appearance-none bg-slate-50 border border-slate-200 rounded-2xl py-3.5 px-5 text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition-all font-medium cursor-pointer">
+                                            className="w-full appearance-none bg-slate-50/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700/80 rounded-2xl py-3.5 px-5 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/50 transition-all font-semibold cursor-pointer shadow-2xs">
                                             <option value="">Select Semester</option>
                                             {(() => {
                                                 const seenVals = new Set();
@@ -1445,7 +1347,7 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                                                 ));
                                             })()}
                                         </select>
-                                        <BookOpen className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                                        <BookOpen className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500 pointer-events-none" />
                                     </div>
                                 </div>
 
@@ -1453,12 +1355,12 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                                     <motion.div 
                                         initial={{ opacity: 0, height: 0 }}
                                         animate={{ opacity: 1, height: 'auto' }}
-                                        className="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-start gap-3"
+                                        className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 rounded-2xl p-4 flex items-start gap-3"
                                     >
-                                        <div className="w-5 h-5 bg-red-100 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                                            <span className="text-red-600 text-xs font-black">!</span>
+                                        <div className="w-5 h-5 bg-red-100 dark:bg-red-900/60 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                                            <span className="text-red-600 dark:text-red-400 text-xs font-black">!</span>
                                         </div>
-                                        <p className="text-xs font-bold text-red-700 leading-relaxed">
+                                        <p className="text-xs font-bold text-red-700 dark:text-red-300 leading-relaxed">
                                             {fetchError}
                                         </p>
                                     </motion.div>
@@ -1466,11 +1368,14 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
 
                                 <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                                     onClick={() => handleSearch(year, semester)} disabled={loading}
-                                    className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl shadow-xl shadow-slate-900/20 hover:bg-slate-800 transition-all mt-2 flex items-center justify-center gap-2 cursor-pointer">
+                                    className="w-full bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 active:scale-[0.98] text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-600/25 hover:shadow-indigo-600/35 transition-all mt-2 flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-85">
                                     {loading ? (
-                                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        <div className="flex items-center gap-2.5">
+                                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                            <span className="text-sm font-bold tracking-wide">Fetching Attendance…</span>
+                                        </div>
                                     ) : (
-                                        activeView === 'timetable' ? 'Apply Selection & Fetch Schedule' : 'Get Attendance'
+                                        <span className="text-sm font-black tracking-wide">Get Attendance</span>
                                     )}
                                 </motion.button>
 
@@ -1478,18 +1383,18 @@ const AttendanceRegister = ({ initialView = 'attendance' }) => {
                                     <button
                                         type="button"
                                         onClick={() => setShowDashboard(true)}
-                                        className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer transition-colors block mx-auto py-1"
+                                        className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 hover:underline cursor-pointer transition-colors block mx-auto py-1"
                                     >
-                                        ← Cancel & Return to {activeView === 'timetable' ? 'Timetable' : 'Dashboard'}
+                                        ← Cancel & Return to Dashboard
                                     </button>
-                                    <button onClick={handleLogoutAction} className="text-slate-400 text-sm font-semibold hover:text-slate-700 transition-colors cursor-pointer">
+                                    <button onClick={handleLogoutAction} className="text-slate-400 dark:text-slate-500 text-sm font-semibold hover:text-slate-700 dark:hover:text-slate-300 transition-colors cursor-pointer">
                                         Back to Login
                                     </button>
                                 </div>
                             </div>
 
-                            <div className="mt-6 pt-4 border-t border-slate-100 relative z-10">
-                                <p className="text-slate-400 text-[10px] text-center font-medium leading-relaxed">
+                            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80 relative z-10">
+                                <p className="text-slate-400 dark:text-slate-500 text-[10px] text-center font-medium leading-relaxed">
                                     This connects to the university ERP system. Your credentials are processed securely.
                                 </p>
                             </div>

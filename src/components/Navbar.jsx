@@ -157,16 +157,18 @@ const Navbar = () => {
     const rawHtml = typeof window !== 'undefined' ? localStorage.getItem('erpDashboardHtml') : null;
     const hasValidHtml = Boolean(rawHtml && !rawHtml.includes('site-error') && !rawHtml.includes('id="login-form"'));
     const isErpLoggedIn = Boolean(activeId && hasValidHtml);
-    const isErpPortal = location.pathname === '/login' || location.pathname === '/attendance-register' || location.pathname === '/timetable';
+    const isErpPortal = location.pathname === '/login' || 
+                        location.pathname === '/attendance-register' || 
+                        location.pathname === '/timetable' || 
+                        location.pathname === '/grades' || 
+                        location.pathname === '/cgpa' || 
+                        location.pathname === '/bunk-simulator' || 
+                        location.pathname === '/bunk';
     const showLogout = isErpLoggedIn && !isErpPortal;
 
     const navItems = [
         { name: 'HOME', path: '/' },
-        { name: 'TIMETABLE', path: '/timetable' },
-        { name: 'GRADES & CGPA', path: '/grades' },
         { name: 'ATTENDANCE BY L-T-P-S', path: '/ltps' },
-        { name: 'BUNK SIMULATOR', path: '/bunk-simulator' },
-        { name: 'ATTENDANCE WHEN ABSENT', path: '/attendance' },
         { name: 'ACADEMIC CALENDAR', path: '/calendar' },
         {
             name: isAppInstalled ? 'INSTALLED' : 'INSTALL APP',
@@ -178,9 +180,10 @@ const Navbar = () => {
             path: '/login',
             isErpHighlight: true,
             isMaintenance: Boolean(maintenanceConfig?.enabled)
-        }] : []),
-        ...(currentUser?.email === 'yaswanthadithyareddy11@gmail.com' ? [{ name: 'ADMIN', path: '/admin' }] : []),
-        ...(isErpLoggedIn && !isErpPortal ? [{ name: 'CHANGE SELECTION', path: '/attendance-register', isReset: true }] : [])
+        }] : [
+            { name: 'ERP ATTENDANCE', path: '/attendance-register', isErpHighlight: true }
+        ]),
+        ...(currentUser?.email === 'yaswanthadithyareddy11@gmail.com' ? [{ name: 'ADMIN', path: '/admin' }] : [])
     ];
 
     const isActive = (path) => location.pathname === path;
@@ -348,6 +351,7 @@ const Navbar = () => {
 
                             {/* Desktop Friends / Profiles Switcher Button */}
                             <button
+                                id="desktop-friends-btn"
                                 onClick={() => setShowFriendsModal(true)}
                                 title={maintenanceConfig?.enabled ? "ERP is under maintenance (Login paused)" : (activeProfile?.isFriend ? `Viewing ${activeProfile.label}` : "Check Friend's Attendance")}
                                 className={cn(

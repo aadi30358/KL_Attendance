@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { ShieldCheck, RefreshCcw, Loader2, X, AlertCircle } from 'lucide-react';
 import { erpService, isVerifiedErpDashboard } from '../services/erpService';
-import { decodePassword, setActiveProfileId } from '../services/friendsService';
+import { decodePassword, setActiveProfileId, saveMyProfile, saveFriend } from '../services/friendsService';
+import { fetchLiveErpGrades } from '../services/gradesService';
 import { useMaintenance } from '../services/useMaintenance';
 import { useAuth } from '../context/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -15,6 +16,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
     const [captcha, setCaptcha] = useState('');
     const [captchaUrl, setCaptchaUrl] = useState('');
     const [csrfToken, setCsrfToken] = useState('');
+    const [manualPassword, setManualPassword] = useState('');
     const [loadingCaptcha, setLoadingCaptcha] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
@@ -22,6 +24,16 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
     const captchaUrlRef = useRef('');
     const csrfTokenRef = useRef('');
     const inputRef = useRef(null);
+
+    const studentId = friend?.studentId || friend?.username || (friend?.id !== 'main' ? friend?.id : '') || (typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : '') || '';
+
+    const savedPassword = useMemo(() => {
+        if (!friend) return '';
+        const candidate = friend.password || (friend.id === 'main' ? (typeof window !== 'undefined' ? localStorage.getItem('rememberedPassword') : '') : '');
+        if (!candidate) return '';
+        const decoded = decodePassword(candidate);
+        return decoded || candidate;
+    }, [friend]);
 
     const refreshCaptcha = useCallback(async () => {
         setLoadingCaptcha(true);
@@ -59,13 +71,51 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         if (!isOpen || !friend) return;
         setCaptcha('');
         setError('');
-        refreshCaptcha();
+        setManualPassword('');
+
+        let isMounted = true;
+        const loadInitial = async () => {
+            setLoadingCaptcha(true);
+            try {
+                erpService.clearStoredErpCookies();
+                sessionStorage.removeItem('erp_authenticated');
+                const res = await erpService.getInitialState();
+                if (!isMounted) return;
+                if (res?.csrfToken) {
+                    setCsrfToken(res.csrfToken);
+                    csrfTokenRef.current = res.csrfToken;
+                }
+                if (res?.captchaUrl) {
+                    setCaptchaUrl(res.captchaUrl);
+                    captchaUrlRef.current = res.captchaUrl;
+                } else if (res?.captchaBlob) {
+                    if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
+                        URL.revokeObjectURL(captchaUrlRef.current);
+                    }
+                    const objectUrl = URL.createObjectURL(res.captchaBlob);
+                    captchaUrlRef.current = objectUrl;
+                    setCaptchaUrl(objectUrl);
+                } else {
+                    await refreshCaptcha();
+                }
+            } catch (err) {
+                console.warn('[FriendCaptchaModal] Initial state notice, falling back:', err);
+                if (isMounted) await refreshCaptcha();
+            } finally {
+                if (isMounted) setLoadingCaptcha(false);
+            }
+        };
+
+        loadInitial();
 
         const timer = setTimeout(() => {
             if (inputRef.current) inputRef.current.focus();
         }, 150);
 
-        return () => clearTimeout(timer);
+        return () => {
+            isMounted = false;
+            clearTimeout(timer);
+        };
     }, [isOpen, friend, refreshCaptcha]);
 
     const handleLogin = async (e) => {
@@ -83,24 +133,23 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             return;
         }
 
-        setIsSubmitting(true);
-        setError('');
-
-        const studentId = friend.studentId;
-        const rawPassword = decodePassword(friend.password) || (friend.id === 'main' ? decodePassword(localStorage.getItem('rememberedPassword') || '') : '');
+        const rawPassword = savedPassword || manualPassword.trim();
         const activeToken = csrfTokenRef.current || erpService.getStoredCsrfToken() || csrfToken || '';
 
-        if (!studentId || !rawPassword) {
-            setError('Missing saved password. Please enter credentials in Edit Profile.');
-            setIsSubmitting(false);
+        if (!studentId) {
+            setError('Missing Student ID.');
             return;
         }
 
-        try {
-            // Clear current active ERP session cookies before logging in
-            erpService.clearStoredErpCookies();
-            sessionStorage.removeItem('erp_authenticated');
+        if (!rawPassword) {
+            setError('Please enter the ERP password.');
+            return;
+        }
 
+        setIsSubmitting(true);
+        setError('');
+
+        try {
             const loginResult = await erpService.login(studentId, rawPassword, cleanCaptcha, activeToken);
 
             if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, studentId)) {
@@ -109,12 +158,34 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 localStorage.removeItem('kleData');
                 localStorage.setItem('userUniversity', 'klu');
                 localStorage.setItem('activeErpUser', studentId);
+                const currentCookies = erpService.getStoredErpCookies();
+                if (currentCookies) {
+                    localStorage.setItem(`erp_cookie_${studentId}`, currentCookies);
+                }
 
                 // Set active profile
                 setActiveProfileId(friend.id || 'main');
 
                 if (typeof setErpUser === 'function') {
                     setErpUser(studentId);
+                }
+
+                // If password was manually entered, auto-save so user never has to re-type
+                if (manualPassword.trim()) {
+                    if (friend.id === 'main') {
+                        saveMyProfile({
+                            nickname: friend.nickname || 'My Account',
+                            studentId,
+                            password: manualPassword.trim()
+                        });
+                    } else {
+                        saveFriend({
+                            id: friend.id,
+                            nickname: friend.nickname || 'Buddy',
+                            studentId,
+                            password: manualPassword.trim()
+                        });
+                    }
                 }
 
                 // Notify all listeners that a profile has successfully authenticated
@@ -125,11 +196,15 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     }
                 }));
 
+                // Pre-sync live ERP grades in background (< 1s)
+                fetchLiveErpGrades(studentId).catch(() => {});
+
                 if (onSuccess) {
                     onSuccess(friend);
                 }
                 onClose();
-                if (!window.location.pathname.includes('/timetable')) {
+                const path = window.location.pathname || '';
+                if (!path.includes('/timetable') && !path.includes('/grades')) {
                     navigate('/attendance-register');
                 }
             } else {
@@ -172,15 +247,22 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                         {friend.nickname || 'Buddy'}
                     </h3>
                     <p className="text-xs text-slate-500 font-bold mt-0.5 tracking-wide">
-                        ID: <span className="text-indigo-600 font-black">{friend.studentId}</span>
+                        ID: <span className="text-indigo-600 font-black">{studentId}</span>
                     </p>
                 </div>
 
                 {/* Auto-filled Notice */}
-                <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 flex items-center gap-2 text-emerald-800 text-xs font-bold">
-                    <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>ID & Password saved. Enter Captcha only.</span>
-                </div>
+                {savedPassword ? (
+                    <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 flex items-center gap-2 text-emerald-800 text-xs font-bold">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>ID & Password saved. Enter Captcha only.</span>
+                    </div>
+                ) : (
+                    <div className="mb-3 bg-indigo-50 border border-indigo-200 rounded-xl py-2 px-3 flex items-center gap-2 text-indigo-800 text-xs font-bold">
+                        <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span>Enter Password & Captcha to authenticate.</span>
+                    </div>
+                )}
 
                 {/* ERP Maintenance Notice */}
                 {isMaintenance && (
@@ -196,6 +278,22 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 )}
 
                 <form onSubmit={handleLogin} className="space-y-4">
+                    {/* Manual Password field (shown if password not saved) */}
+                    {!savedPassword && (
+                        <div className="space-y-1.5">
+                            <label className="text-[11px] font-black uppercase tracking-wider text-slate-600 block">
+                                ERP Password
+                            </label>
+                            <input
+                                type="password"
+                                value={manualPassword}
+                                onChange={(e) => setManualPassword(e.target.value)}
+                                placeholder="Enter your ERP password"
+                                autoComplete="current-password"
+                                className="w-full bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-xl py-2.5 px-4 text-slate-900 font-bold text-sm transition-all"
+                            />
+                        </div>
+                    )}
                     {/* Captcha Display & Refresh */}
                     <div className="space-y-1.5">
                         <label className="text-[11px] font-black uppercase tracking-wider text-slate-600 block">

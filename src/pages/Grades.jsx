@@ -10,7 +10,6 @@ import {
     FileText,
     X,
     Users,
-    RotateCcw,
     CheckCircle2,
     Info,
     Calculator,
@@ -18,8 +17,10 @@ import {
     RefreshCw,
     AlertCircle,
     Check,
-    Trash2
+    ArrowLeft
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import ErpSidebar from '../components/ErpSidebar';
 import {
     calculateGPA,
     buildSemesterOptions,
@@ -35,6 +36,7 @@ import {
     fetchLiveErpGrades,
     fetchLiveMarksDetail
 } from '../services/gradesService';
+import { normalizeAcademicYear, normalizeSemester } from '../services/timetableService';
 import { getSavedFriends, getMyProfile } from '../services/friendsService';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';
 
@@ -43,8 +45,8 @@ export default function Grades() {
     const myId = myProfile?.studentId || myProfile?.username || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '2400030358';
     const myName = myProfile?.nickname || myProfile?.name || 'My Profile';
 
-    // Combine saved friends with TimeTablekl 'maddys'
-    const allFriends = useMemo(() => {
+    // Combine saved friends with TimeTablekl 'maddys' reactively
+    const [allFriends, setAllFriends] = useState(() => {
         const list = getSavedFriends();
         try {
             const rawMaddys = localStorage.getItem('maddys');
@@ -67,10 +69,62 @@ export default function Grades() {
             }
         } catch { /* ignore */ }
         return list;
+    });
+
+    useEffect(() => {
+        const handleFriendsSync = () => {
+            const list = getSavedFriends();
+            try {
+                const rawMaddys = localStorage.getItem('maddys');
+                if (rawMaddys) {
+                    const parsedMaddys = JSON.parse(rawMaddys);
+                    if (Array.isArray(parsedMaddys)) {
+                        parsedMaddys.forEach(m => {
+                            const sid = m.username || m.studentId || String(m.id);
+                            if (!list.some(f => (f.studentId === sid || f.username === sid))) {
+                                list.push({
+                                    id: m.id || sid,
+                                    nickname: m.name || m.nickname || 'Buddy',
+                                    label: m.name || m.nickname || 'Buddy',
+                                    studentId: sid,
+                                    username: sid
+                                });
+                            }
+                        });
+                    }
+                }
+            } catch { /* ignore */ }
+            setAllFriends(list);
+        };
+        window.addEventListener('kl_friends_updated', handleFriendsSync);
+        window.addEventListener('storage', handleFriendsSync);
+        return () => {
+            window.removeEventListener('kl_friends_updated', handleFriendsSync);
+            window.removeEventListener('storage', handleFriendsSync);
+        };
     }, []);
 
     // Active Profile: Self or Buddy
-    const [selectedStudentId, setSelectedStudentId] = useState(myId);
+    const [selectedStudentId, setSelectedStudentId] = useState(() => {
+        return localStorage.getItem('activeErpUser') || myId;
+    });
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+
+    // Sync active profile when switched in sidebar or elsewhere
+    useEffect(() => {
+        const update = (e) => {
+            const sid = e?.detail?.studentId || localStorage.getItem('activeErpUser') || myId;
+            if (sid) setSelectedStudentId(sid);
+        };
+        window.addEventListener('kl_profile_switched', update);
+        window.addEventListener('kl_active_profile_updated', update);
+        window.addEventListener('storage', update);
+        return () => {
+            window.removeEventListener('kl_profile_switched', update);
+            window.removeEventListener('kl_active_profile_updated', update);
+            window.removeEventListener('storage', update);
+        };
+    }, [myId]);
 
     const activeProfileName = useMemo(() => {
         if (selectedStudentId === myId || selectedStudentId === 'main') {
@@ -82,6 +136,8 @@ export default function Grades() {
 
     const [courses, setCourses] = useState(() => getStoredGrades(selectedStudentId));
     const [viewMode, setViewMode] = useState('cgpa'); // 'cgpa' | 'sgpa'
+    const [selectedYear, setSelectedYear] = useState('ALL');
+    const [selectedSem, setSelectedSem] = useState('ALL');
     const [selectedSemesterKey, setSelectedSemesterKey] = useState('');
     const [selectedCourseForDetail, setSelectedCourseForDetail] = useState(null);
     const [friendCaptchaTarget, setFriendCaptchaTarget] = useState(null);
@@ -89,6 +145,24 @@ export default function Grades() {
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncMessage, setSyncMessage] = useState(null);
     const [scorecardDetail, setScorecardDetail] = useState({ loading: false, data: null, error: null });
+
+    // Dynamic academic year list from current year down to 2021
+    const academicYearList = useMemo(() => {
+        const years = [];
+        const currentYear = new Date().getFullYear();
+        for (let yr = currentYear; yr >= 2021; yr--) {
+            years.push(`${yr}-${yr + 1}`);
+        }
+        return years;
+    }, []);
+
+    const semesterList = useMemo(() => [
+        { key: 'ALL', label: 'All Semesters' },
+        { key: 'Odd', label: 'Odd Sem' },
+        { key: 'Even', label: 'Even Sem' },
+        { key: 'Summer', label: 'Summer Term' },
+        { key: 'Term3', label: 'Tri Sem / Term 3' },
+    ], []);
 
     // Sync courses whenever student profile changes
     useEffect(() => {
@@ -134,16 +208,17 @@ export default function Grades() {
         }
     }, [selectedStudentId, allFriends]);
 
-    // Auto-fetch if no grades stored and active session exists
+    // Auto-sync ERP grades on mount and active session in < 1 second
     useEffect(() => {
         const isSelf = selectedStudentId === myId || selectedStudentId === 'main';
         const hasSession = typeof window !== 'undefined' && (localStorage.getItem('erp_session_cookie') || sessionStorage.getItem('erp_session_cookie') || localStorage.getItem('activeErpUser'));
         const friendCookie = !isSelf && typeof window !== 'undefined' ? localStorage.getItem(`erp_cookie_${selectedStudentId}`) : null;
+        const activeErp = typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null;
         
-        if (courses.length === 0 && (isSelf ? hasSession : Boolean(friendCookie))) {
+        if (isSelf ? hasSession : (Boolean(friendCookie) || activeErp === selectedStudentId)) {
             handleSyncLiveErpGrades();
         }
-    }, [selectedStudentId, courses.length, handleSyncLiveErpGrades, myId]);
+    }, [selectedStudentId, handleSyncLiveErpGrades, myId]);
 
     // Fetch marks detail when scorecard modal is opened
     useEffect(() => {
@@ -173,18 +248,34 @@ export default function Grades() {
         }
     }, [semesterOptions, selectedSemesterKey]);
 
-    const displayedCourses = useMemo(() => {
-        if (viewMode === 'sgpa' && selectedSemesterKey) {
-            return filterCoursesBySemester(courses, selectedSemesterKey);
+    // Grade filter state ('ALL', '10', '9', or specific grade code)
+    const [gradeFilter, setGradeFilter] = useState('ALL');
+
+    const isOverall = viewMode === 'cgpa' && selectedYear === 'ALL' && selectedSem === 'ALL';
+
+    // Base courses filtered by Academic Year and Semester selection
+    const activeBaseCourses = useMemo(() => {
+        if (isOverall) {
+            return courses;
         }
-        return courses;
-    }, [courses, viewMode, selectedSemesterKey]);
+        return courses.filter(c => {
+            if (selectedYear !== 'ALL') {
+                const y = normalizeAcademicYear(c.academic_year);
+                if (y !== selectedYear) return false;
+            }
+            if (selectedSem !== 'ALL') {
+                const s = normalizeSemester(c.semester);
+                if (s !== selectedSem) return false;
+            }
+            return true;
+        });
+    }, [courses, isOverall, selectedYear, selectedSem]);
 
-    // Calculate real GPA
+    // Calculate real GPA based on base courses (not skewed by UI filtering)
     const cgpaValue = useMemo(() => calculateGPA(courses) || '0.00', [courses]);
-    const sgpaValue = useMemo(() => calculateGPA(displayedCourses) || cgpaValue, [displayedCourses, cgpaValue]);
+    const sgpaValue = useMemo(() => calculateGPA(activeBaseCourses) || cgpaValue, [activeBaseCourses, cgpaValue]);
 
-    const activeGpa = viewMode === 'cgpa' ? cgpaValue : sgpaValue;
+    const activeGpa = isOverall ? cgpaValue : sgpaValue;
     const cgpaPercent = useMemo(() => {
         const num = parseFloat(activeGpa);
         if (isNaN(num) || num <= 0) return '0.0';
@@ -193,11 +284,106 @@ export default function Grades() {
     }, [activeGpa]);
 
     const totalCreditsEarned = useMemo(() => {
-        return displayedCourses.reduce((sum, c) => {
+        return activeBaseCourses.reduce((sum, c) => {
             const cr = parseFloat(c.credits);
             return sum + (Number.isFinite(cr) ? cr : 0);
         }, 0);
-    }, [displayedCourses]);
+    }, [activeBaseCourses]);
+
+    // Dynamic Grade Filters: 10 Grades, 9 Grades, and only grades that the student actually has!
+    const gradeFilterOptions = useMemo(() => {
+        const base = activeBaseCourses;
+        const total = base.length;
+
+        const count10 = base.filter(c => {
+            const g = (c.grade || '').trim().toUpperCase();
+            const gp = Number(c.grade_point);
+            return g === 'O' || gp === 10;
+        }).length;
+
+        const count9 = base.filter(c => {
+            const g = (c.grade || '').trim().toUpperCase();
+            const gp = Number(c.grade_point);
+            return g === 'A+' || gp === 9;
+        }).length;
+
+        const options = [
+            { id: 'ALL', label: 'All Subjects', count: total }
+        ];
+
+        // Dedicated 10 Grade Subjects filter
+        if (count10 > 0) {
+            options.push({
+                id: '10',
+                label: '10 Grades (O)',
+                count: count10,
+                bg: 'bg-emerald-50 text-emerald-800 border-emerald-300'
+            });
+        }
+
+        // Dedicated 9 Grade Subjects filter
+        if (count9 > 0) {
+            options.push({
+                id: '9',
+                label: '9 Grades (A+)',
+                count: count9,
+                bg: 'bg-blue-50 text-blue-800 border-blue-300'
+            });
+        }
+
+        // Other standard grades: strictly only show if the student actually has them!
+        const otherGrades = [
+            { id: 'A', label: '8 Grades (A)', gp: 8, bg: 'bg-sky-50 text-sky-800 border-sky-300' },
+            { id: 'B+', label: '7 Grades (B+)', gp: 7, bg: 'bg-indigo-50 text-indigo-800 border-indigo-300' },
+            { id: 'B', label: '6 Grades (B)', gp: 6, bg: 'bg-purple-50 text-purple-800 border-purple-300' },
+            { id: 'C', label: '5 Grades (C)', gp: 5, bg: 'bg-amber-50 text-amber-800 border-amber-300' },
+            { id: 'P', label: '4 Grades (P)', gp: 4, bg: 'bg-slate-100 text-slate-700 border-slate-300' },
+            { id: 'F', label: 'Fail (F)', gp: 0, bg: 'bg-rose-50 text-rose-800 border-rose-300' },
+        ];
+
+        otherGrades.forEach(item => {
+            const count = base.filter(c => {
+                const g = (c.grade || '').trim().toUpperCase();
+                const gp = Number(c.grade_point);
+                return g === item.id || (gp === item.gp && !['O', 'A+'].includes(g));
+            }).length;
+
+            // Only add if the student actually has this grade in their records
+            if (count > 0) {
+                options.push({
+                    id: item.id,
+                    label: item.label,
+                    count,
+                    bg: item.bg
+                });
+            }
+        });
+
+        return options;
+    }, [activeBaseCourses]);
+
+    // Filter courses displayed in the list by the selected grade filter
+    const displayedCourses = useMemo(() => {
+        if (gradeFilter === 'ALL') return activeBaseCourses;
+        if (gradeFilter === '10') {
+            return activeBaseCourses.filter(c => {
+                const g = (c.grade || '').trim().toUpperCase();
+                const gp = Number(c.grade_point);
+                return g === 'O' || gp === 10;
+            });
+        }
+        if (gradeFilter === '9') {
+            return activeBaseCourses.filter(c => {
+                const g = (c.grade || '').trim().toUpperCase();
+                const gp = Number(c.grade_point);
+                return g === 'A+' || gp === 9;
+            });
+        }
+        return activeBaseCourses.filter(c => {
+            const g = (c.grade || '').trim().toUpperCase();
+            return g === gradeFilter;
+        });
+    }, [activeBaseCourses, gradeFilter]);
 
     // Handle grade dropdown change (What-If Grade Simulation)
     const handleGradeChange = (courseCode, nextGrade) => {
@@ -205,37 +391,80 @@ export default function Grades() {
         setCourses([...updated]);
     };
 
-    // Reset grades
-    const handleResetBaseline = () => {
-        const reset = resetGradesToDefault(selectedStudentId);
-        setCourses([...reset]);
-    };
-
-    // Import from ERP Enrolled Courses
-    const handleImportFromErp = () => {
-        const templates = getEnrolledCoursesTemplate(selectedStudentId);
-        if (templates.length > 0) {
-            saveStoredGrades(selectedStudentId, templates);
-            setCourses(templates);
-        } else {
-            alert('No enrolled ERP courses found in the current session. Please log in or add courses manually.');
-        }
-    };
-
-    // Delete Course
-    const handleDeleteCourse = (code) => {
-        const updated = deleteCourseFromScorecard(selectedStudentId, code);
-        setCourses([...updated]);
-    };
-
     return (
-        <div className="min-h-screen bg-slate-50 pt-20 pb-16 px-4 sm:px-6 lg:px-8 font-sans">
+        <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
             <Helmet>
-                <title>Grades & CGPA | KLU Academic Performance</title>
+                <title>Grades & CGPA | KLERP</title>
                 <meta name="description" content="Calculate and simulate official KLU semester grades, SGPA and CGPA performance breakdown with real credit points." />
             </Helmet>
 
-            <div className="max-w-6xl mx-auto space-y-6">
+            {/* KLERP Top Header */}
+            <header className="bg-[#0088cc] text-white px-4 sm:px-6 py-2.5 shadow-md z-40 sticky top-0 shrink-0 w-full select-none border-b border-black/10">
+                <div className="w-full relative flex items-center justify-between min-h-[46px]">
+                    {/* Left: Mobile Drawer Toggle */}
+                    <div className="flex items-center gap-2 z-10">
+                        <button
+                            type="button"
+                            onClick={() => setSidebarOpen(prev => !prev)}
+                            className="lg:hidden flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 active:scale-95 text-white text-xs font-bold transition-all border border-white/20 shadow-2xs cursor-pointer"
+                            title="Menu"
+                        >
+                            <Users className="w-4 h-4" />
+                            <span className="hidden sm:inline text-[11px] font-bold">Menu</span>
+                        </button>
+                    </div>
+
+                    {/* Center: Logo + KLERP */}
+                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center text-center pointer-events-auto">
+                        <div className="flex items-center gap-2 sm:gap-2.5">
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white flex items-center justify-center p-0.5 shadow-sm ring-1 ring-white/30 shrink-0">
+                                <img
+                                    src="/Koneru Lakshmaiah University Logo Banner.png"
+                                    alt="KLU"
+                                    className="w-full h-full object-contain"
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                />
+                            </div>
+                            <span className="font-serif italic font-extrabold text-xl sm:text-2xl text-white tracking-wider drop-shadow-xs">
+                                KLERP
+                            </span>
+                        </div>
+                        <span className="text-[10px] sm:text-[11px] font-semibold text-white/95 tracking-wide leading-none mt-1 whitespace-nowrap">
+                            Grades & CGPA Scorecard • {activeProfileName} ({selectedStudentId})
+                        </span>
+                    </div>
+
+                    {/* Right: Back to Home */}
+                    <div className="flex items-center gap-2 z-10 ml-auto">
+                        <Link
+                            to="/"
+                            className="text-xs font-black uppercase tracking-wider bg-white/15 hover:bg-white/25 active:scale-95 text-white px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs border border-white/20"
+                        >
+                            <ArrowLeft className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Back to Home</span>
+                        </Link>
+                    </div>
+                </div>
+            </header>
+
+            {/* Page Body: Left Sidebar + Grades View */}
+            <div className="flex-1 flex overflow-hidden relative">
+                <ErpSidebar
+                    isOpen={sidebarOpen}
+                    onToggle={() => setSidebarOpen(false)}
+                    activePage="grades"
+                    onSelectProfile={(profile) => {
+                        const newId = profile.studentId || profile.username || (profile.id !== 'main' ? profile.id : '');
+                        if (newId) {
+                            setSelectedStudentId(newId);
+                        }
+                    }}
+                />
+
+                <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 font-sans">
+                    <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 pointer-events-none" />
+
+                    <div className="max-w-6xl mx-auto space-y-6">
                 {/* ── Page Header & Profile Switcher ── */}
                 <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xs border border-slate-200/90 flex flex-col md:flex-row md:items-center justify-between gap-6">
                     <div className="space-y-2">
@@ -289,35 +518,79 @@ export default function Grades() {
                         </div>
                     </div>
 
-                    {/* Mode Toggle & Reset Button */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                    {/* Mode Toggle, Year & Sem Filters ("Change Selection"), and Live ERP Sync */}
+                    <div className="flex flex-wrap items-center gap-2.5">
                         {courses.length > 0 && (
-                            <div className="inline-flex bg-slate-100 p-1 rounded-2xl border border-slate-200 shadow-2xs">
+                            <>
+                                {/* Overall CGPA Button */}
                                 <button
                                     type="button"
-                                    onClick={() => setViewMode('cgpa')}
-                                    className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                                        viewMode === 'cgpa'
-                                            ? 'bg-blue-600 text-white shadow-xs'
-                                            : 'text-slate-600 hover:text-slate-900'
+                                    onClick={() => {
+                                        setViewMode('cgpa');
+                                        setSelectedYear('ALL');
+                                        setSelectedSem('ALL');
+                                    }}
+                                    className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
+                                        isOverall
+                                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                            : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
                                     }`}
                                 >
                                     <Award className="w-4 h-4" />
                                     <span>Overall CGPA</span>
                                 </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setViewMode('sgpa')}
-                                    className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                                        viewMode === 'sgpa'
-                                            ? 'bg-blue-600 text-white shadow-xs'
-                                            : 'text-slate-600 hover:text-slate-900'
-                                    }`}
-                                >
-                                    <Layers className="w-4 h-4" />
-                                    <span>Semester SGPA</span>
-                                </button>
-                            </div>
+
+                                {/* Academic Year Dropdown */}
+                                <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
+                                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">Year:</span>
+                                    <select
+                                        value={selectedYear}
+                                        onChange={(e) => {
+                                            const y = e.target.value;
+                                            setSelectedYear(y);
+                                            if (y === 'ALL' && selectedSem === 'ALL') {
+                                                setViewMode('cgpa');
+                                            } else {
+                                                setViewMode('sgpa');
+                                            }
+                                        }}
+                                        className="text-xs font-bold text-slate-800 bg-transparent outline-none cursor-pointer pr-1"
+                                        title="Filter by Academic Year"
+                                    >
+                                        <option value="ALL">All Years</option>
+                                        {academicYearList.map((yr) => (
+                                            <option key={yr} value={yr}>
+                                                {yr}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Semester Dropdown */}
+                                <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
+                                    <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">Sem:</span>
+                                    <select
+                                        value={selectedSem}
+                                        onChange={(e) => {
+                                            const s = e.target.value;
+                                            setSelectedSem(s);
+                                            if (s === 'ALL' && selectedYear === 'ALL') {
+                                                setViewMode('cgpa');
+                                            } else {
+                                                setViewMode('sgpa');
+                                            }
+                                        }}
+                                        className="text-xs font-bold text-slate-800 bg-transparent outline-none cursor-pointer pr-1"
+                                        title="Filter by Semester"
+                                    >
+                                        {semesterList.map((sem) => (
+                                            <option key={sem.key} value={sem.key}>
+                                                {sem.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </>
                         )}
 
                         <div className="flex flex-wrap items-center gap-2">
@@ -331,18 +604,6 @@ export default function Grades() {
                                 <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
                                 <span>{isSyncing ? 'Syncing...' : 'Sync Live ERP'}</span>
                             </button>
-
-                            {courses.length > 0 && (
-                                <button
-                                    type="button"
-                                    onClick={handleResetBaseline}
-                                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
-                                    title="Clear all courses from calculator"
-                                >
-                                    <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-                                    <span>Clear</span>
-                                </button>
-                            )}
                         </div>
                     </div>
                 </div>
@@ -369,7 +630,7 @@ export default function Grades() {
                         {/* Primary GPA Card */}
                         <div className="bg-gradient-to-br from-indigo-600 via-blue-600 to-indigo-700 rounded-3xl p-6 text-white shadow-md shadow-indigo-100 flex flex-col justify-between">
                             <div className="flex items-center justify-between text-indigo-100 text-xs font-bold uppercase tracking-wider">
-                                <span>{viewMode === 'cgpa' ? 'Cumulative GPA (CGPA)' : 'Semester GPA (SGPA)'}</span>
+                                <span>{isOverall ? 'Cumulative GPA (CGPA)' : 'Semester GPA (SGPA)'}</span>
                                 <Award className="w-5 h-5 text-amber-300" />
                             </div>
                             <div className="my-3">
@@ -522,39 +783,20 @@ export default function Grades() {
                     </div>
                 ) : (
                     <>
-                        {/* ── SGPA Semester Filter Selector ── */}
-                        {viewMode === 'sgpa' && semesterOptions.length > 1 && (
-                            <div className="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-2xs flex flex-wrap items-center gap-3">
-                                <Filter className="w-4 h-4 text-slate-500" />
-                                <span className="text-xs font-bold text-slate-700">Select Term for SGPA:</span>
-                                <select
-                                    value={selectedSemesterKey}
-                                    onChange={(e) => setSelectedSemesterKey(e.target.value)}
-                                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                                >
-                                    {semesterOptions.map((opt) => (
-                                        <option key={opt.key} value={opt.key}>
-                                            {opt.label}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-
-                        {/* ── Courses & Grades Grid with Live Simulator ── */}
+                        {/* ── Courses & Grades Grid ── */}
                         <div className="bg-white rounded-3xl p-6 border border-slate-200/90 shadow-xs space-y-4">
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
                                 <div className="flex items-center gap-2">
                                     <BookOpen className="w-5 h-5 text-blue-600" />
                                     <h2 className="text-lg font-bold text-slate-900">
-                                        {viewMode === 'cgpa'
+                                        {isOverall
                                             ? `All Course Grades (${activeProfileName})`
-                                            : `Courses for ${semesterOptions.find(o => o.key === selectedSemesterKey)?.label || 'Semester'}`}
+                                            : `Courses for ${selectedSem !== 'ALL' ? (selectedSem === 'Odd' ? 'Odd Sem' : selectedSem === 'Even' ? 'Even Sem' : selectedSem === 'Summer' ? 'Summer Term' : 'Tri Sem / Term 3') : 'All Semesters'}${selectedYear !== 'ALL' ? ` · ${selectedYear}` : ''} (${activeProfileName})`}
                                     </h2>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    <span className="text-[11px] font-semibold text-slate-400">
-                                        Tip: Change grade to test what-if SGPA
+                                    <span className="text-[11px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                                        Official ERP Results
                                     </span>
                                     <span className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1 rounded-full">
                                         {displayedCourses.length} Courses
@@ -562,86 +804,113 @@ export default function Grades() {
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {displayedCourses.map((course, idx) => {
-                                    const badge = getGradeBadgeStyle(course.grade, course);
-                                    return (
-                                        <motion.div
-                                            key={`${course.course_code}_${course.academic_year}_${idx}`}
-                                            initial={{ opacity: 0, y: 6 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ duration: 0.2, delay: idx * 0.02 }}
-                                            className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/80 hover:bg-white hover:border-blue-200 hover:shadow-xs transition-all flex flex-col justify-between gap-3"
-                                        >
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div className="space-y-1">
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                        <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-slate-200/80 text-slate-800">
-                                                            {course.course_code}
-                                                        </span>
-                                                        <span className="text-[11px] font-semibold text-slate-500">
-                                                            {course.academic_year} · {course.semester} Sem
-                                                        </span>
+                            {/* Grade Filter Pills: 10 Grades, 9 Grades, and student's actual grades only */}
+                            {gradeFilterOptions.length > 1 && (
+                                <div className="flex flex-wrap items-center gap-2 pt-1 pb-1">
+                                    <span className="text-xs font-bold text-slate-500 mr-1 flex items-center gap-1">
+                                        <Filter className="w-3.5 h-3.5" />
+                                        <span>Filter Grades:</span>
+                                    </span>
+                                    {gradeFilterOptions.map((opt) => {
+                                        const isSelected = gradeFilter === opt.id;
+                                        return (
+                                            <button
+                                                key={opt.id}
+                                                type="button"
+                                                onClick={() => setGradeFilter(opt.id)}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs ${
+                                                    isSelected
+                                                        ? 'bg-blue-600 text-white border-blue-600 shadow-xs scale-102'
+                                                        : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 hover:border-slate-300'
+                                                }`}
+                                            >
+                                                <span>{opt.label}</span>
+                                                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
+                                                    isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                                                }`}>
+                                                    {opt.count}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            {displayedCourses.length === 0 ? (
+                                <div className="p-8 text-center bg-slate-50/60 rounded-2xl border border-dashed border-slate-200">
+                                    <p className="text-sm font-bold text-slate-600">No courses match this filter.</p>
+                                    <button
+                                        type="button"
+                                        onClick={() => setGradeFilter('ALL')}
+                                        className="mt-2 text-xs font-bold text-blue-600 hover:underline cursor-pointer"
+                                    >
+                                        Show all courses
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {displayedCourses.map((course, idx) => {
+                                        const badge = getGradeBadgeStyle(course.grade, course);
+                                        return (
+                                            <motion.div
+                                                key={`${course.course_code}_${course.academic_year}_${idx}`}
+                                                initial={{ opacity: 0, y: 6 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                transition={{ duration: 0.2, delay: idx * 0.02 }}
+                                                className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/80 hover:bg-white hover:border-blue-200 hover:shadow-xs transition-all flex flex-col justify-between gap-3"
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <span className="px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-slate-200/80 text-slate-800">
+                                                                {course.course_code}
+                                                            </span>
+                                                            <span className="text-[11px] font-semibold text-slate-500">
+                                                                {course.academic_year} · {course.semester} Sem
+                                                            </span>
+                                                        </div>
+                                                        <h3 className="text-sm font-bold text-slate-900 leading-snug">
+                                                            {course.course_desc || course.course_code}
+                                                        </h3>
                                                     </div>
-                                                    <h3 className="text-sm font-bold text-slate-900 leading-snug">
-                                                        {course.course_desc || course.course_code}
-                                                    </h3>
+
+                                                    {/* Official Awarded Grade Badge - Real ERP Awarded Grade, No Edit Option */}
+                                                    <div className="flex flex-col items-end shrink-0">
+                                                        <span className={`px-3.5 py-1.5 rounded-xl border font-black text-sm text-center shadow-xs ${badge.bg}`}>
+                                                            {course.grade} ({course.grade_point})
+                                                        </span>
+                                                        <span className="text-[10px] font-bold text-slate-400 mt-0.5">{badge.text}</span>
+                                                    </div>
                                                 </div>
 
-                                                {/* Interactive Grade Dropdown Badge */}
-                                                <div className="flex flex-col items-end shrink-0">
-                                                    <div className="relative">
-                                                        <select
-                                                            value={course.grade}
-                                                            onChange={(e) => handleGradeChange(course.course_code, e.target.value)}
-                                                            className={`px-3 py-1.5 rounded-xl border font-black text-sm outline-none cursor-pointer text-center appearance-none pr-6 ${badge.bg}`}
-                                                            title="Change grade to simulate what-if CGPA"
+                                                {/* Bottom Info Bar */}
+                                                <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-200/60">
+                                                    <div className="flex items-center gap-3">
+                                                        <span>Credits: <strong className="text-slate-800">{course.credits}</strong></span>
+                                                        <span>Grade Point: <strong className="text-slate-800">{course.grade_point}</strong></span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSelectedCourseForDetail(course)}
+                                                            className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
                                                         >
-                                                            {Object.keys(KLU_GRADE_POINTS).map((g) => (
-                                                                <option key={g} value={g} className="bg-white text-slate-900 font-bold">
-                                                                    {g} ({KLU_GRADE_POINTS[g]})
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                        <span className="absolute right-2 top-2 pointer-events-none text-xs opacity-70">▼</span>
+                                                            <FileText className="w-3.5 h-3.5" />
+                                                            <span>Scorecard</span>
+                                                        </button>
                                                     </div>
-                                                    <span className="text-[10px] font-bold text-slate-400 mt-0.5">{badge.text}</span>
                                                 </div>
-                                            </div>
-
-                                            {/* Bottom Info Bar */}
-                                            <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-200/60">
-                                                <div className="flex items-center gap-3">
-                                                    <span>Credits: <strong className="text-slate-800">{course.credits}</strong></span>
-                                                    <span>Grade Point: <strong className="text-slate-800">{course.grade_point}</strong></span>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setSelectedCourseForDetail(course)}
-                                                        className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
-                                                    >
-                                                        <FileText className="w-3.5 h-3.5" />
-                                                        <span>Scorecard</span>
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDeleteCourse(course.course_code)}
-                                                        className="text-slate-400 hover:text-rose-600 p-1 rounded-lg transition-colors cursor-pointer"
-                                                        title="Remove subject"
-                                                    >
-                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    );
-                                })}
-                            </div>
+                                            </motion.div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
                     </>
                 )}
             </div>
+        </main>
+    </div>
 
 
             {/* ── Scorecard Detail Modal ── */}

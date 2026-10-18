@@ -33,6 +33,7 @@ import { subscribeCrossDomainSync } from '../services/crossDomainSync';
 import SEO from '../components/SEO';
 import AddFriendModal from '../components/AddFriendModal';
 import ErpSidebar from '../components/ErpSidebar';
+import { fetchLiveErpGrades } from '../services/gradesService';
 import ClassTimetable from '../components/ClassTimetable';
 import { 
     saveFriend, 
@@ -42,8 +43,7 @@ import {
     decodePassword, 
     setActiveProfileId, 
     getActiveProfileId, 
-    stripEmojis, 
-    FRIEND_NICKNAMES 
+    stripEmojis 
 } from '../services/friendsService';
 
 const Login = () => {
@@ -434,6 +434,9 @@ const Login = () => {
                     console.warn('[Login] Record login notice:', recErr);
                 }
 
+                // Pre-sync live ERP grades in background (< 1s)
+                fetchLiveErpGrades(cleanId).catch(() => {});
+
                 navigate('/attendance-register');
             } else {
                 throw new Error("Incorrect Captcha, Student ID, or Password. Please try again.");
@@ -646,7 +649,7 @@ const Login = () => {
                             </span>
                         </div>
                         <span className="text-[10px] sm:text-[11px] font-semibold text-white/95 tracking-wide leading-none mt-1 whitespace-nowrap">
-                            Attendance Calculator for KLU students
+                            ERP Login • {timetableStudentName} ({timetableStudentId})
                         </span>
                     </div>
 
@@ -953,34 +956,18 @@ const Login = () => {
                                 ) : (
                                     /* MODE 2: Add Buddy or New Sign In */
                                     <div className="space-y-4">
-                                        {/* Profile Name & 10 Quick Names */}
+                                        {/* Profile Name */}
                                         <div className="space-y-1.5">
-                                            <div className="flex items-center justify-between">
-                                                <label className="text-slate-600 text-[11px] font-black uppercase tracking-widest ml-1">
-                                                    Profile Name
-                                                </label>
-                                                <span className="text-[10px] text-slate-400 font-bold">Tap a quick name or type</span>
-                                            </div>
+                                            <label className="text-slate-600 text-[11px] font-black uppercase tracking-widest ml-1 block">
+                                                Profile Name
+                                            </label>
                                             <input
                                                 type="text"
                                                 value={newProfileName}
                                                 onChange={(e) => setNewProfileName(e.target.value)}
-                                                placeholder="Enter name (e.g. Buddy, Pookie, Rahul...)"
+                                                placeholder="Enter name (e.g. Rahul, Sneha...)"
                                                 className="w-full bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-2xl py-3 px-4 text-slate-900 font-bold text-sm transition-all"
                                             />
-                                            {/* 10 Quick Text Presets (No Emojis) */}
-                                            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 scrollbar-none">
-                                                {FRIEND_NICKNAMES.map((preset) => (
-                                                    <button
-                                                        key={preset.id}
-                                                        type="button"
-                                                        onClick={() => setNewProfileName(preset.name)}
-                                                        className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 text-[11px] font-bold rounded-lg border border-slate-200 transition-all shrink-0 cursor-pointer"
-                                                    >
-                                                        {preset.name}
-                                                    </button>
-                                                ))}
-                                            </div>
                                         </div>
 
                                         {/* Student ID */}

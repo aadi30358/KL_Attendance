@@ -63,8 +63,8 @@ export default function ClassTimetable({
     const myId = myProfile?.studentId || myProfile?.username || studentId || '2400030358';
     const myName = myProfile?.nickname || myProfile?.name || studentName || 'My Profile';
 
-    // Combine saved friends with TimeTablekl 'maddys'
-    const allFriends = useMemo(() => {
+    // Combine saved friends with TimeTablekl 'maddys' reactively
+    const [allFriends, setAllFriends] = useState(() => {
         const list = getSavedFriends();
         try {
             const rawMaddys = localStorage.getItem('maddys');
@@ -87,6 +87,39 @@ export default function ClassTimetable({
             }
         } catch { /* ignore */ }
         return list;
+    });
+
+    useEffect(() => {
+        const handleFriendsSync = () => {
+            const list = getSavedFriends();
+            try {
+                const rawMaddys = localStorage.getItem('maddys');
+                if (rawMaddys) {
+                    const parsedMaddys = JSON.parse(rawMaddys);
+                    if (Array.isArray(parsedMaddys)) {
+                        parsedMaddys.forEach(m => {
+                            const sid = m.username || m.studentId || String(m.id || '');
+                            if (sid && !list.some(f => (f.studentId === sid || f.username === sid))) {
+                                list.push({
+                                    id: m.id || sid,
+                                    nickname: m.name || m.nickname || 'Buddy',
+                                    label: m.name || m.nickname || 'Buddy',
+                                    studentId: sid,
+                                    username: sid
+                                });
+                            }
+                        });
+                    }
+                }
+            } catch { /* ignore */ }
+            setAllFriends(list);
+        };
+        window.addEventListener('kl_friends_updated', handleFriendsSync);
+        window.addEventListener('storage', handleFriendsSync);
+        return () => {
+            window.removeEventListener('kl_friends_updated', handleFriendsSync);
+            window.removeEventListener('storage', handleFriendsSync);
+        };
     }, []);
 
     // Active Profile: Self or Buddy
@@ -105,7 +138,7 @@ export default function ClassTimetable({
         return fr ? (fr.nickname || fr.name || fr.label) : effectiveId;
     }, [effectiveId, myName, myId, allFriends]);
 
-    // Dynamic Academic Year & Semester selector state derived directly from props
+    // Dynamic Academic Year & Semester derived directly from props & selection
     const currentYear = useMemo(() => normalizeAcademicYear(selectedYear), [selectedYear]);
     const currentSem = useMemo(() => {
         const s = normalizeSemester(selectedSem);
@@ -144,11 +177,11 @@ export default function ClassTimetable({
 
     // View & Display Modes
     const [viewMode, setViewMode] = useState('day'); // 'day' | 'week'
-    const [displayMode, setDisplayMode] = useState('names'); // 'names' | 'codes' | 'aliases'
+    const [displayMode, setDisplayMode] = useState('codes'); // 'codes' | 'aliases'
     const [currentTimeStr, setCurrentTimeStr] = useState('');
     const [isRefreshing, setIsRefreshing] = useState(false);
-    const [showImportModal, setShowImportModal] = useState(false);
     const [captchaModalTarget, setCaptchaModalTarget] = useState(null);
+    const [showImportModal, setShowImportModal] = useState(false);
     const [importHtmlInput, setImportHtmlInput] = useState('');
     const [importError, setImportError] = useState('');
     const [copySuccess, setCopySuccess] = useState(false);
@@ -540,35 +573,36 @@ export default function ClassTimetable({
                         View weekly class schedules, live class countdowns, and classrooms
                     </div>
 
-                    {/* Academic Year & Semester Session Bar with Change Selection */}
+                    {/* Academic Year & Semester Session Bar */}
                     <div className="flex flex-wrap items-center gap-2 pt-1 text-slate-500 text-xs sm:text-sm font-medium">
-                        {onChangeSelection && (
-                            <button
-                                type="button"
-                                onClick={onChangeSelection}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-indigo-50 text-indigo-700 hover:text-indigo-900 border border-indigo-200/90 shadow-2xs transition-all cursor-pointer active:scale-95"
-                                title="Change Academic Year or Semester"
-                            >
-                                <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
-                                <span>Change Selection</span>
-                            </button>
-                        )}
-
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (onChangeSelection) onChangeSelection();
-                            }}
-                            title="Click to change academic year or semester"
-                            className="hover:text-indigo-600 hover:underline transition-colors cursor-pointer text-left font-semibold text-xs text-slate-700 bg-slate-100 hover:bg-slate-200/80 px-2.5 py-1.5 rounded-xl border border-slate-200"
-                        >
-                            <span>{currentYear} · {currentSem}</span>
-                        </button>
+                        <span className="font-semibold text-xs text-slate-700 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
+                            {currentYear} · {currentSem}
+                        </span>
 
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                            Live
+                            Live Timetable
                         </span>
+                    </div>
+
+                    {/* Prominent Active Schedule Viewing Badge */}
+                    <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-2 rounded-2xl bg-indigo-50/70 border border-indigo-100 my-1">
+                        <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                            <span className="text-xs font-medium text-slate-500">Viewing Timetable:</span>
+                            <span className="text-xs font-black text-indigo-800">
+                                {effectiveName}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-600 font-bold bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                                ID: {effectiveId}
+                            </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-500">
+                            <span className="text-indigo-700">{currentYear}</span>
+                            <span>•</span>
+                            <span className="text-indigo-700">{currentSem}</span>
+                        </div>
                     </div>
 
                     {/* Buddy / Friend Switcher Bar */}
@@ -636,17 +670,6 @@ export default function ClassTimetable({
                         </div>
                     )}
 
-                    {/* Save Picture Button */}
-                    <button
-                        type="button"
-                        onClick={exportAsImage}
-                        className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer shadow-2xs"
-                        title="Export Timetable as HD Picture (PNG)"
-                    >
-                        <ImageIcon className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>Save Picture</span>
-                    </button>
-
                     {/* More Options Dropdown */}
                     <div className="relative" ref={moreMenuRef}>
                         <button
@@ -667,19 +690,19 @@ export default function ClassTimetable({
                                     transition={{ duration: 0.15 }}
                                     className="absolute right-0 mt-1.5 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 z-50 text-xs font-bold text-slate-700"
                                 >
-                                    {onChangeSelection && (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setShowMoreMenu(false);
-                                                onChangeSelection();
-                                            }}
-                                            className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer border-b border-slate-100 text-indigo-700 font-bold"
-                                        >
-                                            <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
-                                            <span>Change Academic Year / Sem</span>
-                                        </button>
-                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowMoreMenu(false);
+                                            setTempYear(manualYear);
+                                            setTempSem(manualSem);
+                                            setShowYearSemModal(true);
+                                        }}
+                                        className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer border-b border-slate-100 text-indigo-700 font-bold"
+                                    >
+                                        <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+                                        <span>Change Academic Year / Sem</span>
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -975,7 +998,7 @@ export default function ClassTimetable({
 
                     {/* View Controls: Codes vs Names vs Aliases & Day vs Week Toggle */}
                     <div className="flex flex-wrap items-center gap-2.5">
-                        {/* Course Display Mode: Codes vs Names vs Aliases */}
+                        {/* Course Display Mode: Codes vs Aliases */}
                         <div className="inline-flex bg-slate-100 p-1 rounded-2xl border border-slate-200/80">
                             <button
                                 type="button"
@@ -987,17 +1010,6 @@ export default function ClassTimetable({
                                 }`}
                             >
                                 Codes
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setDisplayMode('names')}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                                    displayMode === 'names'
-                                        ? 'bg-white text-indigo-900 shadow-xs'
-                                        : 'text-slate-600 hover:text-slate-900'
-                                }`}
-                            >
-                                Names
                             </button>
                             <button
                                 type="button"

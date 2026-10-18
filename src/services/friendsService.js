@@ -222,6 +222,7 @@ export const saveFriend = ({ id, nickname, studentId, password }) => {
         } catch { /* ignore */ }
 
         window.dispatchEvent(new CustomEvent('kl_friends_updated', { detail: friends }));
+        window.dispatchEvent(new Event('storage'));
         return friendEntry;
     } catch (err) {
         console.error('[FriendsService] Failed to save friend:', err);
@@ -235,11 +236,9 @@ export const saveFriend = ({ id, nickname, studentId, password }) => {
 export const deleteFriend = (friendId) => {
     if (typeof window === 'undefined') return;
     try {
-        const raw = localStorage.getItem(FRIENDS_STORAGE_KEY);
-        let friends = raw ? JSON.parse(raw) : [];
-        if (!Array.isArray(friends)) friends = [];
-        const toDelete = friends.find(f => f.id === friendId);
-        const filtered = friends.filter(f => f.id !== friendId);
+        const friends = getSavedFriends();
+        const toDelete = friends.find(f => f.id === friendId || f.studentId === friendId || f.username === friendId);
+        const filtered = friends.filter(f => f.id !== friendId && (toDelete ? f.studentId !== toDelete.studentId : true));
         localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(filtered));
 
         // Also remove from maddys
@@ -248,7 +247,7 @@ export const deleteFriend = (friendId) => {
             if (rawM) {
                 let mList = JSON.parse(rawM);
                 if (Array.isArray(mList)) {
-                    mList = mList.filter(m => m.id !== friendId && (toDelete ? m.username !== toDelete.studentId : true));
+                    mList = mList.filter(m => m.id !== friendId && (toDelete ? (m.username !== toDelete.studentId && m.studentId !== toDelete.studentId) : true));
                     localStorage.setItem('maddys', JSON.stringify(mList));
                 }
             }
@@ -256,11 +255,12 @@ export const deleteFriend = (friendId) => {
 
         // If the active profile was deleted, reset to main
         const activeId = getActiveProfileId();
-        if (activeId === friendId) {
+        if (activeId === friendId || (toDelete && activeId === toDelete.id)) {
             setActiveProfileId('main');
         }
 
         window.dispatchEvent(new CustomEvent('kl_friends_updated', { detail: filtered }));
+        window.dispatchEvent(new Event('storage'));
     } catch (err) {
         console.warn('[FriendsService] Failed to delete friend:', err);
     }

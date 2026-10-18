@@ -118,6 +118,48 @@ export function normalizeSemester(sem) {
     return 'Odd';
 }
 
+export function getTruePresentAcademicYearAndSem(studentId = null) {
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = now.getMonth();
+    const defaultSem = (curMonth >= 5 && curMonth <= 11) ? 'Odd' : 'Even';
+    const academicStartYear = (curMonth >= 5) ? curYear : curYear - 1;
+
+    if (studentId) {
+        const match = String(studentId).match(/^(\d{2})/);
+        if (match) {
+            const admissionYr = 2000 + parseInt(match[1], 10);
+            const studyOffset = Math.max(0, Math.min(3, academicStartYear - admissionYr));
+            const presentStartYr = admissionYr + studyOffset;
+            return {
+                year: `${presentStartYr}-${presentStartYr + 1}`,
+                sem: defaultSem
+            };
+        }
+    }
+
+    return {
+        year: `${academicStartYear}-${academicStartYear + 1}`,
+        sem: defaultSem
+    };
+}
+
+export function getPresentAcademicYearAndSem(studentId = null, forceCalendarPresent = false) {
+    if (!forceCalendarPresent && typeof window !== 'undefined') {
+        const sid = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+        const savedActiveYear = sid ? localStorage.getItem(`activeYear_${sid}`) : null;
+        const savedActiveSem = sid ? localStorage.getItem(`activeSem_${sid}`) : null;
+        if (savedActiveYear && savedActiveSem) {
+            return {
+                year: normalizeAcademicYear(savedActiveYear),
+                sem: normalizeSemester(savedActiveSem)
+            };
+        }
+    }
+
+    return getTruePresentAcademicYearAndSem(studentId);
+}
+
 // Official Course Code -> Title Dictionary for KLU Curriculum
 export const KLU_COURSE_NAMES = {
     // 3rd Year (2026-2027) - Current
@@ -347,7 +389,7 @@ export const KLU_LECTURE_HALLS = ['C324', 'C421', 'C215', 'C302', 'C405', 'C501'
 // Helper to strip any redundant "Room", "RoomNo", "Rm" prefixes from room strings
 export function cleanRoomNumber(room) {
     if (!room) return '';
-    return String(room).replace(/^(?:Room\s*No|Room|Rm)[-:\s#]*/i, '').trim();
+    return String(room).replace(new RegExp('^(?:Room\\s*No|Room|Rm)[-:\\s#]*', 'i'), '').trim();
 }
 
 // Authentic Lab Rooms assigned by subject component & course code (Returns genuine KLU room codes)
@@ -376,7 +418,7 @@ export function extractRoom(cellText, fullCode = '', section = '') {
     if (!cleaned || cleaned === '-') return '';
 
     // 1. Explicit Room prefix check (e.g. "RoomNo-C421", "Room: C302", "Room No: R104B", "Rm-M126")
-    const explicitMatch = cleaned.match(/(?:RoomNo|Room\s*No|Room|Rm|Venue|Hall|RNo)[-:\s#]+([A-Za-z0-9\s/-]+?)(?=\s*(?:-|<|$|\n|\t))/i);
+    const explicitMatch = cleaned.match(new RegExp('(?:RoomNo|Room\\s*No|Room|Rm|Venue|Hall|RNo)[-:\\s#]+([A-Za-z0-9\\s/-]+?)(?=\\s*(?:-|<|$|\\n|\\t))', 'i'));
     if (explicitMatch && explicitMatch[1]) {
         let candidate = explicitMatch[1].trim().replace(/^[-:]\s*/, '');
         candidate = cleanRoomNumber(candidate);

@@ -31,6 +31,7 @@ const UserProfile      = lazy(() => import('./pages/UserProfile'));
 const PlutoAssistant   = lazy(() => import('./pages/PlutoAssistant'));
 const BunkSimulator    = lazy(() => import('./pages/BunkSimulator'));
 const Grades           = lazy(() => import('./pages/Grades'));
+const Timetable        = lazy(() => import('./pages/Timetable'));
 const FeedbackWidget   = lazy(() => import('./components/FeedbackWidget'));
 
 import { HelmetProvider } from 'react-helmet-async';
@@ -176,7 +177,7 @@ const AppWithAuth = () => {
             <Route path="/login" element={<Login />} />
             <Route path="/attendance" element={<TotalAttendance />} />
             <Route path="/attendance-register" element={<AttendanceRegister />} />
-            <Route path="/timetable" element={<AttendanceRegister initialView="timetable" />} />
+            <Route path="/timetable" element={<Timetable />} />
             <Route path="/grades" element={<Grades />} />
             <Route path="/cgpa" element={<Grades />} />
             <Route path="/ltps" element={<LTPSCalculator />} />

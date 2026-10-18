@@ -435,18 +435,10 @@ export const fetchLiveErpGrades = async (studentId) => {
     const isFriend = targetId && mainUser && targetId !== mainUser;
 
     const apiBase = getErpBase();
-    const csrfToken = getStoredCsrfToken();
+    const activeErp = typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null;
+    const isCurrentlyActiveUser = targetId === activeErp;
     const friendCookie = isFriend ? (localStorage.getItem(`erp_cookie_${targetId}`) || '') : '';
-    const cookie = isFriend ? friendCookie : getStoredErpCookies();
-
-    // If fetching for a friend and no active cookie exists for that friend, notify caller to authenticate friend
-    if (isFriend && !cookie) {
-        return {
-            success: false,
-            needsAuth: true,
-            message: `Please connect ERP for ${targetId} to fetch live results.`
-        };
-    }
+    const cookie = isCurrentlyActiveUser ? getStoredErpCookies() : (friendCookie || getStoredErpCookies());
 
     const headers = buildErpHeaders({
         'Content-Type': 'application/json',

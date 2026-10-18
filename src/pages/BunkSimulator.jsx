@@ -9,11 +9,16 @@ import {
     TrendingDown,
     Award,
     AlertTriangle,
-    Clock
+    Clock,
+    Users,
+    ArrowLeft
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import ErpSidebar from '../components/ErpSidebar';
 import SEO from '../components/SEO';
 import { useAttendance } from '../context/useAttendance';
 import { subscribeCrossDomainSync } from '../services/crossDomainSync';
+import { getActiveProfileDetails } from '../services/friendsService';
 
 // KLU Official Weights
 const KLU_WEIGHTS = {
@@ -69,6 +74,31 @@ const getStoredErpSubjects = () => {
 const BunkSimulator = () => {
     const { attendanceData } = useAttendance();
     const [mode, setMode] = useState('ltps'); // 'ltps' or 'quick'
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+
+    const [activeProfile, setActiveProfile] = useState(() => getActiveProfileDetails());
+    const [activeId, setActiveId] = useState(() => {
+        const prof = getActiveProfileDetails();
+        return prof?.studentId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '2400030358';
+    });
+
+    useEffect(() => {
+        const updateProf = () => {
+            const prof = getActiveProfileDetails();
+            setActiveProfile(prof);
+            setActiveId(prof?.studentId || localStorage.getItem('activeErpUser') || '2400030358');
+        };
+        window.addEventListener('kl_friends_updated', updateProf);
+        window.addEventListener('kl_active_profile_updated', updateProf);
+        window.addEventListener('kl_profile_switched', updateProf);
+        window.addEventListener('storage', updateProf);
+        return () => {
+            window.removeEventListener('kl_friends_updated', updateProf);
+            window.removeEventListener('kl_active_profile_updated', updateProf);
+            window.removeEventListener('kl_profile_switched', updateProf);
+            window.removeEventListener('storage', updateProf);
+        };
+    }, []);
 
     // ERP subjects if available
     const [savedSubjects, setSavedSubjects] = useState(getStoredErpSubjects);
@@ -451,13 +481,73 @@ const BunkSimulator = () => {
     };
 
     return (
-        <div className="min-h-screen bg-[#FAFAFA] dark:bg-[#0b1120] pt-24 pb-16 px-4 sm:px-6 lg:px-8 selection:bg-indigo-500 selection:text-white transition-colors duration-200">
+        <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
             <SEO
-                title="Bunk Simulator | KL Attendance Calculator"
+                title="Bunk Simulator | KLERP"
                 description="Simulate bunking classes using official KL University LTPS weights. Calculate how much your attendance drops before you bunk."
             />
 
-            <div className="max-w-5xl mx-auto space-y-8">
+            {/* KLERP Top Header */}
+            <header className="bg-[#0088cc] text-white px-4 sm:px-6 py-2.5 shadow-md z-40 sticky top-0 shrink-0 w-full select-none border-b border-black/10">
+                <div className="w-full relative flex items-center justify-between min-h-[46px]">
+                    {/* Left: Mobile Drawer Toggle */}
+                    <div className="flex items-center gap-2 z-10">
+                        <button
+                            type="button"
+                            onClick={() => setSidebarOpen(prev => !prev)}
+                            className="lg:hidden flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 active:scale-95 text-white text-xs font-bold transition-all border border-white/20 shadow-2xs cursor-pointer"
+                            title="Menu"
+                        >
+                            <Users className="w-4 h-4" />
+                            <span className="hidden sm:inline text-[11px] font-bold">Menu</span>
+                        </button>
+                    </div>
+
+                    {/* Center: Logo + KLERP */}
+                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center text-center pointer-events-auto">
+                        <div className="flex items-center gap-2 sm:gap-2.5">
+                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white flex items-center justify-center p-0.5 shadow-sm ring-1 ring-white/30 shrink-0">
+                                <img
+                                    src="/Koneru Lakshmaiah University Logo Banner.png"
+                                    alt="KLU"
+                                    className="w-full h-full object-contain"
+                                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                                />
+                            </div>
+                            <span className="font-serif italic font-extrabold text-xl sm:text-2xl text-white tracking-wider drop-shadow-xs">
+                                KLERP
+                            </span>
+                        </div>
+                        <span className="text-[10px] sm:text-[11px] font-semibold text-white/95 tracking-wide leading-none mt-1 whitespace-nowrap">
+                            Bunk Simulator • {activeProfile?.nickname || 'My Profile'} ({activeId})
+                        </span>
+                    </div>
+
+                    {/* Right: Back to Home */}
+                    <div className="flex items-center gap-2 z-10 ml-auto">
+                        <Link
+                            to="/"
+                            className="text-xs font-black uppercase tracking-wider bg-white/15 hover:bg-white/25 active:scale-95 text-white px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs border border-white/20"
+                        >
+                            <ArrowLeft className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Back to Home</span>
+                        </Link>
+                    </div>
+                </div>
+            </header>
+
+            {/* Page Body: Left Sidebar + Bunk Simulator View */}
+            <div className="flex-1 flex overflow-hidden relative">
+                <ErpSidebar
+                    isOpen={sidebarOpen}
+                    onToggle={() => setSidebarOpen(false)}
+                    activePage="bunk"
+                />
+
+                <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 font-sans">
+                    <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 pointer-events-none" />
+
+                    <div className="max-w-5xl mx-auto space-y-8">
                 {/* Header */}
                 <motion.div
                     initial={{ opacity: 0, y: -20 }}
@@ -1210,6 +1300,8 @@ const BunkSimulator = () => {
                         </div>
                     </motion.div>
                 )}
+                    </div>
+                </main>
             </div>
         </div>
     );

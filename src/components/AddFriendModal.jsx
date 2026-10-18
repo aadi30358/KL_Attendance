@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Eye, EyeOff, Save, Check, Users, User, Edit3, ShieldCheck } from 'lucide-react';
-import { FRIEND_NICKNAMES, saveFriend, saveMyProfile, decodePassword } from '../services/friendsService';
+import { saveFriend, saveMyProfile, decodePassword } from '../services/friendsService';
 
 function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
     const isSelf = isMyProfile || initialFriend?.id === 'main';
 
     const [customName, setCustomName] = useState(() => {
         if (initialFriend) return initialFriend.nickname || initialFriend.name || '';
-        return isSelf ? 'My Account' : FRIEND_NICKNAMES[0].name;
+        return isSelf ? 'My Account' : '';
     });
 
     const [studentId, setStudentId] = useState(() => initialFriend?.studentId || '');
@@ -19,10 +19,6 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState('');
     const [savedSuccess, setSavedSuccess] = useState(false);
-
-    const handleSelectPreset = (preset) => {
-        setCustomName(preset.name);
-    };
 
     const handleSave = (e) => {
         if (e) e.preventDefault();
@@ -96,60 +92,27 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
                 <p className="text-xs text-slate-500 font-medium mt-1">
                     {isSelf
                         ? 'Save your primary Student ID & Password for fast 1-click Captcha logins.'
-                        : 'Pick a nickname or type custom name. Password is saved in browser for quick Captcha logins.'}
+                        : 'Enter name, ID, and password. Saved locally in browser for quick Captcha logins.'}
                 </p>
             </div>
 
             <form onSubmit={handleSave} className="space-y-4">
-                {/* Default Preset Names (Quick Pick for Friends only) */}
-                {!isSelf && (
-                    <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                            <label className="text-[11px] font-black uppercase tracking-wider text-slate-700">
-                                1. Quick Names
-                            </label>
-                            <span className="text-[10px] text-slate-400 font-bold">Tap to pick or type below</span>
-                        </div>
-
-                        {/* 10 Nicknames Grid */}
-                        <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto p-1.5 border-2 border-slate-100 rounded-2xl bg-slate-50/70">
-                            {FRIEND_NICKNAMES.map((preset) => {
-                                const isSelected = customName.toLowerCase() === preset.name.toLowerCase();
-                                return (
-                                    <button
-                                        key={preset.id}
-                                        type="button"
-                                        onClick={() => handleSelectPreset(preset)}
-                                        className={`flex items-center justify-center p-2 rounded-xl border font-bold text-xs transition-all text-center cursor-pointer ${
-                                            isSelected
-                                                ? 'bg-white border-indigo-600 text-indigo-950 shadow-xs ring-2 ring-indigo-200'
-                                                : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
-                                        }`}
-                                    >
-                                        <span className="truncate">{preset.name}</span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
                 {/* Custom / Editable Name Field */}
                 <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
                         <label className="text-[11px] font-black uppercase tracking-wider text-slate-700">
-                            {isSelf ? '1. Your Display Name' : '2. Name / Nickname (Editable)'}
+                            {isSelf ? '1. Your Display Name' : '1. Friend Name / Nickname'}
                         </label>
                         <span className="text-xs font-bold text-indigo-600 flex items-center gap-1">
                             <Edit3 className="w-3 h-3" />
-                            <span>Custom Name</span>
+                            <span>Name</span>
                         </span>
                     </div>
                     <input
                         type="text"
                         value={customName}
                         onChange={(e) => setCustomName(e.target.value)}
-                        placeholder={isSelf ? 'e.g. My Account / Yaswanth' : "Enter friend's name (e.g. Buddy, Pookie, Rahul...)"}
+                        placeholder={isSelf ? 'e.g. My Account / Yaswanth' : "Enter friend's name (e.g. Alex, Rahul, Adithya...)"}
                         autoComplete="off"
                         className="w-full bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-xl py-3 px-4 text-slate-900 font-bold text-sm transition-all"
                     />
@@ -158,7 +121,7 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
                 {/* Student ID */}
                 <div className="space-y-1.5">
                     <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 block">
-                        {isSelf ? '2. Student ID Number' : '3. Student ID Number'}
+                        2. Student ID Number
                     </label>
                     <input
                         type="text"
@@ -173,7 +136,7 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
                 {/* Password */}
                 <div className="space-y-1.5">
                     <label className="text-[11px] font-black uppercase tracking-wider text-slate-700 block">
-                        {isSelf ? '3. ERP Password' : '4. ERP Password'}
+                        3. ERP Password
                     </label>
                     <div className="relative">
                         <input

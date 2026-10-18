@@ -1,27 +1,31 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-    UserPlus, 
     User, 
     Users, 
+    UserPlus,
     X, 
-    Edit2, 
-    Trash2, 
     ShieldCheck,
     CalendarDays,
     BarChart3,
     GraduationCap,
     SlidersHorizontal,
-    AlertTriangle
+    AlertTriangle,
+    Calculator,
+    Calendar,
+    Award,
+    Trash2
 } from 'lucide-react';
 import { 
-    getMyProfile,
+    getMyProfile, 
     getSavedFriends, 
-    getActiveProfileDetails, 
-    deleteFriend 
+    getActiveProfileDetails,
+    deleteFriend,
+    setActiveProfileId
 } from '../services/friendsService';
 import { useMaintenance } from '../services/useMaintenance';
+import FriendsManagerModal from './FriendsManagerModal';
 import AddFriendModal from './AddFriendModal';
 import FriendCaptchaModal from './FriendCaptchaModal';
 
@@ -31,13 +35,16 @@ export default function ErpSidebar({
     onSelectProfile, 
     onAddNewProfile,
     activeView = 'attendance',
-    onSelectView 
+    onSelectView,
+    activePage = 'attendance-register'
 }) {
     const navigate = useNavigate();
+    const location = useLocation();
     const { isMaintenance, maintenanceConfig } = useMaintenance();
     const [myProfile, setMyProfile] = useState(() => getMyProfile());
     const [friends, setFriends] = useState(() => getSavedFriends());
     const [activeProfile, setActiveProfile] = useState(() => getActiveProfileDetails());
+    const [showFriendsManager, setShowFriendsManager] = useState(false);
     const [showAddModal, setShowAddModal] = useState(false);
     const [editingProfile, setEditingProfile] = useState(null);
     const [isEditingSelf, setIsEditingSelf] = useState(false);
@@ -60,61 +67,112 @@ export default function ErpSidebar({
         };
     }, []);
 
-    // Handle Add Friend click (placed last)
-    const handleAddFriendClick = () => {
-        if (onAddNewProfile) {
-            onAddNewProfile();
-            if (onToggle) onToggle();
-        } else {
-            setEditingProfile(null);
-            setIsEditingSelf(false);
-            setShowAddModal(true);
+    const handleNavigation = (path) => {
+        if (onToggle && window.innerWidth < 1024) {
+            onToggle();
+        }
+        navigate(path);
+    };
+
+    const handleChangeSelection = () => {
+        sessionStorage.setItem('manual_sem_reset', 'true');
+        window.dispatchEvent(new CustomEvent('kl_reset_selection'));
+        if (location.pathname !== '/attendance-register') {
+            navigate('/attendance-register');
+        }
+        if (onToggle && window.innerWidth < 1024) {
+            onToggle();
         }
     };
 
-    // Profile Click (Self or Friend)
-    const handleProfileClick = (profile) => {
-        if (isMaintenance) {
-            alert(maintenanceConfig?.message || 'ERP login is currently under maintenance. Direct login is paused.');
-            return;
-        }
+    const currentPath = location.pathname;
 
-        if (onSelectProfile) {
-            onSelectProfile(profile);
-            if (onToggle) onToggle();
-            return;
+    const navItems = [
+        {
+            id: 'attendance',
+            label: 'Attendance Register',
+            badge: 'Live',
+            badgeClass: 'bg-emerald-500 text-white',
+            icon: BarChart3,
+            isActive: currentPath === '/attendance-register',
+            onClick: () => handleNavigation('/attendance-register')
+        },
+        {
+            id: 'timetable',
+            label: 'Class Timetable',
+            badge: 'ERP',
+            badgeClass: 'bg-indigo-100 text-indigo-700',
+            icon: CalendarDays,
+            isActive: currentPath === '/timetable',
+            onClick: () => handleNavigation('/timetable')
+        },
+        {
+            id: 'grades',
+            label: 'Grades & CGPA',
+            badge: 'Scorecard',
+            badgeClass: 'bg-amber-100 text-amber-800',
+            icon: GraduationCap,
+            isActive: currentPath === '/grades' || currentPath === '/cgpa',
+            onClick: () => handleNavigation('/grades')
+        },
+        {
+            id: 'bunk',
+            label: 'Bunk Simulator',
+            badge: 'What-If',
+            badgeClass: 'bg-purple-100 text-purple-700',
+            icon: Calculator,
+            isActive: currentPath === '/bunk-simulator' || currentPath === '/bunk',
+            onClick: () => handleNavigation('/bunk-simulator')
+        },
+        {
+            id: 'selection',
+            label: 'Change Selection',
+            badge: 'Sem / Year',
+            badgeClass: 'bg-slate-200 text-slate-700',
+            icon: SlidersHorizontal,
+            isActive: false,
+            onClick: handleChangeSelection
         }
+    ];
 
-        // Fast Captcha Login: open verification modal if credentials exist
-        if (profile.password || profile.hasSavedPassword) {
-            setCaptchaTarget(profile);
-        } else {
-            // Setup or edit credentials first
-            setEditingProfile(profile);
-            setIsEditingSelf(profile.id === 'main');
-            setShowAddModal(true);
+    const handleSwitchProfile = (profile) => {
+        const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '');
+        const pid = profile?.id || 'main';
+        setActiveProfileId(pid);
+        if (sid) {
+            localStorage.setItem('activeErpUser', sid);
         }
+        setActiveProfile(getActiveProfileDetails());
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: pid }));
+        window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile, studentId: sid } }));
+        if (onSelectProfile) onSelectProfile(profile);
     };
 
-    // Edit Profile
-    const handleEditProfile = (e, profile, isSelf = false) => {
-        e.stopPropagation();
-        setEditingProfile(profile);
-        setIsEditingSelf(isSelf || profile.id === 'main');
-        setShowAddModal(true);
+    const handleQuickTimetable = (profile) => {
+        handleSwitchProfile(profile);
+        handleNavigation('/timetable');
     };
 
-    // Delete Friend
+    const handleQuickGrades = (profile) => {
+        handleSwitchProfile(profile);
+        handleNavigation('/grades');
+    };
+
+    const handleQuickAttendance = (profile) => {
+        setCaptchaTarget(profile);
+    };
+
     const handleDeleteFriend = (e, friendId) => {
         e.stopPropagation();
-        if (window.confirm('Delete this saved friend profile?')) {
+        if (window.confirm('Are you sure you want to remove this saved friend profile?')) {
             deleteFriend(friendId);
             setFriends(getSavedFriends());
             setActiveProfile(getActiveProfileDetails());
         }
     };
 
-    const isSelfActive = activeProfile?.id === 'main' || !activeProfile?.isFriend;
+    const activeId = activeProfile?.studentId || myProfile?.studentId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '2400030358';
+    const activeName = activeProfile?.nickname || myProfile?.nickname || 'Adithya';
 
     const sidebarContent = (
         <div className="h-full flex flex-col bg-white text-slate-800 font-sans border-r border-slate-200/80 shadow-xs w-72 sm:w-80 select-none">
@@ -150,109 +208,39 @@ export default function ErpSidebar({
                 )}
             </div>
 
-            {/* Dedicated Portal Navigation: Attendance Register vs Class Timetable */}
+            {/* Portal Navigation Items (Dedicated Pages for Each Service) */}
             <div className="p-3 border-b border-slate-100 bg-slate-50/60 space-y-1 shrink-0">
-                <button
-                    type="button"
-                    onClick={() => {
-                        if (onSelectView) onSelectView('attendance');
-                        window.dispatchEvent(new CustomEvent('kl_switch_view', { detail: 'attendance' }));
-                        if (window.innerWidth < 1024 && onToggle) onToggle();
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeView === 'attendance'
-                            ? 'bg-indigo-600 text-white shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-                    }`}
-                >
-                    <div className="flex items-center gap-2.5">
-                        <BarChart3 className="w-4 h-4" />
-                        <span>Attendance Register</span>
-                    </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
-                        activeView === 'attendance' ? 'bg-white/20 text-white' : 'bg-slate-200/80 text-slate-600'
-                    }`}>
-                        Live
-                    </span>
-                </button>
-
-                <button
-                    type="button"
-                    onClick={() => {
-                        if (onSelectView) onSelectView('timetable');
-                        window.dispatchEvent(new CustomEvent('kl_switch_view', { detail: 'timetable' }));
-                        if (window.innerWidth < 1024 && onToggle) onToggle();
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeView === 'timetable'
-                            ? 'bg-indigo-600 text-white shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-                    }`}
-                >
-                    <div className="flex items-center gap-2.5">
-                        <CalendarDays className="w-4 h-4" />
-                        <span>Class Timetable</span>
-                    </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
-                        activeView === 'timetable' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-700'
-                    }`}>
-                        ERP
-                    </span>
-                </button>
-
-                {/* Grades & CGPA View */}
-                <button
-                    type="button"
-                    onClick={() => {
-                        navigate('/grades');
-                        if (window.innerWidth < 1024 && onToggle) onToggle();
-                    }}
-                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-white transition-all cursor-pointer border border-transparent hover:border-slate-200"
-                    title="View Grades, SGPA and Cumulative CGPA"
-                >
-                    <div className="flex items-center gap-2.5">
-                        <GraduationCap className="w-4 h-4 text-amber-500" />
-                        <span>Grades & CGPA</span>
-                    </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-amber-50 text-amber-700 border border-amber-200">
-                        Scorecard
-                    </span>
-                </button>
-
-                {/* Change Selection (Matching Image 1 in Sidebar) */}
-                <button
-                    type="button"
-                    onClick={() => {
-                        window.dispatchEvent(new CustomEvent('kl_reset_selection'));
-                        if (window.innerWidth < 1024 && onToggle) onToggle();
-                    }}
-                    className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-white transition-all cursor-pointer border border-transparent hover:border-slate-200"
-                    title="Change Academic Year or Semester"
-                >
-                    <div className="flex items-center gap-2.5">
-                        <SlidersHorizontal className="w-4 h-4 text-slate-500" />
-                        <span>Change Selection</span>
-                    </div>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-slate-100 text-slate-500">
-                        Sem / Year
-                    </span>
-                </button>
+                {navItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                        <button
+                            key={item.id}
+                            type="button"
+                            onClick={item.onClick}
+                            className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                item.isActive
+                                    ? 'bg-indigo-600 text-white shadow-xs'
+                                    : 'text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200'
+                            }`}
+                        >
+                            <div className="flex items-center gap-2.5">
+                                <Icon className={`w-4 h-4 ${item.isActive ? 'text-white' : 'text-slate-500'}`} />
+                                <span>{item.label}</span>
+                            </div>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
+                                item.isActive
+                                    ? 'bg-white/20 text-white'
+                                    : item.badgeClass
+                            }`}>
+                                {item.badge}
+                            </span>
+                        </button>
+                    );
+                })}
             </div>
 
-            {/* Desktop Flush Top Header (Clean slate/white border beneath main navigation) */}
-            <div className="hidden lg:flex items-center justify-between px-4 py-3 bg-slate-50/70 border-b border-slate-100 shrink-0">
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
-                    <Users className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Student Profiles</span>
-                </div>
-                <span className="text-[10px] font-bold text-slate-400 bg-white px-2 py-0.5 rounded-full border border-slate-200/60">
-                    {friends.length + 1} Saved
-                </span>
-            </div>
-
-            {/* Scrollable Container */}
-            <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
-                
+            {/* Scrollable Body - Saved Accounts with balanced, comfortable spacing */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-3">
                 {/* ERP Maintenance Notice */}
                 {isMaintenance && (
                     <div className="p-3 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs shadow-2xs">
@@ -263,178 +251,222 @@ export default function ErpSidebar({
                         <p className="mt-1 text-[11px] font-semibold text-amber-800 leading-snug">
                             {maintenanceConfig?.message || 'Direct login is temporarily paused.'}
                         </p>
-                        <span className="mt-2 inline-block text-[9px] font-black uppercase tracking-wider bg-amber-200/90 text-amber-900 px-2 py-0.5 rounded-md border border-amber-300">
-                            Unable to Login
-                        </span>
                     </div>
                 )}
 
-                {/* 1. MY PROFILE */}
-                <div>
-                    <div className="flex items-center justify-between mb-2 px-1">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                            My Profile
-                        </span>
-                        {isSelfActive && (
-                            <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                <span>Active</span>
-                            </span>
-                        )}
-                    </div>
-
-                    {/* My Profile Card */}
-                    <div
-                        onClick={() => handleProfileClick(myProfile)}
-                        className={`group px-3 py-2.5 rounded-xl border transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                            isSelfActive
-                                ? 'bg-indigo-50/70 border-indigo-400 shadow-2xs ring-1 ring-indigo-300'
-                                : 'bg-white border-slate-200/90 hover:border-slate-300 hover:bg-slate-50/70'
-                        }`}
-                    >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                                isSelfActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
-                            }`}>
-                                <User className="w-4 h-4" />
-                            </div>
-                            <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                    <span className="text-xs font-bold text-slate-900 truncate">
-                                        {myProfile?.nickname || 'My Account'}
-                                    </span>
-                                    {isSelfActive && (
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                                    )}
-                                </div>
-                                <span className="text-[10px] text-slate-500 font-medium block truncate">
-                                    ID: {myProfile?.studentId || 'Not Set'}
+                {/* Controlled balanced spacing above Saved Accounts */}
+                <div className="mt-5 sm:mt-6 pt-3 border-t border-slate-200/70">
+                    <div className="rounded-2xl border border-slate-200/90 bg-slate-50/80 p-2.5 shadow-2xs">
+                        <div className="flex items-center justify-between mb-2 px-0.5">
+                            <div className="flex items-center gap-1.5">
+                                <Users className="w-3.5 h-3.5 text-indigo-600" />
+                                <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider">
+                                    Saved Accounts ({1 + friends.length})
                                 </span>
                             </div>
-                        </div>
 
                         <button
                             type="button"
-                            onClick={(e) => handleEditProfile(e, myProfile, true)}
-                            className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
-                            title="Edit My Profile"
+                            onClick={() => {
+                                setEditingProfile(null);
+                                setIsEditingSelf(false);
+                                setShowAddModal(true);
+                            }}
+                            className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/90 px-2 py-0.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 shadow-2xs active:scale-95"
+                            title="Add friend details (no limit)"
                         >
-                            <Edit2 className="w-3.5 h-3.5" />
+                            <UserPlus className="w-3 h-3 text-emerald-600" />
+                            <span>Add Friend</span>
                         </button>
                     </div>
-                </div>
 
-                {/* 2. FRIENDS */}
-                <div>
-                    <div className="flex items-center justify-between mb-2 px-1">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                            Friends
-                        </span>
-                        <span className="text-[10px] text-slate-400 font-semibold">
-                            {friends.length} {friends.length === 1 ? 'saved' : 'saved'}
-                        </span>
-                    </div>
+                    <div className="space-y-1.5">
+                        {/* 1. Primary Account */}
+                        {myProfile && (
+                            <div
+                                key="profile-main"
+                                className={`p-2 rounded-xl border transition-all ${
+                                    !activeProfile?.isFriend
+                                        ? 'bg-gradient-to-r from-indigo-50/90 to-white border-indigo-400 shadow-2xs ring-1 ring-indigo-200'
+                                        : 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
+                                }`}
+                            >
+                                <div className="flex items-center justify-between gap-1.5">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                        <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-[10px] shadow-2xs shrink-0">
+                                            <User className="w-3 h-3" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-1">
+                                                <span className="text-[11px] font-black text-slate-900 truncate">
+                                                    {myProfile.nickname || 'Adithya'}
+                                                </span>
+                                                {!activeProfile?.isFriend && (
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                                )}
+                                            </div>
+                                            <p className="text-[9px] font-mono text-indigo-700 font-bold truncate leading-none">
+                                                ID: {myProfile.studentId || '2400030358'}
+                                            </p>
+                                        </div>
+                                    </div>
 
-                    {/* Friends List or Clean Empty Text */}
-                    {friends.length === 0 ? (
-                        <div className="py-4 px-3 text-center rounded-xl bg-slate-50/60 border border-slate-100">
-                            <p className="text-xs text-slate-500 font-medium">No friends saved yet.</p>
-                        </div>
-                    ) : (
-                        <div className="space-y-1.5">
-                            {friends.map((friend) => {
-                                const isActive = activeProfile?.id === friend.id;
-                                return (
-                                    <div
-                                        key={friend.id}
-                                        onClick={() => handleProfileClick(friend)}
-                                        className={`group px-3 py-2.5 rounded-xl border transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                                            isActive
-                                                ? 'bg-indigo-50/70 border-indigo-400 shadow-2xs ring-1 ring-indigo-300'
-                                                : 'bg-white border-slate-200/90 hover:border-slate-300 hover:bg-slate-50/70'
-                                        }`}
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <span className="text-[8px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded">
+                                            Primary
+                                        </span>
+                                        {activeProfile?.isFriend && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSwitchProfile(myProfile)}
+                                                className="text-[9px] font-bold text-indigo-600 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 transition-all cursor-pointer shadow-2xs"
+                                            >
+                                                Switch
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Direct Actions: Timetable, CGPA, Attend */}
+                                <div className="mt-1.5 pt-1 border-t border-slate-100 flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleQuickTimetable(myProfile)}
+                                        className="flex-1 py-1 px-1 bg-blue-50/90 hover:bg-blue-100 text-blue-700 border border-blue-200/70 text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                        title="View timetable without captcha"
                                     >
-                                        <div className="flex items-center gap-2.5 min-w-0">
-                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                                                isActive ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
-                                            }`}>
-                                                <Users className="w-4 h-4" />
+                                        <Calendar className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                        <span>Timetable</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleQuickGrades(myProfile)}
+                                        className="flex-1 py-1 px-1 bg-amber-50/90 hover:bg-amber-100 text-amber-800 border border-amber-200/70 text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                        title="View grades & CGPA without captcha"
+                                    >
+                                        <Award className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                                        <span>CGPA</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleQuickAttendance(myProfile)}
+                                        className="flex-1 py-1 px-1 bg-slate-900 hover:bg-indigo-600 text-white text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                        title="Check attendance with captcha verification"
+                                    >
+                                        <ShieldCheck className="w-2.5 h-2.5 text-indigo-300 shrink-0" />
+                                        <span>Attend</span>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 2. All Saved Friends */}
+                        {friends.map((friend) => {
+                            const isActive = activeProfile?.id === friend.id;
+                            return (
+                                <div
+                                    key={friend.id}
+                                    className={`p-2 rounded-xl border transition-all ${
+                                        isActive
+                                            ? 'bg-gradient-to-r from-indigo-50/90 to-white border-indigo-400 shadow-2xs ring-1 ring-indigo-200'
+                                            : 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between gap-1.5">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <div className="w-6 h-6 rounded-lg bg-purple-100 text-purple-700 border border-purple-200 flex items-center justify-center font-bold text-[10px] shadow-2xs shrink-0">
+                                                <Users className="w-3 h-3" />
                                             </div>
                                             <div className="min-w-0">
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="text-xs font-bold text-slate-900 truncate">
-                                                        {friend.nickname || friend.label || 'Friend'}
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[11px] font-black text-slate-900 truncate">
+                                                        {friend.nickname}
                                                     </span>
                                                     {isActive && (
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                                                     )}
                                                 </div>
-                                                <span className="text-[10px] text-slate-500 font-medium block truncate">
+                                                <p className="text-[9px] font-mono text-purple-700 font-bold truncate leading-none">
                                                     ID: {friend.studentId}
-                                                </span>
+                                                </p>
                                             </div>
                                         </div>
 
                                         <div className="flex items-center gap-1 shrink-0">
-                                            <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    if (friend.password || friend.hasSavedPassword) {
-                                                        setCaptchaTarget(friend);
-                                                    } else {
-                                                        handleEditProfile(e, friend, false);
-                                                    }
-                                                }}
-                                                className="p-1 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-md transition-colors cursor-pointer"
-                                                title="Connect ERP & Fetch Live Data (Captcha)"
-                                            >
-                                                <ShieldCheck className="w-3.5 h-3.5" />
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleEditProfile(e, friend, false)}
-                                                className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
-                                                title="Edit Friend"
-                                            >
-                                                <Edit2 className="w-3.5 h-3.5" />
-                                            </button>
+                                            <span className="text-[8px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 px-1 py-0.5 rounded">
+                                                Friend
+                                            </span>
+                                            {!isActive ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSwitchProfile(friend)}
+                                                    className="text-[9px] font-bold text-indigo-600 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 transition-all cursor-pointer shadow-2xs"
+                                                >
+                                                    Switch
+                                                </button>
+                                            ) : null}
                                             <button
                                                 type="button"
                                                 onClick={(e) => handleDeleteFriend(e, friend.id)}
-                                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                                                title="Delete Friend"
+                                                className="p-0.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                                title="Delete friend profile"
                                             >
-                                                <Trash2 className="w-3.5 h-3.5" />
+                                                <Trash2 className="w-3 h-3" />
                                             </button>
                                         </div>
                                     </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
 
-                {/* 3. ADD FRIEND OPTION (PLACED LAST) */}
-                <div className="pt-1">
-                    <button
-                        type="button"
-                        onClick={handleAddFriendClick}
-                        className="w-full py-2.5 px-3 rounded-xl border border-dashed border-indigo-300/80 bg-indigo-50/30 hover:bg-indigo-50 hover:border-indigo-400 text-indigo-700 font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs active:scale-98"
-                    >
-                        <UserPlus className="w-3.5 h-3.5" />
-                        <span>Add Friend</span>
-                    </button>
+                                    {/* Direct Actions: Timetable, CGPA, Attend */}
+                                    <div className="mt-1.5 pt-1 border-t border-slate-100 flex items-center gap-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleQuickTimetable(friend)}
+                                            className="flex-1 py-1 px-1 bg-blue-50/90 hover:bg-blue-100 text-blue-700 border border-blue-200/70 text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                            title="View timetable without captcha"
+                                        >
+                                            <Calendar className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                            <span>Timetable</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleQuickGrades(friend)}
+                                            className="flex-1 py-1 px-1 bg-amber-50/90 hover:bg-amber-100 text-amber-800 border border-amber-200/70 text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                            title="View grades & CGPA without captcha"
+                                        >
+                                            <Award className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                                            <span>CGPA</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleQuickAttendance(friend)}
+                                            className="flex-1 py-1 px-1 bg-slate-900 hover:bg-indigo-600 text-white text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                            title="Check attendance with captcha verification"
+                                        >
+                                            <ShieldCheck className="w-2.5 h-2.5 text-indigo-300 shrink-0" />
+                                            <span>Attend</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
                 </div>
             </div>
 
             {/* Bottom Footer Info */}
-            <div className="p-3 bg-slate-50/70 border-t border-slate-100 text-center shrink-0">
+            <div className="p-2.5 bg-slate-50/70 border-t border-slate-100 text-center shrink-0">
                 <p className="text-[10px] text-slate-400 font-medium flex items-center justify-center gap-1">
                     <ShieldCheck className="w-3 h-3 text-emerald-600" />
                     <span>Credentials secured in browser</span>
                 </p>
             </div>
+
+            {/* Full Friends & Profiles Manager Modal */}
+            <FriendsManagerModal
+                isOpen={showFriendsManager}
+                onClose={() => setShowFriendsManager(false)}
+            />
 
             {/* Add / Edit Profile Modal */}
             <AddFriendModal
@@ -446,15 +478,12 @@ export default function ErpSidebar({
                     setEditingProfile(null);
                     setIsEditingSelf(false);
                 }}
-                onFriendSaved={(saved) => {
+                onFriendSaved={() => {
                     setMyProfile(getMyProfile());
                     setFriends(getSavedFriends());
                     setShowAddModal(false);
                     setEditingProfile(null);
                     setIsEditingSelf(false);
-                    if (saved) {
-                        setCaptchaTarget(saved);
-                    }
                 }}
             />
 

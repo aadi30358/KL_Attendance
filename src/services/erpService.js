@@ -744,7 +744,8 @@ export const erpService = {
                     yearId: isNumericDbId ? String(year).trim() : undefined,
                     semester,
                     csrfToken: csrfToken || ''
-                })
+                }),
+                signal: AbortSignal.timeout(10000)
             });
 
             saveErpCookiesFromResponse(resp);
@@ -918,7 +919,8 @@ export const erpService = {
                     headers,
                     body: formData,
                     credentials: 'include',
-                    cache: 'no-store'
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(12000)
                 });
 
                 if (response.status === 400) {

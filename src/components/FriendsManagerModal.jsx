@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, UserPlus, Users, User, Trash2, ArrowRight, AlertTriangle } from 'lucide-react';
+import { X, UserPlus, Users, User, Trash2, ArrowRight, AlertTriangle, Calendar, Award, ShieldCheck } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { getSavedFriends, deleteFriend, getActiveProfileDetails, setActiveProfileId, getMyProfile } from '../services/friendsService';
 import { useMaintenance } from '../services/useMaintenance';
 import AddFriendModal from './AddFriendModal';
@@ -8,6 +9,7 @@ import FriendCaptchaModal from './FriendCaptchaModal';
 import { useAuth } from '../context/useAuth';
 
 export default function FriendsManagerModal({ isOpen, onClose }) {
+    const navigate = useNavigate();
     const { setErpUser } = useAuth();
     const { isMaintenance, maintenanceConfig } = useMaintenance();
     const [friends, setFriends] = useState(() => getSavedFriends());
@@ -46,13 +48,17 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
     };
 
     const handleSwitchToMe = () => {
-        const myId = localStorage.getItem('rememberedId');
+        const myId = localStorage.getItem('rememberedId') || '2400030358';
         setActiveProfileId('main');
-        if (myId && typeof setErpUser === 'function') {
-            setErpUser(myId);
+        if (myId) {
+            localStorage.setItem('activeErpUser', myId);
+            if (typeof setErpUser === 'function') {
+                setErpUser(myId);
+            }
         }
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: 'main' }));
+        window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: myProfile, studentId: myId } }));
         onClose();
-        window.location.reload();
     };
 
     const handleCheckAttendance = (profile) => {
@@ -61,6 +67,32 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
             return;
         }
         setTargetFriendForCaptcha(profile);
+    };
+
+    const handleCheckTimetable = (profile) => {
+        const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '') || '2400030358';
+        setActiveProfileId(profile.id || 'main');
+        if (sid) {
+            localStorage.setItem('activeErpUser', sid);
+            if (typeof setErpUser === 'function') setErpUser(sid);
+        }
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: profile.id || 'main' }));
+        window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile, studentId: sid } }));
+        onClose();
+        navigate('/timetable');
+    };
+
+    const handleCheckGrades = (profile) => {
+        const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '') || '2400030358';
+        setActiveProfileId(profile.id || 'main');
+        if (sid) {
+            localStorage.setItem('activeErpUser', sid);
+            if (typeof setErpUser === 'function') setErpUser(sid);
+        }
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: profile.id || 'main' }));
+        window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile, studentId: sid } }));
+        onClose();
+        navigate('/grades');
     };
 
     return (
@@ -160,53 +192,75 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                                 </div>
 
                                 <div
-                                    onClick={() => handleCheckAttendance(myProfile)}
-                                    className={`p-3.5 rounded-2xl border-2 transition-all flex items-center justify-between gap-3 cursor-pointer ${
+                                    className={`p-3.5 rounded-2xl border-2 transition-all flex flex-col justify-between gap-2.5 ${
                                         !activeProfile?.isFriend
                                             ? 'bg-indigo-50/80 border-indigo-600 shadow-md ring-2 ring-indigo-200'
                                             : 'bg-white border-slate-200 hover:border-indigo-400 hover:bg-slate-50 shadow-xs'
                                     }`}
                                 >
-                                    <div className="flex items-center gap-3 min-w-0">
-                                        <div className="w-10 h-10 rounded-xl bg-indigo-100 border border-indigo-200 flex items-center justify-center shrink-0">
-                                            <User className="w-5 h-5 text-indigo-700" />
-                                        </div>
-                                        <div className="min-w-0">
-                                            <div className="flex items-center gap-1.5">
-                                                <h4 className="font-black text-sm text-slate-900 truncate">
-                                                    {myProfile.nickname || 'Adithya'}
-                                                </h4>
-                                                {!activeProfile?.isFriend && (
-                                                    <span className="bg-indigo-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full shrink-0">
-                                                        Active
-                                                    </span>
-                                                )}
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="w-10 h-10 rounded-xl bg-indigo-100 border border-indigo-200 flex items-center justify-center shrink-0">
+                                                <User className="w-5 h-5 text-indigo-700" />
                                             </div>
-                                            <p className="text-xs text-slate-500 font-bold truncate">
-                                                ID: {myProfile.studentId || '2400030358'}
-                                            </p>
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-1.5">
+                                                    <h4 className="font-black text-sm text-slate-900 truncate">
+                                                        {myProfile.nickname || 'Adithya'}
+                                                    </h4>
+                                                    {!activeProfile?.isFriend && (
+                                                        <span className="bg-indigo-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full shrink-0">
+                                                            Active
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <p className="text-xs text-slate-500 font-bold truncate">
+                                                    ID: {myProfile.studentId || '2400030358'}
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
 
-                                    <div className="flex items-center gap-2 shrink-0">
-                                        {isMaintenance ? (
-                                            <span className="px-2.5 py-1 bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-black rounded-xl">
-                                                Unable to Login
-                                            </span>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleCheckAttendance(myProfile);
-                                                }}
-                                                className="px-3 py-1.5 bg-slate-900 hover:bg-indigo-600 text-white text-xs font-black rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
-                                                title="Check my attendance with Captcha"
-                                            >
-                                                <span>Check</span>
-                                                <ArrowRight className="w-3.5 h-3.5" />
-                                            </button>
-                                        )}
+                                    {/* Action Buttons: Timetable (No Captcha), CGPA (No Captcha), Attendance (Captcha) */}
+                                    <div className="pt-2 border-t border-slate-200/60 flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleCheckTimetable(myProfile);
+                                            }}
+                                            className="flex-1 py-1.5 px-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-bold rounded-xl transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                            title="View Timetable directly without captcha"
+                                        >
+                                            <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                            <span>Timetable</span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleCheckGrades(myProfile);
+                                            }}
+                                            className="flex-1 py-1.5 px-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[11px] font-bold rounded-xl transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                            title="View CGPA and grades directly without captcha"
+                                        >
+                                            <Award className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                            <span>CGPA</span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleCheckAttendance(myProfile);
+                                            }}
+                                            className="flex-1 py-1.5 px-2 bg-slate-900 hover:bg-indigo-600 text-white text-[11px] font-bold rounded-xl transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                            title="Check attendance with Captcha"
+                                        >
+                                            <ShieldCheck className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+                                            <span>Attendance</span>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -223,63 +277,43 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                                     <Users className="w-7 h-7 text-slate-400 mx-auto mb-1.5" />
                                     <p className="text-xs font-bold text-slate-700 mb-0.5">No friends saved yet</p>
                                     <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
-                                        Save your friend&apos;s details once to check their attendance with just Captcha!
+                                        Save your friend&apos;s details once to check their timetable, CGPA, and attendance!
                                     </p>
                                 </div>
                             ) : (
-                                <div className="space-y-2">
+                                <div className="space-y-2.5">
                                     {friends.map((friend) => {
                                         const isActive = activeProfile?.id === friend.id;
                                         return (
                                             <div
                                                 key={friend.id}
-                                                onClick={() => handleCheckAttendance(friend)}
-                                                className={`p-3.5 rounded-2xl border-2 transition-all flex items-center justify-between gap-3 cursor-pointer ${
+                                                className={`p-3.5 rounded-2xl border-2 transition-all flex flex-col justify-between gap-2.5 ${
                                                     isActive
                                                         ? 'bg-indigo-50/80 border-indigo-600 shadow-md ring-2 ring-indigo-200'
                                                         : 'bg-white border-slate-200 hover:border-indigo-400 hover:bg-slate-50 shadow-xs'
                                                 }`}
                                             >
-                                                <div className="flex items-center gap-3 min-w-0">
-                                                    <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0">
-                                                        <Users className="w-5 h-5 text-slate-600" />
-                                                    </div>
-                                                    <div className="min-w-0">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <h4 className="font-black text-sm text-slate-900 truncate">
-                                                                {friend.nickname}
-                                                            </h4>
-                                                            {isActive && (
-                                                                <span className="bg-indigo-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full shrink-0">
-                                                                    Active
-                                                                </span>
-                                                            )}
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-3 min-w-0">
+                                                        <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0">
+                                                            <Users className="w-5 h-5 text-slate-600" />
                                                         </div>
-                                                        <p className="text-xs text-slate-500 font-bold truncate">
-                                                            ID: {friend.studentId}
-                                                        </p>
+                                                        <div className="min-w-0">
+                                                            <div className="flex items-center gap-1.5">
+                                                                <h4 className="font-black text-sm text-slate-900 truncate">
+                                                                    {friend.nickname}
+                                                                </h4>
+                                                                {isActive && (
+                                                                    <span className="bg-indigo-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full shrink-0">
+                                                                        Active
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <p className="text-xs text-slate-500 font-bold truncate">
+                                                                ID: {friend.studentId}
+                                                            </p>
+                                                        </div>
                                                     </div>
-                                                </div>
-
-                                                <div className="flex items-center gap-2 shrink-0">
-                                                    {isMaintenance ? (
-                                                        <span className="px-2.5 py-1 bg-amber-100 border border-amber-300 text-amber-900 text-[10px] font-black rounded-xl">
-                                                            Unable to Login
-                                                        </span>
-                                                    ) : (
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleCheckAttendance(friend);
-                                                            }}
-                                                            className="px-3 py-1.5 bg-slate-900 hover:bg-indigo-600 text-white text-xs font-black rounded-xl transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
-                                                            title="Check this friend's attendance"
-                                                        >
-                                                            <span>Check</span>
-                                                            <ArrowRight className="w-3.5 h-3.5" />
-                                                        </button>
-                                                    )}
 
                                                     <button
                                                         type="button"
@@ -288,6 +322,48 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                                                         title="Remove friend"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+
+                                                {/* Action Buttons: Timetable (No Captcha), CGPA (No Captcha), Attendance (Captcha) */}
+                                                <div className="pt-2 border-t border-slate-200/60 flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleCheckTimetable(friend);
+                                                        }}
+                                                        className="flex-1 py-1.5 px-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-bold rounded-xl transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                                        title="Check friend timetable without captcha"
+                                                    >
+                                                        <Calendar className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                                        <span>Timetable</span>
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleCheckGrades(friend);
+                                                        }}
+                                                        className="flex-1 py-1.5 px-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[11px] font-bold rounded-xl transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                                        title="Check friend CGPA and scorecard directly"
+                                                    >
+                                                        <Award className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                                        <span>CGPA</span>
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleCheckAttendance(friend);
+                                                        }}
+                                                        className="flex-1 py-1.5 px-2 bg-slate-900 hover:bg-indigo-600 text-white text-[11px] font-bold rounded-xl transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                                        title="Check friend attendance with Captcha"
+                                                    >
+                                                        <ShieldCheck className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+                                                        <span>Attendance</span>
                                                     </button>
                                                 </div>
                                             </div>
@@ -319,8 +395,6 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                 onFriendSaved={(newFriend) => {
                     setFriends(getSavedFriends());
                     setShowAddModal(false);
-                    // Open captcha immediately to check their attendance
-                    setTargetFriendForCaptcha(newFriend);
                 }}
             />
 
