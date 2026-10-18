@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useMotionValue, useSpring, useTransform, useScroll, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, BookOpen, User, Users, UserPlus } from 'lucide-react';
-import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, normalizeAcademicYear, normalizeSemester, getPresentAcademicYearAndSem, getTruePresentAcademicYearAndSem } from '../services/timetableService';
+import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, BookOpen, User, Users, UserPlus, Key } from 'lucide-react';
+import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, normalizeAcademicYear, normalizeSemester, getPresentAcademicYearAndSem, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS } from '../services/timetableService';
 import { getActiveProfileDetails, getAllProfiles, setActiveProfileId, getSavedFriends } from '../services/friendsService';
 import AddFriendModal from '../components/AddFriendModal';
 
@@ -648,6 +648,22 @@ export default function Home() {
         return getSubjectName(slot.rawCode || slot.code?.replace(/-[LPTS]$/, '')) || slot.displayName || slot.title || slot.code;
     };
 
+    const [displayMode, setDisplayMode] = useState('codes'); // 'codes' | 'aliases'
+    const [editingFriend, setEditingFriend] = useState(null);
+
+    const hasSavedCredentials = useMemo(() => {
+        // Main profile always displays present semester default timetable
+        if (!activeProfile || !activeProfile.isFriend || activeProfile.id === 'main') {
+            return true;
+        }
+        // For friend profiles: only show present sem timetable when their credentials are saved
+        return Boolean(
+            activeProfile.hasSavedPassword ||
+            activeProfile.password ||
+            localStorage.getItem(`erp_cookie_${activeStudentId}`)
+        );
+    }, [activeProfile, activeStudentId]);
+
     const { scrollY } = useScroll();
     const heroY = useTransform(scrollY, [0, 500], [0, 150]);
     const heroOpacity = useTransform(scrollY, [0, 300], [1, 0]);
@@ -849,7 +865,7 @@ export default function Home() {
 
                             <Link
                                 to="/timetable"
-                                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold transition-all border border-indigo-200/80 dark:border-indigo-700/60 shadow-2xs group"
+                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold transition-all border border-indigo-200/90 dark:border-indigo-700/60 shadow-2xs group"
                             >
                                 <span>View Full Timetable</span>
                                 <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
@@ -867,7 +883,7 @@ export default function Home() {
                                         key={p.id || pId}
                                         type="button"
                                         onClick={() => handleSwitchLiveProfile(p)}
-                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 border ${
+                                        className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 border ${
                                             isSelected
                                                 ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-500/20 scale-[1.02]'
                                                 : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/80'
@@ -882,8 +898,11 @@ export default function Home() {
 
                             <button
                                 type="button"
-                                onClick={() => setShowAddFriendModal(true)}
-                                className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 shadow-2xs"
+                                onClick={() => {
+                                    setEditingFriend(null);
+                                    setShowAddFriendModal(true);
+                                }}
+                                className="px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 shadow-2xs"
                             >
                                 <UserPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                                 <span>+ Add Friend</span>
@@ -891,7 +910,7 @@ export default function Home() {
                         </div>
 
                         {/* Prominent Active Profile, Year/Sem & Time Badge */}
-                        <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/70 mb-5">
+                        <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5 rounded-2xl bg-slate-50/90 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/70 mb-5">
                             <div className="flex flex-wrap items-center gap-2">
                                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse shrink-0" />
                                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Viewing Live Schedule:</span>
@@ -901,7 +920,7 @@ export default function Home() {
                                 <span className="text-[11px] font-mono text-slate-700 dark:text-slate-200 font-bold bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 shadow-2xs">
                                     ID: {activeStudentId}
                                 </span>
-                                <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/60 px-2.5 py-0.5 rounded-lg flex items-center gap-1.5 shadow-2xs">
+                                <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/60 px-3 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                                     <span>Present Sem</span>
                                     <span>•</span>
@@ -1078,6 +1097,223 @@ export default function Home() {
                                 </div>
                             </div>
                         </div>
+
+                        {/* ── Present Sem Default Timetable (Week Matrix Only) ── */}
+                        {hasSavedCredentials ? (
+                            <div className="mt-6 pt-5 border-t border-slate-200/80 dark:border-slate-700/60 space-y-3.5">
+                                {/* Section Header matching Image 2 */}
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <CalendarDays className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                            <h4 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                                                <span>Weekly Timetable</span>
+                                                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200/80 dark:border-indigo-800 px-2 py-0.5 rounded-md">
+                                                    {activeYear} · {activeSem}
+                                                </span>
+                                            </h4>
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                                            Class schedules, classrooms, and timing breakdown
+                                        </p>
+                                    </div>
+
+                                    {/* View Controls: Codes vs Aliases & View Full Timetable Link */}
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        {/* Codes vs Aliases Toggle */}
+                                        <div className="inline-flex bg-slate-100 dark:bg-slate-800/90 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700/80">
+                                            <button
+                                                type="button"
+                                                onClick={() => setDisplayMode('codes')}
+                                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                    displayMode === 'codes'
+                                                        ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
+                                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                                }`}
+                                            >
+                                                Codes
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDisplayMode('aliases')}
+                                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                    displayMode === 'aliases'
+                                                        ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
+                                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                                }`}
+                                            >
+                                                Aliases 🏷️
+                                            </button>
+                                        </div>
+
+                                        {/* View Full Timetable Option (matching Image 3) */}
+                                        <Link
+                                            to="/timetable"
+                                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold transition-all border border-indigo-200/90 dark:border-indigo-700/60 shadow-2xs group"
+                                            title="Open full timetable page"
+                                        >
+                                            <span>View Full Timetable</span>
+                                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                        </Link>
+                                    </div>
+                                </div>
+
+                                {/* Compact Week Matrix Table (fits mobile with smooth horizontal scroll) */}
+                                <div className="rounded-2xl border border-slate-200/90 dark:border-slate-700/70 overflow-hidden bg-white dark:bg-slate-900/60 shadow-2xs">
+                                    <div className="overflow-x-auto scrollbar-thin">
+                                        <table className="w-full text-xs border-collapse text-center">
+                                            <thead>
+                                                <tr className="border-b border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-800/80">
+                                                    <th className="sticky left-0 bg-slate-100 dark:bg-slate-800 text-center p-2.5 border-r border-slate-200 dark:border-slate-700 z-20 w-16 min-w-[64px]">
+                                                        <span className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                                                            Day
+                                                        </span>
+                                                    </th>
+                                                    {KLU_SESSIONS.map((sess) => (
+                                                        <th
+                                                            key={sess.id}
+                                                            className="p-1.5 sm:p-2 min-w-[100px] w-[100px] sm:min-w-[115px] sm:w-[115px] border-r border-slate-200 dark:border-slate-700/80 text-center font-bold text-slate-700 dark:text-slate-300 align-middle"
+                                                        >
+                                                            <div className="inline-block px-1.5 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold text-[10px] mb-0.5">
+                                                                {sess.id}
+                                                            </div>
+                                                            <div className="text-[9px] text-slate-500 dark:text-slate-400 font-normal font-mono whitespace-nowrap">
+                                                                {sess.start}–{sess.end}
+                                                            </div>
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+
+                                            <tbody className="divide-y divide-slate-200 dark:divide-slate-700/70">
+                                                {DAYS_OF_WEEK.map((day) => {
+                                                    const slots = studentTimetable[day] || [];
+                                                    const isToday = liveClassStatus.dayName === day;
+
+                                                    return (
+                                                        <tr
+                                                            key={day}
+                                                            className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors ${
+                                                                isToday ? 'bg-indigo-50/30 dark:bg-indigo-950/20' : ''
+                                                            }`}
+                                                        >
+                                                            <td
+                                                                className={`sticky left-0 p-2.5 border-r border-slate-200 dark:border-slate-700 font-bold z-10 ${
+                                                                    isToday
+                                                                        ? 'bg-indigo-100 dark:bg-indigo-950 text-indigo-900 dark:text-indigo-200'
+                                                                        : 'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
+                                                                }`}
+                                                            >
+                                                                <span className="block text-[11px] font-black uppercase">{day.slice(0, 3)}</span>
+                                                                {isToday && (
+                                                                    <span className="text-[8px] font-black text-indigo-600 dark:text-sky-400 block mt-0.5">
+                                                                        TODAY
+                                                                    </span>
+                                                                )}
+                                                            </td>
+
+                                                            {KLU_SESSIONS.map((sess) => {
+                                                                const classItem = slots.find(
+                                                                    (s) => s.period === sess.slot || s.slotId === sess.id
+                                                                );
+                                                                if (!classItem) {
+                                                                    return (
+                                                                        <td
+                                                                            key={sess.id}
+                                                                            className="p-2 border-r border-slate-200 dark:border-slate-700/70 text-slate-300 dark:text-slate-600 font-mono text-center text-xs"
+                                                                        >
+                                                                            —
+                                                                        </td>
+                                                                    );
+                                                                }
+
+                                                                const isLab =
+                                                                    (classItem.component || classItem.type || '').toLowerCase().includes('pract') ||
+                                                                    classItem.code.endsWith('-P');
+                                                                const isSkill =
+                                                                    (classItem.component || classItem.type || '').toLowerCase().includes('skill') ||
+                                                                    classItem.code.endsWith('-S');
+                                                                const isTut =
+                                                                    (classItem.component || classItem.type || '').toLowerCase().includes('tut') ||
+                                                                    classItem.code.endsWith('-T');
+
+                                                                const displayTitle =
+                                                                    displayMode === 'codes'
+                                                                        ? classItem.code
+                                                                        : getSubjectName(classItem.rawCode || classItem.code) || classItem.code;
+
+                                                                return (
+                                                                    <td
+                                                                        key={sess.id}
+                                                                        className={`p-2 border-r border-slate-200 dark:border-slate-700/70 align-middle ${
+                                                                            isLab
+                                                                                ? 'bg-emerald-50/85 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-200'
+                                                                                : isSkill
+                                                                                ? 'bg-purple-50/85 dark:bg-purple-950/40 text-purple-950 dark:text-purple-200'
+                                                                                : isTut
+                                                                                ? 'bg-amber-50/85 dark:bg-amber-950/40 text-amber-950 dark:text-amber-200'
+                                                                                : 'bg-blue-50/85 dark:bg-blue-950/40 text-blue-950 dark:text-blue-200'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="space-y-0.5">
+                                                                            <div
+                                                                                className="font-bold text-[10px] leading-snug line-clamp-2 text-slate-900 dark:text-slate-100"
+                                                                                title={displayTitle}
+                                                                            >
+                                                                                {displayTitle}
+                                                                            </div>
+                                                                            <div className="text-[9px] text-slate-600 dark:text-slate-400 font-medium leading-tight truncate">
+                                                                                {classItem.section ? `${classItem.section} · ` : ''}
+                                                                                {classItem.room ? `Rm ${cleanRoomNumber(classItem.room)}` : ''}
+                                                                            </div>
+                                                                        </div>
+                                                                    </td>
+                                                                );
+                                                            })}
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            /* Prompt card when credentials are not saved for this friend */
+                            <div className="mt-6 p-6 sm:p-7 rounded-2xl bg-gradient-to-br from-indigo-50/50 via-slate-50 to-purple-50/30 dark:from-slate-800/60 dark:via-slate-800/40 dark:to-slate-800/60 border border-indigo-100 dark:border-slate-700/80 text-center space-y-3.5 shadow-2xs">
+                                <div className="w-10 h-10 rounded-2xl bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-center mx-auto shadow-2xs">
+                                    <Key className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                                </div>
+                                <div className="max-w-md mx-auto space-y-1">
+                                    <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
+                                        Save Credentials for {activeProfile?.nickname || 'Friend'} to View Timetable
+                                    </h4>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                                        The full weekly timetable for the present semester ({activeYear} · {activeSem}) is automatically displayed here when ERP credentials are saved for this account.
+                                    </p>
+                                </div>
+                                <div className="pt-1 flex items-center justify-center gap-2.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setEditingFriend(activeProfile);
+                                            setShowAddFriendModal(true);
+                                        }}
+                                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
+                                    >
+                                        <Key className="w-3.5 h-3.5" />
+                                        <span>Save Credentials</span>
+                                    </button>
+                                    <Link
+                                        to="/timetable"
+                                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-all shadow-2xs"
+                                    >
+                                        <span>View Full Timetable</span>
+                                        <ArrowRight className="w-3.5 h-3.5" />
+                                    </Link>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </motion.div>
 
@@ -1391,9 +1627,15 @@ export default function Home() {
             {/* Add Friend Modal from Live Class Navigator */}
             <AddFriendModal
                 isOpen={showAddFriendModal}
-                onClose={() => setShowAddFriendModal(false)}
+                initialFriend={editingFriend}
+                isMyProfile={editingFriend?.id === 'main'}
+                onClose={() => {
+                    setShowAddFriendModal(false);
+                    setEditingFriend(null);
+                }}
                 onFriendSaved={(newFriend) => {
                     setShowAddFriendModal(false);
+                    setEditingFriend(null);
                     if (newFriend) {
                         handleSwitchLiveProfile(newFriend);
                     }

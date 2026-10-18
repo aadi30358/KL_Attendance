@@ -439,6 +439,7 @@ export const fetchLiveErpGrades = async (studentId) => {
     const isCurrentlyActiveUser = targetId === activeErp;
     const friendCookie = isFriend ? (localStorage.getItem(`erp_cookie_${targetId}`) || '') : '';
     const cookie = isCurrentlyActiveUser ? getStoredErpCookies() : (friendCookie || getStoredErpCookies());
+    const csrfToken = getStoredCsrfToken();
 
     const headers = buildErpHeaders({
         'Content-Type': 'application/json',
