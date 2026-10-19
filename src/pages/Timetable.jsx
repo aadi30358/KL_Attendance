@@ -60,7 +60,9 @@ export default function Timetable() {
                 const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
                 if (Array.isArray(list)) return list;
             }
-        } catch {}
+        } catch {
+            /* ignore parse error */
+        }
         return [];
     }, [activeId]);
 
@@ -145,6 +147,7 @@ export default function Timetable() {
                             erpCourses={erpCourses}
                             selectedYear={selectedYear}
                             selectedSem={selectedSem}
+                            onChangeSelection={() => navigate('/attendance-register')}
                             onViewCourseAttendance={() => navigate('/attendance-register')}
                             onSelectProfile={(profile) => {
                                 const newId = profile.studentId || profile.username || (profile.id !== 'main' ? profile.id : '');

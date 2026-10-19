@@ -1,7 +1,7 @@
 // KL Attendance - High-Speed Service Worker
 // Cache Storage is kept clean to prevent public inspection of client assets
 
-const CACHE_NAME = 'kl-attendance-v1792389934078';
+const CACHE_NAME = 'kl-attendance-v1792392275350';
 
 self.addEventListener('install', () => {
   self.skipWaiting();

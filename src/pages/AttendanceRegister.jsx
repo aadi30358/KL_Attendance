@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, BarChart3, CalendarDays, SlidersHorizontal } from 'lucide-react';
+import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, SlidersHorizontal } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -193,7 +193,6 @@ const AttendanceRegister = () => {
         }
         return localStorage.getItem('activeErpUser') || initialProfile?.studentId || '2400030358';
     });
-    const myId = (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '2400030358';
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
     const getInitialYears = () => {

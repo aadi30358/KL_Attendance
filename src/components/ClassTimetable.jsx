@@ -44,8 +44,7 @@ const DAY_TABS = [
     { key: 'WED', full: 'Wednesday' },
     { key: 'THU', full: 'Thursday' },
     { key: 'FRI', full: 'Friday' },
-    { key: 'SAT', full: 'Saturday' },
-    { key: 'SUN', full: 'Sunday' }
+    { key: 'SAT', full: 'Saturday' }
 ];
 
 export default function ClassTimetable({
@@ -172,7 +171,8 @@ export default function ClassTimetable({
 
     const [selectedDay, setSelectedDay] = useState(() => {
         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        return dayNames[new Date().getDay()] || 'Monday';
+        const today = dayNames[new Date().getDay()];
+        return today === 'Sunday' ? 'Monday' : today;
     });
 
     // View & Display Modes
@@ -690,19 +690,19 @@ export default function ClassTimetable({
                                     transition={{ duration: 0.15 }}
                                     className="absolute right-0 mt-1.5 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 z-50 text-xs font-bold text-slate-700"
                                 >
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setShowMoreMenu(false);
-                                            setTempYear(manualYear);
-                                            setTempSem(manualSem);
-                                            setShowYearSemModal(true);
-                                        }}
-                                        className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer border-b border-slate-100 text-indigo-700 font-bold"
-                                    >
-                                        <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
-                                        <span>Change Academic Year / Sem</span>
-                                    </button>
+                                    {onChangeSelection && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setShowMoreMenu(false);
+                                                onChangeSelection();
+                                            }}
+                                            className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer border-b border-slate-100 text-indigo-700 font-bold"
+                                        >
+                                            <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+                                            <span>Change Academic Year / Sem</span>
+                                        </button>
+                                    )}
                                     <button
                                         type="button"
                                         onClick={() => {
@@ -792,6 +792,17 @@ export default function ClassTimetable({
                                     >
                                         <Printer className="w-4 h-4 text-rose-600" />
                                         <span>Print / PDF</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowMoreMenu(false);
+                                            exportAsImage();
+                                        }}
+                                        className="w-full px-3.5 py-2 text-left hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                    >
+                                        <ImageIcon className="w-4 h-4 text-amber-600" />
+                                        <span>Download as Image</span>
                                     </button>
                                 </motion.div>
                             )}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { X, UserPlus, Users, User, Trash2, ArrowRight, AlertTriangle, Calendar, Award, ShieldCheck } from 'lucide-react';
+import { X, UserPlus, Users, User, Trash2, AlertTriangle, Calendar, Award, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getSavedFriends, deleteFriend, getActiveProfileDetails, setActiveProfileId, getMyProfile } from '../services/friendsService';
 import { useMaintenance } from '../services/useMaintenance';
@@ -392,7 +392,7 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
             <AddFriendModal
                 isOpen={showAddModal}
                 onClose={() => setShowAddModal(false)}
-                onFriendSaved={(newFriend) => {
+                onFriendSaved={() => {
                     setFriends(getSavedFriends());
                     setShowAddModal(false);
                 }}

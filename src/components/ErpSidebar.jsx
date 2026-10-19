@@ -34,8 +34,6 @@ export default function ErpSidebar({
     onToggle, 
     onSelectProfile, 
     onAddNewProfile,
-    activeView = 'attendance',
-    onSelectView,
     activePage = 'attendance-register'
 }) {
     const navigate = useNavigate();
@@ -94,7 +92,7 @@ export default function ErpSidebar({
             badge: 'Live',
             badgeClass: 'bg-emerald-500 text-white',
             icon: BarChart3,
-            isActive: currentPath === '/attendance-register',
+            isActive: currentPath === '/attendance-register' || activePage === 'attendance-register',
             onClick: () => handleNavigation('/attendance-register')
         },
         {
@@ -103,7 +101,7 @@ export default function ErpSidebar({
             badge: 'ERP',
             badgeClass: 'bg-indigo-100 text-indigo-700',
             icon: CalendarDays,
-            isActive: currentPath === '/timetable',
+            isActive: currentPath === '/timetable' || activePage === 'timetable',
             onClick: () => handleNavigation('/timetable')
         },
         {
@@ -112,7 +110,7 @@ export default function ErpSidebar({
             badge: 'Scorecard',
             badgeClass: 'bg-amber-100 text-amber-800',
             icon: GraduationCap,
-            isActive: currentPath === '/grades' || currentPath === '/cgpa',
+            isActive: currentPath === '/grades' || currentPath === '/cgpa' || activePage === 'grades',
             onClick: () => handleNavigation('/grades')
         },
         {
@@ -121,7 +119,7 @@ export default function ErpSidebar({
             badge: 'What-If',
             badgeClass: 'bg-purple-100 text-purple-700',
             icon: Calculator,
-            isActive: currentPath === '/bunk-simulator' || currentPath === '/bunk',
+            isActive: currentPath === '/bunk-simulator' || currentPath === '/bunk' || activePage === 'bunk',
             onClick: () => handleNavigation('/bunk-simulator')
         },
         {
@@ -170,9 +168,6 @@ export default function ErpSidebar({
             setActiveProfile(getActiveProfileDetails());
         }
     };
-
-    const activeId = activeProfile?.studentId || myProfile?.studentId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '2400030358';
-    const activeName = activeProfile?.nickname || myProfile?.nickname || 'Adithya';
 
     const sidebarContent = (
         <div className="h-full flex flex-col bg-white text-slate-800 font-sans border-r border-slate-200/80 shadow-xs w-72 sm:w-80 select-none">
@@ -268,6 +263,7 @@ export default function ErpSidebar({
                         <button
                             type="button"
                             onClick={() => {
+                                if (onAddNewProfile) onAddNewProfile();
                                 setEditingProfile(null);
                                 setIsEditingSelf(false);
                                 setShowAddModal(true);

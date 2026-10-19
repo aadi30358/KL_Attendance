@@ -389,7 +389,7 @@ export const KLU_LECTURE_HALLS = ['C324', 'C421', 'C215', 'C302', 'C405', 'C501'
 // Helper to strip any redundant "Room", "RoomNo", "Rm" prefixes from room strings
 export function cleanRoomNumber(room) {
     if (!room) return '';
-    return String(room).replace(new RegExp('^(?:Room\\s*No|Room|Rm)[-:\\s#]*', 'i'), '').trim();
+    return String(room).replace(new RegExp('^(?:Room\\s*No|Room|Rm)[\\s#:-]*', 'i'), '').trim();
 }
 
 // Authentic Lab Rooms assigned by subject component & course code (Returns genuine KLU room codes)
@@ -418,7 +418,7 @@ export function extractRoom(cellText, fullCode = '', section = '') {
     if (!cleaned || cleaned === '-') return '';
 
     // 1. Explicit Room prefix check (e.g. "RoomNo-C421", "Room: C302", "Room No: R104B", "Rm-M126")
-    const explicitMatch = cleaned.match(new RegExp('(?:RoomNo|Room\\s*No|Room|Rm|Venue|Hall|RNo)[-:\\s#]+([A-Za-z0-9\\s/-]+?)(?=\\s*(?:-|<|$|\\n|\\t))', 'i'));
+    const explicitMatch = cleaned.match(new RegExp('(?:RoomNo|Room\\s*No|Room|Rm|Venue|Hall|RNo)[\\s#:-]+([A-Za-z0-9\\s/-]+?)(?=\\s*(?:-|<|$|\\n|\\t))', 'i'));
     if (explicitMatch && explicitMatch[1]) {
         let candidate = explicitMatch[1].trim().replace(/^[-:]\s*/, '');
         candidate = cleanRoomNumber(candidate);
@@ -1521,62 +1521,18 @@ export function parseTimeToMinutes(timeStr) {
  */
 export function getLiveClassStatus(timetable = {}, username = null) {
     const now = new Date();
+    // Accurate IST computation (UTC + 5:30)
+    const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
+    const utcMs = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
+    const istDate = new Date(utcMs + istOffsetMs);
+
+    const currentMinutes = istDate.getHours() * 60 + istDate.getMinutes();
+    const currentSeconds = istDate.getSeconds();
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    
-    // Accurate IST computation (Asia/Kolkata = UTC + 5:30) via Intl
-    let currentDayName = 'Monday';
-    let istDayIdx = 1;
-    let currentMinutes = 0;
-    let currentSeconds = 0;
-    let istDateString = '';
-    let istTimeString = '';
+    const currentDayName = days[istDate.getDay()];
 
-    try {
-        const istFormatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'Asia/Kolkata',
-            weekday: 'long',
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: 'numeric',
-            second: 'numeric',
-            hour12: false
-        });
-        const parts = istFormatter.formatToParts(now);
-        const map = {};
-        parts.forEach(p => { map[p.type] = p.value; });
-
-        currentDayName = map.weekday || 'Monday';
-        istDayIdx = days.indexOf(currentDayName);
-        if (istDayIdx === -1) istDayIdx = 1;
-
-        const h = parseInt(map.hour, 10) || 0;
-        const m = parseInt(map.minute, 10) || 0;
-        const s = parseInt(map.second, 10) || 0;
-        currentMinutes = h * 60 + m;
-        currentSeconds = s;
-
-        istDateString = `${map.weekday}, ${map.day} ${map.month} ${map.year}`;
-        const h12 = h % 12 || 12;
-        const ampm = h >= 12 ? 'pm' : 'am';
-        istTimeString = `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
-    } catch {
-        const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
-        const utcMs = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
-        const istDate = new Date(utcMs + istOffsetMs);
-        currentMinutes = istDate.getHours() * 60 + istDate.getMinutes();
-        currentSeconds = istDate.getSeconds();
-        istDayIdx = istDate.getDay();
-        currentDayName = days[istDayIdx];
-        istDateString = istDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
-        istTimeString = istDate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
-    }
-
-    const isSunday = currentDayName === 'Sunday';
     const slotTimes = getSlotTimes(username);
-    // On Sunday, there are no scheduled college classes
-    const todayRawSchedule = isSunday ? [] : (timetable?.[currentDayName] || []);
+    const todayRawSchedule = timetable?.[currentDayName] || [];
 
     // Helper to extract period timing
     const resolveSlotTimes = (slot) => {
@@ -1623,70 +1579,68 @@ export function getLiveClassStatus(timetable = {}, username = null) {
     let nextClass = null;
     let previousClass = null;
 
-    if (!isSunday && todaySchedule.length > 0) {
-        for (let i = 0; i < todaySchedule.length; i++) {
-            const slot = todaySchedule[i];
-            if (currentMinutes >= slot.startMin && currentMinutes < slot.endMin) {
-                const currentTotalSeconds = currentMinutes * 60 + currentSeconds;
-                const slotStartSeconds = slot.startMin * 60;
-                const slotEndSeconds = slot.endMin * 60;
-                const totalSlotSeconds = slotEndSeconds - slotStartSeconds;
-                const elapsedSeconds = Math.max(0, currentTotalSeconds - slotStartSeconds);
-                const totalSecondsRemaining = Math.max(0, slotEndSeconds - currentTotalSeconds);
-                const minutesRemaining = Math.floor(totalSecondsRemaining / 60);
-                const secondsRemaining = totalSecondsRemaining % 60;
-                const progressPercent = totalSlotSeconds > 0 
-                    ? Math.min(100, Math.max(0, Math.round((elapsedSeconds / totalSlotSeconds) * 100))) 
-                    : 0;
+    for (let i = 0; i < todaySchedule.length; i++) {
+        const slot = todaySchedule[i];
+        if (currentMinutes >= slot.startMin && currentMinutes < slot.endMin) {
+            const currentTotalSeconds = currentMinutes * 60 + currentSeconds;
+            const slotStartSeconds = slot.startMin * 60;
+            const slotEndSeconds = slot.endMin * 60;
+            const totalSlotSeconds = slotEndSeconds - slotStartSeconds;
+            const elapsedSeconds = Math.max(0, currentTotalSeconds - slotStartSeconds);
+            const totalSecondsRemaining = Math.max(0, slotEndSeconds - currentTotalSeconds);
+            const minutesRemaining = Math.floor(totalSecondsRemaining / 60);
+            const secondsRemaining = totalSecondsRemaining % 60;
+            const progressPercent = totalSlotSeconds > 0 
+                ? Math.min(100, Math.max(0, Math.round((elapsedSeconds / totalSlotSeconds) * 100))) 
+                : 0;
 
-                currentClass = {
-                    ...slot,
-                    minutesRemaining,
-                    secondsRemaining,
-                    totalSecondsRemaining,
-                    progressPercent
-                };
-                if (i + 1 < todaySchedule.length) {
-                    const nextSlot = todaySchedule[i + 1];
-                    const nextStartSeconds = nextSlot.startMin * 60;
-                    const secsUntil = Math.max(0, nextStartSeconds - currentTotalSeconds);
-                    nextClass = {
-                        ...nextSlot,
-                        minutesUntil: Math.floor(secsUntil / 60),
-                        secondsUntil: secsUntil % 60,
-                        totalSecondsUntil: secsUntil
-                    };
-                }
-                break;
-            } else if (currentMinutes >= slot.endMin) {
-                previousClass = slot;
-            } else if (currentMinutes < slot.startMin && !nextClass) {
-                const currentTotalSeconds = currentMinutes * 60 + currentSeconds;
-                const slotStartSeconds = slot.startMin * 60;
-                const secsUntil = Math.max(0, slotStartSeconds - currentTotalSeconds);
+            currentClass = {
+                ...slot,
+                minutesRemaining,
+                secondsRemaining,
+                totalSecondsRemaining,
+                progressPercent
+            };
+            if (i + 1 < todaySchedule.length) {
+                const nextSlot = todaySchedule[i + 1];
+                const nextStartSeconds = nextSlot.startMin * 60;
+                const secsUntil = Math.max(0, nextStartSeconds - currentTotalSeconds);
                 nextClass = {
-                    ...slot,
+                    ...nextSlot,
                     minutesUntil: Math.floor(secsUntil / 60),
                     secondsUntil: secsUntil % 60,
                     totalSecondsUntil: secsUntil
                 };
             }
+            break;
+        } else if (currentMinutes >= slot.endMin) {
+            previousClass = slot;
+        } else if (currentMinutes < slot.startMin && !nextClass) {
+            const currentTotalSeconds = currentMinutes * 60 + currentSeconds;
+            const slotStartSeconds = slot.startMin * 60;
+            const secsUntil = Math.max(0, slotStartSeconds - currentTotalSeconds);
+            nextClass = {
+                ...slot,
+                minutesUntil: Math.floor(secsUntil / 60),
+                secondsUntil: secsUntil % 60,
+                totalSecondsUntil: secsUntil
+            };
         }
     }
 
     const firstSlotStart = todaySchedule.length > 0 ? todaySchedule[0].startMin : parseTimeToMinutes(KLU_SESSIONS[0].start);
     const lastSlotEnd = todaySchedule.length > 0 ? todaySchedule[todaySchedule.length - 1].endMin : parseTimeToMinutes(KLU_SESSIONS[10].end);
 
-    const isCollegeHours = !isSunday && currentMinutes >= firstSlotStart && currentMinutes <= lastSlotEnd;
-    const isLunch = !isSunday && currentMinutes >= 770 && currentMinutes < 780; // 12:50 PM - 1:00 PM
-    const isFreePeriod = Boolean(!isSunday && isCollegeHours && !currentClass && nextClass && !isLunch);
-    const isDayEnded = Boolean(!isSunday && (todaySchedule.length === 0 || (todaySchedule.length > 0 && currentMinutes >= lastSlotEnd)));
+    const isCollegeHours = currentMinutes >= firstSlotStart && currentMinutes <= lastSlotEnd;
+    const isLunch = currentMinutes >= 770 && currentMinutes < 780; // 12:50 PM - 1:00 PM
+    const isFreePeriod = Boolean(isCollegeHours && !currentClass && nextClass && !isLunch);
+    const isDayEnded = Boolean(todaySchedule.length === 0 || (todaySchedule.length > 0 && currentMinutes >= lastSlotEnd));
 
-    // Find the next working day's first scheduled class (e.g. Monday when it's Sunday)
+    // Find the next working day's first scheduled class
     let nextWorkingDayFirstClass = null;
-    if (isSunday || isDayEnded || todaySchedule.length === 0) {
+    if (isDayEnded || currentDayName === 'Sunday' || todaySchedule.length === 0) {
         for (let offset = 1; offset <= 6; offset++) {
-            const nextDayIdx = (istDayIdx + offset) % 7;
+            const nextDayIdx = (istDate.getDay() + offset) % 7;
             const nextDayName = days[nextDayIdx];
             if (nextDayName === 'Sunday') continue;
 
@@ -1703,10 +1657,9 @@ export function getLiveClassStatus(timetable = {}, username = null) {
 
             if (nextDaySlots.length > 0) {
                 const first = nextDaySlots[0];
-                const relDay = isSunday ? 'Monday' : (offset === 1 ? 'Tomorrow' : nextDayName);
                 nextWorkingDayFirstClass = {
-                    day: relDay,
-                    relativeDay: relDay,
+                    day: offset === 1 ? 'Tomorrow' : nextDayName,
+                    relativeDay: offset === 1 ? 'Tomorrow' : nextDayName,
                     dayName: nextDayName,
                     isTomorrow: offset === 1,
                     ...first
@@ -1717,12 +1670,12 @@ export function getLiveClassStatus(timetable = {}, username = null) {
     }
 
     return {
-        isClassDay: !isSunday && todaySchedule.length > 0,
-        isSunday,
+        isClassDay: currentDayName !== 'Sunday' && todaySchedule.length > 0,
         dayName: currentDayName,
         currentMinutes,
-        istDateString,
-        istTimeString,
+        istDateString: istDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }),
+        istTimeString: istDate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }),
+        istTimeWithSecondsString: istDate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).toUpperCase(),
         currentClass,
         nextClass,
         previousClass,
