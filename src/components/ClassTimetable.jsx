@@ -44,7 +44,8 @@ const DAY_TABS = [
     { key: 'WED', full: 'Wednesday' },
     { key: 'THU', full: 'Thursday' },
     { key: 'FRI', full: 'Friday' },
-    { key: 'SAT', full: 'Saturday' }
+    { key: 'SAT', full: 'Saturday' },
+    { key: 'SUN', full: 'Sunday' }
 ];
 
 export default function ClassTimetable({
@@ -171,8 +172,7 @@ export default function ClassTimetable({
 
     const [selectedDay, setSelectedDay] = useState(() => {
         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const today = dayNames[new Date().getDay()];
-        return today === 'Sunday' ? 'Monday' : today;
+        return dayNames[new Date().getDay()] || 'Monday';
     });
 
     // View & Display Modes

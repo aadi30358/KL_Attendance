@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useMotionValue, useSpring, useTransform, useScroll, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, BookOpen, User, Users, UserPlus, Key } from 'lucide-react';
+import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, BookOpen, User, Users, UserPlus, Key, ChevronDown, ChevronUp } from 'lucide-react';
 import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, normalizeAcademicYear, normalizeSemester, getPresentAcademicYearAndSem, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS } from '../services/timetableService';
 import { getActiveProfileDetails, getAllProfiles, setActiveProfileId, getSavedFriends } from '../services/friendsService';
 import AddFriendModal from '../components/AddFriendModal';
@@ -580,9 +580,9 @@ export default function Home() {
         if (typeof window !== 'undefined') {
             const prof = getActiveProfileDetails();
             if (prof?.studentId) return prof.studentId;
-            return localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '2400030358';
+            return localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
         }
-        return '2400030358';
+        return '';
     });
 
     useEffect(() => {
@@ -592,7 +592,7 @@ export default function Home() {
             const prof = getActiveProfileDetails();
             setActiveProfile(prof);
             const detailSid = e?.detail?.studentId;
-            const sid = detailSid || (prof?.studentId ? prof.studentId : null) || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '2400030358';
+            const sid = detailSid || (prof?.studentId ? prof.studentId : null) || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
             setActiveStudentId(sid);
         };
         window.addEventListener('kl_friends_updated', updateProfiles);
@@ -634,9 +634,34 @@ export default function Home() {
         return 'Odd Sem';
     }, [presentSemInfo.sem]);
 
+    const hasSavedCredentials = useMemo(() => {
+        if (typeof window === 'undefined') return false;
+        if (!activeProfile) return false;
+        if (activeProfile.isFriend) {
+            return Boolean(
+                activeProfile.hasSavedPassword ||
+                activeProfile.password ||
+                (activeStudentId && localStorage.getItem(`erp_cookie_${activeStudentId}`))
+            );
+        }
+        // Main profile: Check whether credentials or active sessions are stored
+        const rememberedPass = localStorage.getItem('rememberedPassword');
+        const rememberedId = localStorage.getItem('rememberedId');
+        const activeErp = localStorage.getItem('activeErpUser');
+        const hasSessionCookie = (activeStudentId && localStorage.getItem(`erp_cookie_${activeStudentId}`)) ||
+                                 (activeErp && localStorage.getItem(`erp_cookie_${activeErp}`));
+        return Boolean(
+            (rememberedId && rememberedPass) ||
+            activeProfile.hasSavedPassword ||
+            activeProfile.password ||
+            hasSessionCookie
+        );
+    }, [activeProfile, activeStudentId]);
+
     const studentTimetable = useMemo(() => {
+        if (!hasSavedCredentials || !activeStudentId) return {};
         return getStudentTimetable(activeStudentId, [], activeYear, activeSem);
-    }, [activeStudentId, activeYear, activeSem]);
+    }, [hasSavedCredentials, activeStudentId, activeYear, activeSem]);
 
     const liveClassStatus = useMemo(() => {
         void nowTick;
@@ -650,19 +675,7 @@ export default function Home() {
 
     const [displayMode, setDisplayMode] = useState('codes'); // 'codes' | 'aliases'
     const [editingFriend, setEditingFriend] = useState(null);
-
-    const hasSavedCredentials = useMemo(() => {
-        // Main profile always displays present semester default timetable
-        if (!activeProfile || !activeProfile.isFriend || activeProfile.id === 'main') {
-            return true;
-        }
-        // For friend profiles: only show present sem timetable when their credentials are saved
-        return Boolean(
-            activeProfile.hasSavedPassword ||
-            activeProfile.password ||
-            localStorage.getItem(`erp_cookie_${activeStudentId}`)
-        );
-    }, [activeProfile, activeStudentId]);
+    const [showWeekGrid, setShowWeekGrid] = useState(false);
 
     const { scrollY } = useScroll();
     const heroY = useTransform(scrollY, [0, 500], [0, 150]);
@@ -842,339 +855,379 @@ export default function Home() {
                     transition={{ duration: 0.3 }}
                     className="w-full max-w-4xl mb-10 sm:mb-14 z-20"
                 >
-                    <div className="bg-white dark:bg-[#1e293b] text-slate-900 dark:text-white rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-7 border border-slate-200/90 dark:border-slate-700/70 shadow-xl shadow-indigo-100/40 dark:shadow-none relative overflow-hidden transition-all duration-300">
-                        {/* Soft Glow accent */}
-                        <div className="absolute top-0 right-0 w-80 h-80 bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent dark:from-indigo-500/15 dark:via-purple-500/10 blur-3xl pointer-events-none" />
-
-                        {/* Top Header */}
-                        <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100 dark:border-slate-700/60">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800/60 flex items-center justify-center shadow-2xs">
-                                    <Compass className="w-4 h-4 animate-spin-slow" />
+                    {!hasSavedCredentials ? (
+                        <div className="bg-white dark:bg-[#1e293b] text-slate-900 dark:text-white rounded-[1.75rem] sm:rounded-3xl p-5 sm:p-7 border border-slate-200/90 dark:border-slate-700/70 shadow-lg relative overflow-hidden transition-all duration-300">
+                            {/* Header */}
+                            <div className="flex flex-wrap items-center justify-between gap-3 mb-5 pb-3.5 border-b border-slate-100 dark:border-slate-700/60">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800/60 flex items-center justify-center shadow-2xs">
+                                        <Compass className="w-4 h-4 animate-spin-slow" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                                            <span>Live Class Navigator</span>
+                                            <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800/60 px-2 py-0.5 rounded-full">
+                                                ERP Setup Required
+                                            </span>
+                                        </h3>
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                                            Real-time lecture tracking & next class countdown
+                                        </p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h3 className="text-sm sm:text-base font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                                        <span>Live Class Navigator</span>
-                                        <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
-                                    </h3>
-                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                                        Real-time lecture tracking & next class countdown
+
+                                <Link
+                                    to="/timetable"
+                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-all border border-slate-200 dark:border-slate-700 shadow-2xs group"
+                                >
+                                    <span>View Timetable</span>
+                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                </Link>
+                            </div>
+
+                            {/* ERP Login Prompt Card */}
+                            <div className="p-6 sm:p-8 rounded-2xl bg-gradient-to-br from-indigo-50/70 via-slate-50 to-purple-50/40 dark:from-slate-800/70 dark:via-slate-800/50 dark:to-slate-800/70 border border-indigo-100/90 dark:border-slate-700/80 text-center space-y-3.5">
+                                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-600 text-white flex items-center justify-center mx-auto shadow-md shadow-indigo-500/20">
+                                    <Key className="w-5 h-5 text-white" />
+                                </div>
+                                <div className="max-w-md mx-auto space-y-1.5">
+                                    <h4 className="text-base sm:text-lg font-black text-slate-900 dark:text-white">
+                                        Save ERP Credentials to View Timetable
+                                    </h4>
+                                    <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                                        Please go to <strong>ERP Login</strong> and save your credentials. Once saved, your live classes, room locations, countdowns, and weekly timetable will appear here automatically.
                                     </p>
                                 </div>
-                            </div>
-
-                            <Link
-                                to="/timetable"
-                                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold transition-all border border-indigo-200/90 dark:border-indigo-700/60 shadow-2xs group"
-                            >
-                                <span>View Full Timetable</span>
-                                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                            </Link>
-                        </div>
-
-                        {/* Profile & Friend Switcher Tabs */}
-                        <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-4 scrollbar-none">
-                            {allProfiles.map((p) => {
-                                const isSelected = (activeProfile?.id === p.id) || (!activeProfile?.isFriend && p.id === 'main');
-                                const pName = p.nickname || p.name || 'Account';
-                                const pId = p.studentId || p.username;
-                                return (
-                                    <button
-                                        key={p.id || pId}
-                                        type="button"
-                                        onClick={() => handleSwitchLiveProfile(p)}
-                                        className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 border ${
-                                            isSelected
-                                                ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-500/20 scale-[1.02]'
-                                                : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/80'
-                                        }`}
+                                <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+                                    <Link
+                                        to="/login"
+                                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 active:scale-95 text-white transition-all shadow-md shadow-indigo-500/25"
                                     >
-                                        {p.isFriend ? <Users className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />}
-                                        <span>{pName}</span>
-                                        {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                                        <LogIn className="w-4 h-4" />
+                                        <span>Go to ERP Login & Save</span>
+                                        <ArrowRight className="w-4 h-4" />
+                                    </Link>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="bg-white dark:bg-[#1e293b] text-slate-900 dark:text-white rounded-[1.75rem] sm:rounded-3xl p-4 sm:p-6 border border-slate-200/90 dark:border-slate-700/70 shadow-lg relative overflow-hidden transition-all duration-300">
+                            {/* Soft Glow accent */}
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent dark:from-indigo-500/15 dark:via-purple-500/10 blur-3xl pointer-events-none" />
+
+                            {/* Header */}
+                            <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3 pb-2.5 border-b border-slate-100 dark:border-slate-700/60">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-800/60 flex items-center justify-center shadow-2xs">
+                                        <Compass className="w-3.5 h-3.5 animate-spin-slow" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-sm font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-1.5">
+                                            <span>Live Class Navigator</span>
+                                            <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
+                                        </h3>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 font-semibold hidden sm:inline-block">
+                                        {liveClassStatus.istDateString} • {liveClassStatus.istTimeString}
+                                    </span>
+                                    <Link
+                                        to="/timetable"
+                                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold transition-all border border-indigo-200/90 dark:border-indigo-700/60 shadow-2xs group"
+                                    >
+                                        <span>Full Timetable</span>
+                                        <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                                    </Link>
+                                </div>
+                            </div>
+
+                            {/* Profile tabs if friends exist */}
+                            {allProfiles.length > 1 && (
+                                <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-3 scrollbar-none">
+                                    {allProfiles.map((p) => {
+                                        const isSelected = (activeProfile?.id === p.id) || (!activeProfile?.isFriend && p.id === 'main');
+                                        const pName = p.nickname || p.name || 'Account';
+                                        return (
+                                            <button
+                                                key={p.id || p.studentId}
+                                                type="button"
+                                                onClick={() => handleSwitchLiveProfile(p)}
+                                                className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shrink-0 border ${
+                                                    isSelected
+                                                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-xs'
+                                                        : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                                                }`}
+                                            >
+                                                <span>{pName}</span>
+                                                {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                                            </button>
+                                        );
+                                    })}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setEditingFriend(null);
+                                            setShowAddFriendModal(true);
+                                        }}
+                                        className="px-2.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shrink-0 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                                    >
+                                        <UserPlus className="w-3 h-3" />
+                                        <span>+ Friend</span>
                                     </button>
-                                );
-                            })}
+                                </div>
+                            )}
 
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setEditingFriend(null);
-                                    setShowAddFriendModal(true);
-                                }}
-                                className="px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 shadow-2xs"
-                            >
-                                <UserPlus className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                                <span>+ Add Friend</span>
-                            </button>
-                        </div>
-
-                        {/* Prominent Active Profile, Year/Sem & Time Badge */}
-                        <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5 rounded-2xl bg-slate-50/90 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/70 mb-5">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse shrink-0" />
-                                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Viewing Live Schedule:</span>
-                                <span className="text-xs font-black text-indigo-700 dark:text-indigo-300">
-                                    {activeProfile?.nickname || 'My Account'}
-                                </span>
-                                <span className="text-[11px] font-mono text-slate-700 dark:text-slate-200 font-bold bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                    ID: {activeStudentId}
-                                </span>
-                                <span className="text-[11px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/60 px-3 py-0.5 rounded-full flex items-center gap-1.5 shadow-2xs">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                    <span>Present Sem</span>
-                                    <span>•</span>
-                                    <span>{activeSem}</span>
+                            {/* Clean, compact sub-bar */}
+                            <div className="flex items-center justify-between text-xs py-1.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/50 mb-3">
+                                <div className="flex items-center gap-2 truncate">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                    <span className="font-semibold text-slate-700 dark:text-slate-200 truncate">
+                                        {activeProfile?.nickname || 'My Account'}
+                                        {activeStudentId ? ` (${activeStudentId})` : ''}
+                                    </span>
+                                    <span className="text-slate-400 dark:text-slate-500">•</span>
+                                    <span className="text-indigo-600 dark:text-indigo-400 font-bold shrink-0">{activeSem}</span>
+                                </div>
+                                <span className="text-[11px] font-mono text-slate-500 dark:text-slate-400 font-medium shrink-0 ml-2">
+                                    {liveClassStatus.istTimeString}
                                 </span>
                             </div>
 
-                            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                                <span>{liveClassStatus.istDateString}</span>
-                                <span>•</span>
-                                <span className="font-mono font-bold text-indigo-600 dark:text-sky-400">{liveClassStatus.istTimeString}</span>
-                            </div>
-                        </div>
-
-                        {/* Present and After Class 2-Column Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Column 1: Present / Ongoing Class or Free Period / Break */}
-                            <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 flex flex-col justify-between gap-3 shadow-xs min-h-[175px]">
-                                <div className="space-y-2.5">
-                                    <div className="flex items-center justify-between">
-                                        <span className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                            <span className={`w-2 h-2 rounded-full ${liveClassStatus.currentClass ? 'bg-emerald-500 dark:bg-emerald-400 animate-pulse' : 'bg-slate-400 dark:bg-slate-500'}`} />
-                                            <span>
-                                                {liveClassStatus.currentClass
-                                                    ? 'PRESENT CLASS (ONGOING)'
-                                                    : 'FREE PERIOD / BREAK'}
-                                            </span>
-                                        </span>
-                                        <div className="flex items-center gap-2">
-                                            {liveClassStatus.currentClass && (
-                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-mono">
-                                                    {liveClassStatus.currentClass.minutesRemaining}m left
+                            {/* Sunday State OR Weekday Live Classes */}
+                            {liveClassStatus.isSunday ? (
+                                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-indigo-50/60 via-slate-50 to-purple-50/40 dark:from-slate-800/80 dark:via-slate-800/60 dark:to-slate-800/80 border border-indigo-100 dark:border-slate-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                                            <Coffee className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950/90 text-indigo-700 dark:text-indigo-300 font-mono uppercase">
+                                                    Sunday • Weekend
                                                 </span>
-                                            )}
-                                            <span className="font-mono font-bold text-xs text-indigo-600 dark:text-sky-400">
-                                                {liveClassStatus.istTimeString}
-                                            </span>
+                                                <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">No classes scheduled today</span>
+                                            </div>
+                                            <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white mt-1">
+                                                Enjoy your Sunday break!
+                                            </h4>
                                         </div>
                                     </div>
-
-                                    {liveClassStatus.currentClass ? (
-                                        <div className="space-y-1.5">
-                                            <h4 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-snug">
-                                                {getCourseTitle(liveClassStatus.currentClass)}
-                                            </h4>
-                                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300 pt-0.5">
-                                                <span className="font-mono font-bold px-2 py-0.5 rounded bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-[11px] border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                                    {liveClassStatus.currentClass.code}
+                                    {liveClassStatus.nextWorkingDayFirstClass && (
+                                        <div className="sm:text-right pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200 dark:border-slate-700">
+                                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                                                Next Class (Monday):
+                                            </span>
+                                            <span className="text-xs sm:text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                                                {liveClassStatus.nextWorkingDayFirstClass.time} · {getCourseTitle(liveClassStatus.nextWorkingDayFirstClass)}
+                                            </span>
+                                            {liveClassStatus.nextWorkingDayFirstClass.room && (
+                                                <span className="block text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                                                    Room {cleanRoomNumber(liveClassStatus.nextWorkingDayFirstClass.room)}
                                                 </span>
-                                                <span>•</span>
-                                                <span className="text-indigo-600 dark:text-indigo-400 font-bold text-xs">
-                                                    {liveClassStatus.currentClass.slotId} ({liveClassStatus.currentClass.time})
-                                                </span>
-                                            </div>
-                                            {liveClassStatus.currentClass.room && (
-                                                <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-black shadow-2xs">
-                                                    <MapPin className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                                                    <span>Room {cleanRoomNumber(liveClassStatus.currentClass.room)}</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ) : liveClassStatus.isLunch ? (
-                                        <div className="space-y-1 py-1">
-                                            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300 font-bold text-sm">
-                                                <Utensils className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                                                <span>Lunch Break (12:50 PM – 01:00 PM)</span>
-                                            </div>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                Afternoon academic sessions resume at 1:00 PM.
-                                            </p>
-                                        </div>
-                                    ) : liveClassStatus.isFreePeriod ? (
-                                        <div className="space-y-1 py-1">
-                                            <div className="flex items-center gap-2 text-blue-700 dark:text-blue-300 font-bold text-sm">
-                                                <Coffee className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                                                <span>Free Period / Library Break</span>
-                                            </div>
-                                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                No scheduled lecture right now. Relax or review notes.
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-1.5 py-1">
-                                            <h4 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-                                                All Classes Completed for Today
-                                            </h4>
-                                            {liveClassStatus.nextWorkingDayFirstClass ? (
-                                                <p className="text-xs sm:text-sm text-indigo-600 dark:text-sky-400 font-medium leading-relaxed">
-                                                    Next Class: {liveClassStatus.nextWorkingDayFirstClass.relativeDay || liveClassStatus.nextWorkingDayFirstClass.day} {liveClassStatus.nextWorkingDayFirstClass.time} · {getCourseTitle(liveClassStatus.nextWorkingDayFirstClass)} {liveClassStatus.nextWorkingDayFirstClass.room ? `@ Room ${cleanRoomNumber(liveClassStatus.nextWorkingDayFirstClass.room)}` : ''}
-                                                </p>
-                                            ) : (
-                                                <p className="text-xs text-slate-500 dark:text-slate-400">
-                                                    All periods for today have concluded. Rest up and prepare for upcoming classes.
-                                                </p>
                                             )}
                                         </div>
                                     )}
                                 </div>
+                            ) : (
+                                /* Weekday 2-Card Grid (Simple & Small for Mobile & Laptop) */
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                                    {/* Card 1: Present Class */}
+                                    <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 flex flex-col justify-between gap-2.5 shadow-2xs">
+                                        <div className="space-y-1.5">
+                                            <div className="flex items-center justify-between">
+                                                <span className="flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                                    <span className={`w-2 h-2 rounded-full ${liveClassStatus.currentClass ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                                                    <span>
+                                                        {liveClassStatus.currentClass ? 'PRESENT CLASS' : 'FREE PERIOD / BREAK'}
+                                                    </span>
+                                                </span>
+                                                {liveClassStatus.currentClass && (
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-mono">
+                                                        {liveClassStatus.currentClass.minutesRemaining}m left
+                                                    </span>
+                                                )}
+                                            </div>
 
-                                {liveClassStatus.currentClass && (
-                                    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                                        <div
-                                            className="bg-emerald-500 dark:bg-emerald-400 h-full rounded-full transition-all duration-1000 ease-linear"
-                                            style={{ width: `${liveClassStatus.currentClass.progressPercent || 0}%` }}
-                                        />
+                                            {liveClassStatus.currentClass ? (
+                                                <div className="space-y-1">
+                                                    <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-snug line-clamp-1" title={getCourseTitle(liveClassStatus.currentClass)}>
+                                                        {getCourseTitle(liveClassStatus.currentClass)}
+                                                    </h4>
+                                                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                                                        <span className="font-mono font-bold px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-[10px] border border-slate-200 dark:border-slate-700">
+                                                            {liveClassStatus.currentClass.code}
+                                                        </span>
+                                                        <span>•</span>
+                                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold text-xs">
+                                                            {liveClassStatus.currentClass.slotId} ({liveClassStatus.currentClass.time})
+                                                        </span>
+                                                        {liveClassStatus.currentClass.room && (
+                                                            <>
+                                                                <span>•</span>
+                                                                <span className="font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-0.5 text-xs">
+                                                                    <MapPin className="w-3 h-3 text-indigo-500" />
+                                                                    <span>Rm {cleanRoomNumber(liveClassStatus.currentClass.room)}</span>
+                                                                </span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ) : liveClassStatus.isLunch ? (
+                                                <div className="py-1">
+                                                    <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-300 font-bold text-xs">
+                                                        <Utensils className="w-3.5 h-3.5" />
+                                                        <span>Lunch Break (12:50 PM – 1:00 PM)</span>
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Classes resume at 1:00 PM.</p>
+                                                </div>
+                                            ) : liveClassStatus.isFreePeriod ? (
+                                                <div className="py-1">
+                                                    <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300 font-bold text-xs">
+                                                        <Coffee className="w-3.5 h-3.5" />
+                                                        <span>Free Period / Break</span>
+                                                    </div>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">No lecture right now. Relax or review notes.</p>
+                                                </div>
+                                            ) : (
+                                                <div className="py-1 space-y-0.5">
+                                                    <h4 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">
+                                                        All Classes Completed Today
+                                                    </h4>
+                                                    {liveClassStatus.nextWorkingDayFirstClass ? (
+                                                        <p className="text-[11px] text-indigo-600 dark:text-sky-400 font-medium">
+                                                            Next: {liveClassStatus.nextWorkingDayFirstClass.relativeDay || liveClassStatus.nextWorkingDayFirstClass.day} {liveClassStatus.nextWorkingDayFirstClass.time} · {getCourseTitle(liveClassStatus.nextWorkingDayFirstClass)}
+                                                        </p>
+                                                    ) : (
+                                                        <p className="text-[11px] text-slate-500 dark:text-slate-400">All periods finished for today.</p>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {liveClassStatus.currentClass && (
+                                            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1 overflow-hidden mt-1">
+                                                <div
+                                                    className="bg-emerald-500 dark:bg-emerald-400 h-full rounded-full transition-all duration-1000 ease-linear"
+                                                    style={{ width: `${liveClassStatus.currentClass.progressPercent || 0}%` }}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Card 2: Next Class */}
+                                    <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 flex flex-col justify-between gap-2.5 shadow-2xs">
+                                        <div className="space-y-1.5">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                                    NEXT CLASS (UPCOMING)
+                                                </span>
+                                                {liveClassStatus.nextClass ? (
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700 font-mono">
+                                                        Starts in {liveClassStatus.nextClass.minutesUntil}m
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                                                        Concluded
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            {liveClassStatus.nextClass ? (
+                                                <div className="space-y-1">
+                                                    <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white leading-snug line-clamp-1" title={getCourseTitle(liveClassStatus.nextClass)}>
+                                                        {getCourseTitle(liveClassStatus.nextClass)}
+                                                    </h4>
+                                                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                                                        <span className="font-mono font-bold px-1.5 py-0.5 rounded bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-[10px] border border-slate-200 dark:border-slate-700">
+                                                            {liveClassStatus.nextClass.code}
+                                                        </span>
+                                                        <span>•</span>
+                                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold text-xs">
+                                                            {liveClassStatus.nextClass.slotId} ({liveClassStatus.nextClass.time})
+                                                        </span>
+                                                        {liveClassStatus.nextClass.room && (
+                                                            <>
+                                                                <span>•</span>
+                                                                <span className="font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-0.5 text-xs">
+                                                                    <MapPin className="w-3 h-3 text-indigo-500" />
+                                                                    <span>Rm {cleanRoomNumber(liveClassStatus.nextClass.room)}</span>
+                                                                </span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="py-1">
+                                                    <h4 className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">
+                                                        No More Classes Scheduled Today
+                                                    </h4>
+                                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">All lectures for today have completed.</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Optional Weekly Timetable Toggle */}
+                            <div className="mt-3.5 pt-3 border-t border-slate-200/70 dark:border-slate-700/50 flex flex-wrap items-center justify-between gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowWeekGrid(!showWeekGrid)}
+                                    className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer"
+                                >
+                                    <span>{showWeekGrid ? 'Hide Weekly Timetable' : 'View Weekly Timetable Matrix'}</span>
+                                    {showWeekGrid ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                </button>
+
+                                {showWeekGrid && (
+                                    <div className="inline-flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                                        <button
+                                            type="button"
+                                            onClick={() => setDisplayMode('codes')}
+                                            className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                                                displayMode === 'codes'
+                                                    ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
+                                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                            }`}
+                                        >
+                                            Codes
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setDisplayMode('aliases')}
+                                            className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                                                displayMode === 'aliases'
+                                                    ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
+                                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                            }`}
+                                        >
+                                            Aliases 🏷️
+                                        </button>
                                     </div>
                                 )}
                             </div>
 
-                            {/* Column 2: After Class (Upcoming Next Class) */}
-                            <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 flex flex-col justify-between gap-3 shadow-xs min-h-[175px]">
-                                <div className="space-y-2.5">
-                                    <div className="flex items-center justify-between">
-                                        <span className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-mono font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                            <span>NEXT CLASS (UPCOMING)</span>
-                                        </span>
-                                        {liveClassStatus.nextClass ? (
-                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/60 font-mono">
-                                                Starts in {liveClassStatus.nextClass.minutesUntil}m
-                                            </span>
-                                        ) : (
-                                            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
-                                                Concluded
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {liveClassStatus.nextClass ? (
-                                        <div className="space-y-1.5">
-                                            <h4 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white leading-snug">
-                                                {getCourseTitle(liveClassStatus.nextClass)}
-                                            </h4>
-                                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300 pt-0.5">
-                                                <span className="font-mono font-bold px-2 py-0.5 rounded bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 text-[11px] border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                                    {liveClassStatus.nextClass.code}
-                                                </span>
-                                                <span>•</span>
-                                                <span className="text-indigo-600 dark:text-indigo-400 font-bold text-xs">
-                                                    {liveClassStatus.nextClass.slotId} ({liveClassStatus.nextClass.time})
-                                                </span>
-                                            </div>
-                                            {liveClassStatus.nextClass.room && (
-                                                <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-black shadow-2xs">
-                                                    <MapPin className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                                                    <span>Room {cleanRoomNumber(liveClassStatus.nextClass.room)}</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-1 py-1">
-                                            <h4 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-                                                No More Classes Scheduled Today
-                                            </h4>
-                                            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
-                                                All periods for today have been completed.
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                                    <span className="truncate max-w-[200px] sm:max-w-none">
-                                        Previous: {liveClassStatus.previousClass ? (
-                                            <strong className="text-slate-800 dark:text-slate-300">
-                                                {getCourseTitle(liveClassStatus.previousClass)}{liveClassStatus.previousClass.room ? ` (Rm ${cleanRoomNumber(liveClassStatus.previousClass.room)})` : ''}
-                                            </strong>
-                                        ) : (
-                                            <span className="text-slate-400 dark:text-slate-500 font-medium">None</span>
-                                        )}
-                                    </span>
-                                    <span className="font-mono text-slate-800 dark:text-white font-bold shrink-0 text-[11px] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded shadow-2xs">
-                                        {liveClassStatus.nextClass ? liveClassStatus.nextClass.slotId : 'None'}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* ── Present Sem Default Timetable (Week Matrix Only) ── */}
-                        {hasSavedCredentials ? (
-                            <div className="mt-6 pt-5 border-t border-slate-200/80 dark:border-slate-700/60 space-y-3.5">
-                                {/* Section Header matching Image 2 */}
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                    <div>
-                                        <div className="flex items-center gap-2">
-                                            <CalendarDays className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                                            <h4 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-                                                <span>Weekly Timetable</span>
-                                                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200/80 dark:border-indigo-800 px-2 py-0.5 rounded-md">
-                                                    {activeYear} · {activeSem}
-                                                </span>
-                                            </h4>
-                                        </div>
-                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                                            Class schedules, classrooms, and timing breakdown
-                                        </p>
-                                    </div>
-
-                                    {/* View Controls: Codes vs Aliases & View Full Timetable Link */}
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        {/* Codes vs Aliases Toggle */}
-                                        <div className="inline-flex bg-slate-100 dark:bg-slate-800/90 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700/80">
-                                            <button
-                                                type="button"
-                                                onClick={() => setDisplayMode('codes')}
-                                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                                    displayMode === 'codes'
-                                                        ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
-                                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                                                }`}
-                                            >
-                                                Codes
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setDisplayMode('aliases')}
-                                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                                    displayMode === 'aliases'
-                                                        ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
-                                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                                                }`}
-                                            >
-                                                Aliases 🏷️
-                                            </button>
-                                        </div>
-
-                                        {/* View Full Timetable Option (matching Image 3) */}
-                                        <Link
-                                            to="/timetable"
-                                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold transition-all border border-indigo-200/90 dark:border-indigo-700/60 shadow-2xs group"
-                                            title="Open full timetable page"
-                                        >
-                                            <span>View Full Timetable</span>
-                                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                                        </Link>
-                                    </div>
-                                </div>
-
-                                {/* Compact Week Matrix Table (fits mobile with smooth horizontal scroll) */}
-                                <div className="rounded-2xl border border-slate-200/90 dark:border-slate-700/70 overflow-hidden bg-white dark:bg-slate-900/60 shadow-2xs">
+                            {/* Collapsible Week Matrix */}
+                            {showWeekGrid && (
+                                <div className="mt-3 rounded-2xl border border-slate-200/90 dark:border-slate-700/70 overflow-hidden bg-white dark:bg-slate-900/60 shadow-2xs">
                                     <div className="overflow-x-auto scrollbar-thin">
                                         <table className="w-full text-xs border-collapse text-center">
                                             <thead>
                                                 <tr className="border-b border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-800/80">
-                                                    <th className="sticky left-0 bg-slate-100 dark:bg-slate-800 text-center p-2.5 border-r border-slate-200 dark:border-slate-700 z-20 w-16 min-w-[64px]">
-                                                        <span className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                                                    <th className="sticky left-0 bg-slate-100 dark:bg-slate-800 text-center p-2 border-r border-slate-200 dark:border-slate-700 z-20 w-16 min-w-[60px]">
+                                                        <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
                                                             Day
                                                         </span>
                                                     </th>
                                                     {KLU_SESSIONS.map((sess) => (
                                                         <th
                                                             key={sess.id}
-                                                            className="p-1.5 sm:p-2 min-w-[100px] w-[100px] sm:min-w-[115px] sm:w-[115px] border-r border-slate-200 dark:border-slate-700/80 text-center font-bold text-slate-700 dark:text-slate-300 align-middle"
+                                                            className="p-1.5 min-w-[95px] w-[95px] sm:min-w-[110px] sm:w-[110px] border-r border-slate-200 dark:border-slate-700/80 text-center font-bold text-slate-700 dark:text-slate-300 align-middle"
                                                         >
-                                                            <div className="inline-block px-1.5 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold text-[10px] mb-0.5">
+                                                            <div className="inline-block px-1.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold text-[10px] mb-0.5">
                                                                 {sess.id}
                                                             </div>
                                                             <div className="text-[9px] text-slate-500 dark:text-slate-400 font-normal font-mono whitespace-nowrap">
@@ -1198,15 +1251,15 @@ export default function Home() {
                                                             }`}
                                                         >
                                                             <td
-                                                                className={`sticky left-0 p-2.5 border-r border-slate-200 dark:border-slate-700 font-bold z-10 ${
+                                                                className={`sticky left-0 p-2 border-r border-slate-200 dark:border-slate-700 font-bold z-10 ${
                                                                     isToday
                                                                         ? 'bg-indigo-100 dark:bg-indigo-950 text-indigo-900 dark:text-indigo-200'
                                                                         : 'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
                                                                 }`}
                                                             >
-                                                                <span className="block text-[11px] font-black uppercase">{day.slice(0, 3)}</span>
+                                                                <span className="block text-[10px] font-black uppercase">{day.slice(0, 3)}</span>
                                                                 {isToday && (
-                                                                    <span className="text-[8px] font-black text-indigo-600 dark:text-sky-400 block mt-0.5">
+                                                                    <span className="text-[8px] font-black text-indigo-600 dark:text-sky-400 block">
                                                                         TODAY
                                                                     </span>
                                                                 )}
@@ -1220,7 +1273,7 @@ export default function Home() {
                                                                     return (
                                                                         <td
                                                                             key={sess.id}
-                                                                            className="p-2 border-r border-slate-200 dark:border-slate-700/70 text-slate-300 dark:text-slate-600 font-mono text-center text-xs"
+                                                                            className="p-1.5 border-r border-slate-200 dark:border-slate-700/70 text-slate-300 dark:text-slate-600 font-mono text-center text-xs"
                                                                         >
                                                                             —
                                                                         </td>
@@ -1245,7 +1298,7 @@ export default function Home() {
                                                                 return (
                                                                     <td
                                                                         key={sess.id}
-                                                                        className={`p-2 border-r border-slate-200 dark:border-slate-700/70 align-middle ${
+                                                                        className={`p-1.5 border-r border-slate-200 dark:border-slate-700/70 align-middle ${
                                                                             isLab
                                                                                 ? 'bg-emerald-50/85 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-200'
                                                                                 : isSkill
@@ -1257,13 +1310,13 @@ export default function Home() {
                                                                     >
                                                                         <div className="space-y-0.5">
                                                                             <div
-                                                                                className="font-bold text-[10px] leading-snug line-clamp-2 text-slate-900 dark:text-slate-100"
+                                                                                className="font-bold text-[9px] leading-tight line-clamp-2 text-slate-900 dark:text-slate-100"
                                                                                 title={displayTitle}
                                                                             >
                                                                                 {displayTitle}
                                                                             </div>
-                                                                            <div className="text-[9px] text-slate-600 dark:text-slate-400 font-medium leading-tight truncate">
-                                                                                {classItem.section ? `${classItem.section} · ` : ''}
+                                                                            <div className="text-[8px] text-slate-600 dark:text-slate-400 font-medium leading-tight truncate">
+                                                                                {classItem.section ? `${classItem.section} ` : ''}
                                                                                 {classItem.room ? `Rm ${cleanRoomNumber(classItem.room)}` : ''}
                                                                             </div>
                                                                         </div>
@@ -1277,44 +1330,9 @@ export default function Home() {
                                         </table>
                                     </div>
                                 </div>
-                            </div>
-                        ) : (
-                            /* Prompt card when credentials are not saved for this friend */
-                            <div className="mt-6 p-6 sm:p-7 rounded-2xl bg-gradient-to-br from-indigo-50/50 via-slate-50 to-purple-50/30 dark:from-slate-800/60 dark:via-slate-800/40 dark:to-slate-800/60 border border-indigo-100 dark:border-slate-700/80 text-center space-y-3.5 shadow-2xs">
-                                <div className="w-10 h-10 rounded-2xl bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-center mx-auto shadow-2xs">
-                                    <Key className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                                </div>
-                                <div className="max-w-md mx-auto space-y-1">
-                                    <h4 className="text-sm sm:text-base font-black text-slate-900 dark:text-white">
-                                        Save Credentials for {activeProfile?.nickname || 'Friend'} to View Timetable
-                                    </h4>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                                        The full weekly timetable for the present semester ({activeYear} · {activeSem}) is automatically displayed here when ERP credentials are saved for this account.
-                                    </p>
-                                </div>
-                                <div className="pt-1 flex items-center justify-center gap-2.5">
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setEditingFriend(activeProfile);
-                                            setShowAddFriendModal(true);
-                                        }}
-                                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
-                                    >
-                                        <Key className="w-3.5 h-3.5" />
-                                        <span>Save Credentials</span>
-                                    </button>
-                                    <Link
-                                        to="/timetable"
-                                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 transition-all shadow-2xs"
-                                    >
-                                        <span>View Full Timetable</span>
-                                        <ArrowRight className="w-3.5 h-3.5" />
-                                    </Link>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                            )}
+                        </div>
+                    )}
                 </motion.div>
 
                 {/* --- 3D Grid Section --- */}
