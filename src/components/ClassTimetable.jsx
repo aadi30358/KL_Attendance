@@ -339,6 +339,12 @@ export default function ClassTimetable({
             baseName = getSubjectName(raw) || getSubjectName(baseWithoutSuffix) || KLU_COURSE_NAMES[raw] || KLU_COURSE_NAMES[baseWithoutSuffix];
         }
 
+        if (!baseName || baseName === raw || baseName === slot.code) {
+            if (raw.includes('24EDS3308')) baseName = 'Embedded AI – Edge Intelligence and TinyML';
+            else if (raw.includes('24GMI3101')) baseName = 'Principles of Deep Neural Computation';
+            else if (raw.includes('23EC1202')) baseName = 'Digital Design and Computer Architecture';
+        }
+
         baseName = baseName || raw || slot.code;
         const cleanBase = baseName.replace(/\s*\((Lab|Tut|Tutorial|Lecture|Skill|Practical)\)$/i, '').trim();
 
@@ -347,20 +353,6 @@ export default function ClassTimetable({
             : slot.code?.endsWith('-S') ? ' (Skill)'
             : '';
         return `${cleanBase}${compSuffix}`;
-    };
-
-    const getLiveCardTitle = (slot) => {
-        if (!slot) return '';
-        const raw = (slot.rawCode || (slot.code || '').replace(/-[LPTS]$/, '')).trim();
-        const full = (slot.code || '').trim();
-        const custom = getSubjectName(raw) || getSubjectName(full);
-        if (custom && custom !== raw && custom !== full) return custom;
-        if (KLU_COURSE_NAMES[raw]) return KLU_COURSE_NAMES[raw];
-        if (KLU_COURSE_NAMES[full]) return KLU_COURSE_NAMES[full];
-        if (raw.includes('24EDS3308') || full.includes('24EDS3308')) return 'Embedded AI – Edge Intelligence and TinyML';
-        if (raw.includes('24GMI3101') || full.includes('24GMI3101')) return 'Principles of Deep Neural Computation';
-        if (raw.includes('23EC1202') || full.includes('23EC1202')) return 'Digital Design and Computer Architecture';
-        return slot.displayName || slot.title || custom || raw || full;
     };
 
     // High-resolution Canvas Timetable Picture generator
@@ -870,18 +862,18 @@ export default function ClassTimetable({
                         </div>
 
                         {liveStatus.currentClass ? (
-                            <div className="space-y-1.5 pt-0.5">
-                                <h4 className="text-lg sm:text-xl font-black text-white leading-tight tracking-tight">
-                                    {getLiveCardTitle(liveStatus.currentClass)}
+                            <div className="space-y-2">
+                                <h4 className="text-lg sm:text-xl font-black text-white leading-tight">
+                                    {getSlotDisplayTitle(liveStatus.currentClass)}
                                 </h4>
                                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 pt-0.5">
-                                    <span className="text-indigo-300 font-semibold text-xs">
+                                    <span className="text-indigo-300 font-bold">
                                         {liveStatus.currentClass.slotId} ({liveStatus.currentClass.time})
                                     </span>
                                     {liveStatus.currentClass.room && (
                                         <>
-                                            <span className="text-slate-500 font-bold">•</span>
-                                            <span className="inline-flex items-center gap-1 text-amber-400 font-bold text-xs">
+                                            <span>•</span>
+                                            <span className="text-amber-300 font-bold flex items-center gap-1">
                                                 <MapPin className="w-3.5 h-3.5 text-amber-400" />
                                                 <span>Room {cleanRoomNumber(liveStatus.currentClass.room)}</span>
                                             </span>
@@ -916,7 +908,7 @@ export default function ClassTimetable({
                                 </h4>
                                 {liveStatus.nextWorkingDayFirstClass ? (
                                     <p className="text-xs text-indigo-300 font-medium">
-                                        Next Class: {liveStatus.nextWorkingDayFirstClass.relativeDay || liveStatus.nextWorkingDayFirstClass.day} {liveStatus.nextWorkingDayFirstClass.time} · {liveStatus.nextWorkingDayFirstClass.displayName || liveStatus.nextWorkingDayFirstClass.code} {liveStatus.nextWorkingDayFirstClass.room ? `@ Room ${cleanRoomNumber(liveStatus.nextWorkingDayFirstClass.room)}` : ''}
+                                        Next Class: {liveStatus.nextWorkingDayFirstClass.relativeDay || liveStatus.nextWorkingDayFirstClass.day} {liveStatus.nextWorkingDayFirstClass.time} · {getSlotDisplayTitle(liveStatus.nextWorkingDayFirstClass)} {liveStatus.nextWorkingDayFirstClass.room ? `@ Room ${cleanRoomNumber(liveStatus.nextWorkingDayFirstClass.room)}` : ''}
                                     </p>
                                 ) : (
                                     <p className="text-xs text-slate-400">
@@ -958,18 +950,18 @@ export default function ClassTimetable({
                         </div>
 
                         {liveStatus.nextClass ? (
-                            <div className="space-y-1.5 pt-0.5">
-                                <h4 className="text-lg sm:text-xl font-black text-white leading-tight tracking-tight">
-                                    {getLiveCardTitle(liveStatus.nextClass)}
+                            <div className="space-y-2">
+                                <h4 className="text-lg sm:text-xl font-black text-white leading-tight">
+                                    {getSlotDisplayTitle(liveStatus.nextClass)}
                                 </h4>
                                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 pt-0.5">
-                                    <span className="text-indigo-300 font-semibold text-xs">
+                                    <span className="text-indigo-300 font-bold">
                                         {liveStatus.nextClass.slotId} ({liveStatus.nextClass.time})
                                     </span>
                                     {liveStatus.nextClass.room && (
                                         <>
-                                            <span className="text-slate-500 font-bold">•</span>
-                                            <span className="inline-flex items-center gap-1 text-amber-400 font-bold text-xs">
+                                            <span>•</span>
+                                            <span className="text-amber-300 font-bold flex items-center gap-1">
                                                 <MapPin className="w-3.5 h-3.5 text-amber-400" />
                                                 <span>Room {cleanRoomNumber(liveStatus.nextClass.room)}</span>
                                             </span>
@@ -988,10 +980,15 @@ export default function ClassTimetable({
                             </div>
                         )}
                     </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+                        <span>{liveStatus.previousClass ? `Previous: ${getSlotDisplayTitle(liveStatus.previousClass)} (Rm ${cleanRoomNumber(liveStatus.previousClass.room)})` : 'Next Period'}</span>
+                        <span className="text-white font-medium">{liveStatus.nextClass ? liveStatus.nextClass.time : 'None'}</span>
+                    </div>
                 </div>
             </div>
 
-            {/* ── Main Timetable Card: Clean, Crisp, Modern Light UI ── */}
+            {/* ── Main Timetable Card: Clean, Crisp, Modern Light UI with Generous Gap ── */}
             <div className="bg-white rounded-3xl p-5 sm:p-7 border border-slate-200/90 space-y-6 shadow-sm mt-8 sm:mt-10">
                 
                 {/* Header & View Switcher */}
