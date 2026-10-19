@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useMotionValue, useSpring, useTransform, useScroll, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, User, Users, UserPlus, Key } from 'lucide-react';
+import { ArrowRight, Calculator, Calendar, Clock, Sparkles, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, User, Users, UserPlus, Key } from 'lucide-react';
 import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS } from '../services/timetableService';
 import { getActiveProfileDetails, getAllProfiles, setActiveProfileId } from '../services/friendsService';
 import AddFriendModal from '../components/AddFriendModal';
@@ -1557,33 +1557,6 @@ export default function Home() {
                         </ThreeDParallaxCard>
                     </div>
 
-                    {/* 7. Total Attendance Live Status */}
-                    <div className="min-h-[280px] sm:min-h-[300px] md:h-[360px]">
-                        <ThreeDParallaxCard
-                            to="/attendance"
-                            colorClass="text-emerald-500"
-                            accentColor="bg-emerald-600"
-                            icon={Activity}
-                            activeBorderColor="border-emerald-600"
-                            hoverBorderColor="hover:border-emerald-600"
-                        >
-                            <div className="flex flex-col h-full justify-between">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800/60 text-[10px] font-black uppercase tracking-wider">
-                                            Live Tracker
-                                        </span>
-                                    </div>
-                                    <h3 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mb-2">Total Attendance</h3>
-                                    <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mb-3">Track cumulative attendance, safe zone margins, and recovery classes.</p>
-                                </div>
-                                <div className="w-full py-2.5 sm:py-3 bg-emerald-50 dark:bg-emerald-950/40 group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/50 text-emerald-900 dark:text-emerald-200 rounded-xl font-bold text-xs sm:text-sm text-center border-2 border-black dark:border-emerald-800/60 transition-colors flex items-center justify-center gap-1.5 shadow-sm mt-auto">
-                                    <span>Check Attendance Status</span>
-                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                                </div>
-                            </div>
-                        </ThreeDParallaxCard>
-                    </div>
 
                 </div>
 

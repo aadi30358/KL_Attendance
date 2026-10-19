@@ -76,6 +76,22 @@ export const formatSemesterDisplay = (semester) => {
 export const formatSemesterLabel = (academicYear, semester) =>
     `${academicYear} • ${formatSemesterDisplay(semester)}`;
 
+/** Clean semester display without repetition (e.g. removes "Sem Sem") */
+export const cleanSemesterLabel = (semester) => {
+    if (!semester) return 'Odd Sem';
+    let s = String(semester).trim();
+    s = s.replace(/\bSem\s+Sem\b/gi, 'Sem')
+         .replace(/\bTerm\s+Term\b/gi, 'Term')
+         .trim();
+    const lower = s.toLowerCase();
+    if (lower === 'odd' || lower === 'odd sem') return 'Odd Sem';
+    if (lower === 'even' || lower === 'even sem') return 'Even Sem';
+    if (lower.includes('summer')) return 'Summer Term';
+    if (lower.includes('term 3') || lower.includes('tri') || lower.includes('term3')) return 'Tri Sem / Term 3';
+    if (!lower.includes('sem') && !lower.includes('term')) return `${s} Sem`;
+    return s;
+};
+
 const getSemesterSortIndex = (semester) => {
     const lower = (semester || "").toLowerCase();
     if (lower.includes("odd")) return 0;
@@ -347,23 +363,79 @@ export const parseCgpaTableHtml = (html) => {
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             const rows = Array.from(doc.querySelectorAll('table tr'));
+
+            // Detect column headers dynamically if present
+            let headerIndices = null;
+            for (const row of rows) {
+                const ths = Array.from(row.querySelectorAll('th'));
+                if (ths.length >= 6) {
+                    const headers = ths.map(th => th.textContent.trim().toLowerCase());
+                    const findIdx = (keywords) => headers.findIndex(h => keywords.some(k => h.includes(k)));
+                    headerIndices = {
+                        code: findIdx(['course code', 'code']),
+                        desc: findIdx(['course desc', 'course title', 'course name', 'desc', 'title']),
+                        grade: findIdx(['grade']),
+                        point: findIdx(['grade point', 'point', 'gp']),
+                        credits: findIdx(['credit', 'cr']),
+                        status: findIdx(['promotion status', 'status', 'result']),
+                        acy: findIdx(['academic year', 'acy', 'academic']),
+                        sem: findIdx(['semester', 'sem']),
+                        offeringYear: findIdx(['offering year', 'offering'])
+                    };
+                    break;
+                }
+            }
+
             for (const row of rows) {
                 if (row.querySelector('th')) continue;
                 const cells = Array.from(row.querySelectorAll('td'));
-                if (cells.length < 9) continue;
+                if (cells.length < 8) continue;
 
-                const link = row.querySelector('a[href]');
-                const targetHref = link ? link.getAttribute('href') : '';
+                const link = row.querySelector('a[href]') || row.querySelector('a[onclick]');
+                let targetHref = '';
+                if (link) {
+                    const href = link.getAttribute('href') || '';
+                    if (href && !href.toLowerCase().startsWith('javascript:')) {
+                        targetHref = href;
+                    } else {
+                        const onclick = link.getAttribute('onclick') || '';
+                        const match = onclick.match(/['"]([^'"]*\.php[^'"]*)['"]/i);
+                        if (match) targetHref = match[1];
+                    }
+                }
 
-                // Col 3: code, Col 4: title, Col 5: grade, Col 6: gp, Col 7: cr, Col 8: status, Col 9: yr, Col 10: sem
-                const courseCode = cells[3]?.textContent.trim() || cells[2]?.textContent.trim() || '';
-                const courseName = cells[4]?.textContent.trim() || cells[3]?.textContent.trim() || courseCode;
-                const grade = cells[5]?.textContent.trim() || 'P';
-                const gradePoint = cells[6]?.textContent.trim() || String(KLU_GRADE_POINTS[grade] ?? 0);
-                const credits = cells[7]?.textContent.trim() || '3.0';
-                const promotionStatus = cells[8]?.textContent.trim() || 'P';
-                const academicYear = cells[9]?.textContent.trim() || '2026-2027';
-                const semester = cells[10]?.textContent.trim() || 'Odd Sem';
+                let courseCode = '';
+                let courseName = '';
+                let grade = '';
+                let gradePoint = '';
+                let credits = '';
+                let promotionStatus = 'P';
+                let academicYear = '2024-2025';
+                let semester = 'Even Sem';
+                let offeringYear = '';
+
+                if (headerIndices && headerIndices.code !== -1 && cells[headerIndices.code]) {
+                    courseCode = cells[headerIndices.code]?.textContent.trim();
+                    courseName = (headerIndices.desc !== -1 && cells[headerIndices.desc]?.textContent.trim()) || courseCode;
+                    grade = (headerIndices.grade !== -1 && cells[headerIndices.grade]?.textContent.trim()) || 'P';
+                    gradePoint = (headerIndices.point !== -1 && cells[headerIndices.point]?.textContent.trim()) || String(KLU_GRADE_POINTS[grade] ?? 0);
+                    credits = (headerIndices.credits !== -1 && cells[headerIndices.credits]?.textContent.trim()) || '3.0';
+                    promotionStatus = (headerIndices.status !== -1 && cells[headerIndices.status]?.textContent.trim()) || 'P';
+                    academicYear = (headerIndices.acy !== -1 && cells[headerIndices.acy]?.textContent.trim()) || '2024-2025';
+                    semester = (headerIndices.sem !== -1 && cells[headerIndices.sem]?.textContent.trim()) || 'Even Sem';
+                    if (headerIndices.offeringYear !== -1 && cells[headerIndices.offeringYear]) {
+                        offeringYear = cells[headerIndices.offeringYear]?.textContent.trim();
+                    }
+                } else {
+                    courseCode = cells[3]?.textContent.trim() || cells[2]?.textContent.trim() || '';
+                    courseName = cells[4]?.textContent.trim() || cells[3]?.textContent.trim() || courseCode;
+                    grade = cells[5]?.textContent.trim() || 'P';
+                    gradePoint = cells[6]?.textContent.trim() || String(KLU_GRADE_POINTS[grade] ?? 0);
+                    credits = cells[7]?.textContent.trim() || '3.0';
+                    promotionStatus = cells[8]?.textContent.trim() || 'P';
+                    academicYear = cells[9]?.textContent.trim() || '2024-2025';
+                    semester = cells[10]?.textContent.trim() || 'Even Sem';
+                }
 
                 if (courseCode && courseCode.length >= 3) {
                     courses.push({
@@ -375,7 +447,8 @@ export const parseCgpaTableHtml = (html) => {
                         credits,
                         promotion_status: promotionStatus,
                         academic_year: academicYear,
-                        semester,
+                        semester: cleanSemesterLabel(semester),
+                        offering_year: offeringYear,
                         target_href: targetHref
                     });
                 }
@@ -508,9 +581,29 @@ export const fetchLiveErpGrades = async (studentId) => {
 /**
  * Fetches detailed component marks (internals, externals, lab, assignments) for a specific course scorecard.
  */
-export const fetchLiveMarksDetail = async (targetHref, studentId) => {
-    if (!targetHref) return { success: false, message: 'No target href provided' };
+export const fetchLiveMarksDetail = async (targetHref, studentId, courseCode) => {
     const targetId = studentId || localStorage.getItem('activeErpUser') || '2400030358';
+    const cleanCode = (courseCode || '').toUpperCase().trim();
+
+    // 1. Check local cache first
+    if (typeof window !== 'undefined' && cleanCode) {
+        try {
+            const cached = localStorage.getItem(`kl_scorecard_${targetId}_${cleanCode}`);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+                    return { success: true, scorecard: parsed, source: 'cache' };
+                }
+            }
+        } catch (err) {
+            void err;
+        }
+    }
+
+    if (!targetHref) {
+        return { success: false, message: 'Component marks endpoint not available for this course' };
+    }
+
     const apiBase = getErpBase();
     const csrfToken = getStoredCsrfToken();
     const cookie = getStoredErpCookies();
@@ -539,12 +632,68 @@ export const fetchLiveMarksDetail = async (targetHref, studentId) => {
 
             if (resp.ok) {
                 const data = await resp.json().catch(() => null);
-                if (data?.success && data?.scorecard) {
+                if (data?.success && data?.scorecard && Object.keys(data.scorecard).length > 0) {
+                    if (typeof window !== 'undefined' && cleanCode) {
+                        try {
+                            localStorage.setItem(`kl_scorecard_${targetId}_${cleanCode}`, JSON.stringify(data.scorecard));
+                        } catch (err) {
+                            void err;
+                        }
+                    }
                     return { success: true, scorecard: data.scorecard };
                 }
             }
         } catch (err) {
             console.warn('[GradesService] Marks detail fetch notice:', err.message);
+        }
+    }
+
+    // Direct fetch fallback if targetHref is a full or relative URL on same host
+    if (targetHref && targetHref.includes('.php')) {
+        try {
+            const cleanHref = targetHref.startsWith('http') ? targetHref : `${apiBase || ''}/${targetHref.replace(/^\//, '')}`;
+            const directResp = await fetch(cleanHref, {
+                method: 'GET',
+                headers: buildErpHeaders({
+                    ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
+                    ...(cookie ? { 'x-erp-cookie': cookie } : {})
+                }),
+                credentials: 'include',
+                cache: 'no-store'
+            });
+            if (directResp.ok) {
+                const html = await directResp.text();
+                if (html && !html.includes('id="login-form"')) {
+                    const scorecard = {};
+                    const allTrs = Array.from(html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi));
+                    for (const rm of allTrs) {
+                        const cells = Array.from(rm[1].matchAll(/<(?:th|td)[^>]*>([\s\S]*?)<\/(?:th|td)>/gi))
+                            .map(m => m[1].replace(/<[^>]+>/g, '').trim());
+                        if (cells.length >= 2) {
+                            const rawKey = cells[0].trim();
+                            const val = cells[1].trim();
+                            if (rawKey && val !== undefined) {
+                                const fieldKey = rawKey.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+                                if (fieldKey.length > 0 && fieldKey.length < 50) {
+                                    scorecard[fieldKey] = val;
+                                }
+                            }
+                        }
+                    }
+                    if (Object.keys(scorecard).length > 0) {
+                        if (typeof window !== 'undefined' && cleanCode) {
+                            try {
+                                localStorage.setItem(`kl_scorecard_${targetId}_${cleanCode}`, JSON.stringify(scorecard));
+                            } catch (err) {
+                                void err;
+                            }
+                        }
+                        return { success: true, scorecard };
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('[GradesService] Direct marks fetch fallback notice:', e.message);
         }
     }
 

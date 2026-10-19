@@ -1614,27 +1614,95 @@ const handleCgpaFetch = async (req, res) => {
         const rowMatches = Array.from(tableMatch[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi));
         const coursesHistoryList = [];
 
+        // Detect column headers dynamically if present
+        let headerIndices = null;
+        for (const rm of rowMatches) {
+            const rowContent = rm[1];
+            if (rowContent.toLowerCase().includes('<th')) {
+                const ths = Array.from(rowContent.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi))
+                    .map(m => m[1].replace(/<[^>]+>/g, '').trim().toLowerCase());
+                if (ths.length >= 6) {
+                    const findIdx = (keywords) => ths.findIndex(h => keywords.some(k => h.includes(k)));
+                    headerIndices = {
+                        code: findIdx(['course code', 'code']),
+                        desc: findIdx(['course desc', 'course title', 'course name', 'desc', 'title']),
+                        grade: findIdx(['grade']),
+                        point: findIdx(['grade point', 'point', 'gp']),
+                        credits: findIdx(['credit', 'cr']),
+                        status: findIdx(['promotion status', 'status', 'result']),
+                        acy: findIdx(['academic year', 'acy', 'academic']),
+                        sem: findIdx(['semester', 'sem']),
+                        offeringYear: findIdx(['offering year', 'offering'])
+                    };
+                    break;
+                }
+            }
+        }
+
         for (const rm of rowMatches) {
             const rowContent = rm[1];
             if (rowContent.toLowerCase().includes('<th')) continue;
 
             const cells = Array.from(rowContent.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)).map(m => m[1].replace(/<[^>]+>/g, '').trim());
-            if (cells.length < 11) continue;
+            if (cells.length < 8) continue;
 
+            let rawHref = '';
             const linkMatch = rowContent.match(/href=["']([^"']+)["']/i);
-            const rawHref = linkMatch ? linkMatch[1].replace(/&amp;/g, '&') : '';
+            if (linkMatch && !linkMatch[1].toLowerCase().startsWith('javascript:')) {
+                rawHref = linkMatch[1].replace(/&amp;/g, '&');
+            } else {
+                const onclickMatch = rowContent.match(/['"]([^'"]*\.php[^'"]*)['"]/i);
+                if (onclickMatch) rawHref = onclickMatch[1].replace(/&amp;/g, '&');
+            }
 
-            coursesHistoryList.push({
-                course_code: cells[3] || '',
-                course_name: cells[4] || '',
-                grade: cells[5] || '',
-                grade_point: cells[6] || '0',
-                credits: cells[7] || '0',
-                promotion_status: cells[8] || 'P',
-                academic_year: cells[9] || '',
-                semester: cells[10] || '',
-                target_href: rawHref
-            });
+            let courseCode = '';
+            let courseName = '';
+            let grade = '';
+            let gradePoint = '0';
+            let credits = '3.0';
+            let promotionStatus = 'P';
+            let academicYear = '';
+            let semester = '';
+            let offeringYear = '';
+
+            if (headerIndices && headerIndices.code !== -1 && cells[headerIndices.code]) {
+                courseCode = cells[headerIndices.code];
+                courseName = (headerIndices.desc !== -1 && cells[headerIndices.desc]) || courseCode;
+                grade = (headerIndices.grade !== -1 && cells[headerIndices.grade]) || 'P';
+                gradePoint = (headerIndices.point !== -1 && cells[headerIndices.point]) || '0';
+                credits = (headerIndices.credits !== -1 && cells[headerIndices.credits]) || '3.0';
+                promotionStatus = (headerIndices.status !== -1 && cells[headerIndices.status]) || 'P';
+                academicYear = (headerIndices.acy !== -1 && cells[headerIndices.acy]) || '';
+                semester = (headerIndices.sem !== -1 && cells[headerIndices.sem]) || '';
+                if (headerIndices.offeringYear !== -1 && cells[headerIndices.offeringYear]) {
+                    offeringYear = cells[headerIndices.offeringYear];
+                }
+            } else {
+                courseCode = cells[3] || cells[2] || '';
+                courseName = cells[4] || cells[3] || courseCode;
+                grade = cells[5] || 'P';
+                gradePoint = cells[6] || '0';
+                credits = cells[7] || '3.0';
+                promotionStatus = cells[8] || 'P';
+                academicYear = cells[9] || '';
+                semester = cells[10] || '';
+            }
+
+            if (courseCode && courseCode.length >= 3) {
+                coursesHistoryList.push({
+                    course_code: courseCode,
+                    course_name: courseName,
+                    course_desc: courseName,
+                    grade,
+                    grade_point: gradePoint,
+                    credits,
+                    promotion_status: promotionStatus,
+                    academic_year: academicYear,
+                    semester,
+                    offering_year: offeringYear,
+                    target_href: rawHref
+                });
+            }
         }
 
         res.json({
@@ -1693,19 +1761,23 @@ const handleMarksDetailFetch = async (req, res) => {
         }
 
         const html = await erpResponse.text();
-        const detailTableMatch = html.match(/<table[^>]*>([\s\S]*?)<\/table>/i);
-        const scorecard = {};
+        if (html.includes('id="login-form"') || html.includes('loginFormUserNameID')) {
+            return res.status(401).json({ success: false, message: "ERP session expired. Please log in again." });
+        }
 
-        if (detailTableMatch) {
-            const detailRows = Array.from(detailTableMatch[1].matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi));
-            for (const rm of detailRows) {
-                const thMatch = rm[1].match(/<th[^>]*>([\s\S]*?)<\/th>/i);
-                const tdMatch = rm[1].match(/<td[^>]*>([\s\S]*?)<\/td>/i);
-                if (thMatch && tdMatch) {
-                    const rawKey = thMatch[1].replace(/<[^>]+>/g, '').trim();
-                    const fieldKey = rawKey.toLowerCase().replace(/\s+/g, '_');
-                    const val = tdMatch[1].replace(/<[^>]+>/g, '').trim();
-                    scorecard[fieldKey] = val;
+        const scorecard = {};
+        const allTrs = Array.from(html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi));
+        for (const rm of allTrs) {
+            const cells = Array.from(rm[1].matchAll(/<(?:th|td)[^>]*>([\s\S]*?)<\/(?:th|td)>/gi))
+                .map(m => m[1].replace(/<[^>]+>/g, '').trim());
+            if (cells.length >= 2) {
+                const rawKey = cells[0].trim();
+                const val = cells[1].trim();
+                if (rawKey && val !== undefined) {
+                    const fieldKey = rawKey.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+                    if (fieldKey.length > 0 && fieldKey.length < 50) {
+                        scorecard[fieldKey] = val;
+                    }
                 }
             }
         }
