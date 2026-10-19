@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useMotionValue, useSpring, useTransform, useScroll, AnimatePresence } from 'framer-motion';
 import { ArrowRight, Calculator, Calendar, Clock, Sparkles, Activity, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, User, Users, UserPlus, Key } from 'lucide-react';
-import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS } from '../services/timetableService';
+import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS, KLU_COURSE_NAMES } from '../services/timetableService';
 import { getActiveProfileDetails, getAllProfiles, setActiveProfileId } from '../services/friendsService';
 import AddFriendModal from '../components/AddFriendModal';
 
@@ -645,7 +645,25 @@ export default function Home() {
 
     const getCourseTitle = (slot) => {
         if (!slot) return '';
-        return getSubjectName(slot.rawCode || slot.code?.replace(/-[LPTS]$/, '')) || slot.displayName || slot.title || slot.code;
+        const raw = (slot.rawCode || (slot.code || '').replace(/-[LPTS]$/, '')).trim();
+        const full = (slot.code || '').trim();
+
+        // 1. Direct Subject Custom Alias Mappings
+        const custom = getSubjectName(raw) || getSubjectName(full);
+        if (custom && custom !== raw && custom !== full) return custom;
+
+        // 2. Official KLU Dictionary
+        if (KLU_COURSE_NAMES[raw]) return KLU_COURSE_NAMES[raw];
+        if (KLU_COURSE_NAMES[full]) return KLU_COURSE_NAMES[full];
+
+        // 3. Known subject fallback checks
+        if (raw.includes('24EDS3308') || full.includes('24EDS3308')) return 'Embedded AI – Edge Intelligence and TinyML';
+        if (raw.includes('24GMI3101') || full.includes('24GMI3101')) return 'Principles of Deep Neural Computation';
+        if (raw.includes('23EC1202') || full.includes('23EC1202')) return 'Digital Design and Computer Architecture';
+
+        if (slot.displayName && slot.displayName !== raw && slot.displayName !== full) return slot.displayName;
+        if (slot.title && slot.title !== raw && slot.title !== full) return slot.title;
+        return custom || raw || full;
     };
 
     const [displayMode, setDisplayMode] = useState('codes'); // 'codes' | 'aliases'
@@ -966,13 +984,9 @@ export default function Home() {
                                                 className="text-lg sm:text-xl font-black text-white leading-tight tracking-tight line-clamp-1"
                                                 title={getCourseTitle(liveClassStatus.currentClass)}
                                             >
-                                                {liveClassStatus.currentClass.code || getCourseTitle(liveClassStatus.currentClass)}
+                                                {getCourseTitle(liveClassStatus.currentClass)}
                                             </h4>
-                                            <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300 pt-0.5">
-                                                <span className="font-mono font-bold px-2 py-0.5 rounded bg-[#162035] text-slate-200 text-xs border border-slate-700/70 shadow-2xs">
-                                                    {liveClassStatus.currentClass.code}
-                                                </span>
-                                                <span className="text-slate-500 font-bold">•</span>
+                                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 pt-0.5">
                                                 <span className="text-indigo-300 font-semibold text-xs">
                                                     {liveClassStatus.currentClass.slotId} ({liveClassStatus.currentClass.time})
                                                 </span>
@@ -1069,13 +1083,9 @@ export default function Home() {
                                                 className="text-lg sm:text-xl font-black text-white leading-tight tracking-tight line-clamp-1"
                                                 title={getCourseTitle(liveClassStatus.nextClass)}
                                             >
-                                                {liveClassStatus.nextClass.code || getCourseTitle(liveClassStatus.nextClass)}
+                                                {getCourseTitle(liveClassStatus.nextClass)}
                                             </h4>
-                                            <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300 pt-0.5">
-                                                <span className="font-mono font-bold px-2 py-0.5 rounded bg-[#162035] text-slate-200 text-xs border border-slate-700/70 shadow-2xs">
-                                                    {liveClassStatus.nextClass.code}
-                                                </span>
-                                                <span className="text-slate-500 font-bold">•</span>
+                                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 pt-0.5">
                                                 <span className="text-indigo-300 font-semibold text-xs">
                                                     {liveClassStatus.nextClass.slotId} ({liveClassStatus.nextClass.time})
                                                 </span>
@@ -1101,27 +1111,12 @@ export default function Home() {
                                         </div>
                                     )}
                                 </div>
-
-                                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 mt-2">
-                                    <span className="truncate max-w-[200px] sm:max-w-xs">
-                                        Previous: {liveClassStatus.previousClass ? (
-                                            <strong className="text-slate-300 font-semibold">
-                                                {liveClassStatus.previousClass.code || getCourseTitle(liveClassStatus.previousClass)}{liveClassStatus.previousClass.room ? ` (Rm ${cleanRoomNumber(liveClassStatus.previousClass.room)})` : ''}
-                                            </strong>
-                                        ) : (
-                                            <span className="text-slate-500 font-medium">None</span>
-                                        )}
-                                    </span>
-                                    <span className="font-mono text-white font-bold shrink-0 text-xs">
-                                        {liveClassStatus.nextClass ? liveClassStatus.nextClass.time : 'None'}
-                                    </span>
-                                </div>
                             </div>
                         </div>
 
                         {/* ── Present Sem Default Timetable (Week Matrix Only) ── */}
                         {hasSavedCredentials ? (
-                            <div className="mt-4 pt-3.5 border-t border-slate-200/70 dark:border-slate-700/60 space-y-3">
+                            <div className="mt-10 sm:mt-14 pt-8 sm:pt-10 border-t-2 border-slate-200/90 dark:border-slate-700/80 space-y-5">
                                 {/* Section Header matching Image 2 */}
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                     <div>

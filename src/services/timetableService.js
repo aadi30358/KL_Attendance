@@ -164,8 +164,11 @@ export function getPresentAcademicYearAndSem(studentId = null, forceCalendarPres
 export const KLU_COURSE_NAMES = {
     // 3rd Year (2026-2027) - Current
     '24GMI3101': 'Principles of Deep Neural Computation',
-    '24EDS3308HF': 'Enterprise Data Science',
-    '24EDS3308': 'Enterprise Data Science',
+    '24GMI3101-P': 'Principles of Deep Neural Computation',
+    '24EDS3308HF': 'Embedded AI – Edge Intelligence and TinyML',
+    '24EDS3308': 'Embedded AI – Edge Intelligence and TinyML',
+    '24EDS3308HF-L': 'Embedded AI – Edge Intelligence and TinyML',
+    '23EC1202': 'Digital Design and Computer Architecture',
     '24SDCS03A': 'SOA Programming and Microservices',
     '24SDCS03': 'SOA Programming and Microservices',
     '24CC3014': 'Cloud Computing',
