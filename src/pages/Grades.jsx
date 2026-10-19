@@ -973,11 +973,11 @@ export default function Grades() {
     </div>
 
 
-            {/* ── Scorecard Detail Modal (Image 3 Dark Theme) ── */}
+            {/* ── Scorecard Detail Modal (Blue & White Theme) ── */}
             <AnimatePresence>
                 {selectedCourseForDetail && (
                     <div
-                        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs"
+                        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs"
                         onClick={() => setSelectedCourseForDetail(null)}
                     >
                         <motion.div
@@ -985,17 +985,18 @@ export default function Grades() {
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.95 }}
                             onClick={(e) => e.stopPropagation()}
-                            className="bg-[#0b0c13] text-white rounded-xl p-5 sm:p-6 max-w-lg w-full shadow-2xl border border-zinc-800 relative"
+                            className="bg-white dark:bg-[#0b1220] text-slate-900 dark:text-white rounded-2xl p-5 sm:p-6 max-w-lg w-full shadow-2xl border-2 border-[#bde0f8] dark:border-sky-900/60 relative"
                         >
                             {/* Modal Header */}
-                            <div className="flex items-center justify-between pb-3.5 border-b border-zinc-800">
-                                <h3 className="text-amber-200 font-mono font-bold tracking-widest text-xs sm:text-sm uppercase">
-                                    MARKS DETAILS
+                            <div className="flex items-center justify-between pb-3.5 border-b border-[#bde0f8] dark:border-sky-900/60">
+                                <h3 className="text-blue-600 dark:text-sky-400 font-mono font-bold tracking-widest text-xs sm:text-sm uppercase flex items-center gap-2">
+                                    <FileText className="w-4 h-4 text-blue-600 dark:text-sky-400" />
+                                    <span>MARKS DETAILS</span>
                                 </h3>
                                 <button
                                     type="button"
                                     onClick={() => setSelectedCourseForDetail(null)}
-                                    className="p-1 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                                    className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                                 >
                                     <X className="w-4 h-4" />
                                 </button>
@@ -1003,21 +1004,30 @@ export default function Grades() {
 
                             {/* Course Title Subheader */}
                             <div className="py-3.5">
-                                <h4 className="text-xs sm:text-sm font-bold text-white uppercase tracking-tight font-mono">
-                                    {selectedCourseForDetail.course_code} — {selectedCourseForDetail.course_desc || selectedCourseForDetail.course_name}
-                                </h4>
+                                <div className="px-3 py-2 bg-blue-50/70 dark:bg-sky-950/40 border border-blue-100 dark:border-sky-900/50 rounded-xl">
+                                    <h4 className="text-xs sm:text-sm font-bold text-blue-950 dark:text-sky-200 uppercase tracking-tight font-mono">
+                                        {selectedCourseForDetail.course_code} — {selectedCourseForDetail.course_desc || selectedCourseForDetail.course_name}
+                                    </h4>
+                                </div>
                             </div>
 
-                            {/* Marks Details Table matching Image 1 & Image 3 */}
-                            <div className="border border-zinc-800 rounded-lg overflow-hidden bg-[#0e0f18] max-h-[65vh] overflow-y-auto scrollbar-thin">
-                                <table className="w-full text-left text-xs sm:text-sm">
-                                    <tbody className="divide-y divide-zinc-800/90 font-mono">
-                                        {scorecardRows.map((row) => (
-                                            <tr key={row.label} className="hover:bg-zinc-800/30 transition-colors">
-                                                <td className="py-2 px-3.5 font-bold text-zinc-300 border-r border-zinc-800/90 w-2/5 sm:w-1/3">
+                            {/* Marks Details Table matching Image 1 Blue & White Theme */}
+                            <div className="border border-[#bde0f8] dark:border-sky-900/60 rounded-xl overflow-hidden bg-white dark:bg-[#0b1220] max-h-[65vh] overflow-y-auto scrollbar-thin shadow-xs">
+                                <table className="w-full text-left text-xs sm:text-sm border-collapse">
+                                    <tbody className="font-mono">
+                                        {scorecardRows.map((row, idx) => (
+                                            <tr
+                                                key={row.label}
+                                                className={`border-b border-[#bde0f8] dark:border-sky-900/60 transition-colors ${
+                                                    idx % 2 === 0
+                                                        ? 'bg-[#f0f8ff] dark:bg-sky-950/30'
+                                                        : 'bg-white dark:bg-[#0b1220]'
+                                                } hover:bg-blue-100/50 dark:hover:bg-sky-900/30`}
+                                            >
+                                                <td className="py-2.5 px-3.5 font-bold text-slate-900 dark:text-slate-100 border-r border-[#bde0f8] dark:border-sky-900/60 w-2/5 sm:w-1/3">
                                                     {row.label}
                                                 </td>
-                                                <td className="py-2 px-3.5 text-zinc-100 font-semibold break-words">
+                                                <td className="py-2.5 px-3.5 text-slate-800 dark:text-slate-200 font-semibold break-words">
                                                     {row.value}
                                                 </td>
                                             </tr>
@@ -1028,8 +1038,8 @@ export default function Grades() {
 
                             {/* Additional Components or Status */}
                             {scorecardDetail.loading && (
-                                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-zinc-400">
-                                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-300" />
+                                <div className="mt-3 flex items-center justify-center gap-2 text-xs text-blue-600 dark:text-sky-400 font-medium">
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-600 dark:text-sky-400" />
                                     <span>Syncing marks with ERP...</span>
                                 </div>
                             )}
