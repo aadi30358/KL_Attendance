@@ -690,17 +690,8 @@ export default function Home() {
         return getTruePresentAcademicYearAndSem(activeStudentId);
     }, [activeStudentId]);
 
-    const [selectedSemOverride, setSelectedSemOverride] = useState(null);
-    const [selectedYearOverride, setSelectedYearOverride] = useState(null);
-
-    // Whenever active student changes, reset override so present sem is ALWAYS default
-    useEffect(() => {
-        setSelectedSemOverride(null);
-        setSelectedYearOverride(null);
-    }, [activeStudentId]);
-
-    const activeYear = selectedYearOverride || truePresentInfo.year;
-    const rawSem = selectedSemOverride || truePresentInfo.sem;
+    const activeYear = truePresentInfo.year;
+    const rawSem = truePresentInfo.sem;
 
     const activeSem = useMemo(() => {
         const s = rawSem;
@@ -710,7 +701,7 @@ export default function Home() {
         return 'Odd Sem';
     }, [rawSem]);
 
-    const isPresentSem = activeYear === truePresentInfo.year && rawSem === truePresentInfo.sem;
+    const isPresentSem = true;
 
     const studentTimetable = useMemo(() => {
         void timetableTick;
@@ -1384,41 +1375,8 @@ export default function Home() {
                                         </p>
                                     </div>
 
-                                    {/* View Controls: Semester Pills, Codes vs Aliases & View Full Timetable Link */}
+                                    {/* View Controls: Codes vs Aliases & View Full Timetable Link */}
                                     <div className="flex flex-wrap items-center gap-2">
-                                        {/* Semester Selector Pills (Default is always Present Sem) */}
-                                        <div className="inline-flex bg-slate-100 dark:bg-slate-800/90 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700/80">
-                                            {[
-                                                { key: 'Odd', label: 'Odd Sem' },
-                                                { key: 'Even', label: 'Even Sem' },
-                                                { key: 'Summer', label: 'Summer Term' },
-                                                { key: 'Term3', label: 'Tri Sem' }
-                                            ].map((semOption) => {
-                                                const isSelected = rawSem === semOption.key;
-                                                const isTruePresent = truePresentInfo.sem === semOption.key;
-                                                return (
-                                                    <button
-                                                        key={semOption.key}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            if (isTruePresent) {
-                                                                setSelectedSemOverride(null);
-                                                            } else {
-                                                                setSelectedSemOverride(semOption.key);
-                                                            }
-                                                        }}
-                                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                                                            isSelected
-                                                                ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
-                                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                                                        }`}
-                                                    >
-                                                        {isTruePresent && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title="Present Semester" />}
-                                                        <span>{semOption.label}</span>
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
 
                                         {/* Codes vs Aliases Toggle */}
                                         <div className="inline-flex bg-slate-100 dark:bg-slate-800/90 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700/80">

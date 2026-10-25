@@ -198,386 +198,83 @@ export function sanitizeInput(input) {
 }
 
 /**
- * Persists all application keys to native storage in a device-bound encrypted master envelope
+ * Recovers all keys from any existing encrypted envelope into native persistent localStorage
+ * and guarantees native localStorage is never intercepted or cleared on close.
  */
-let persistDebounceTimer = null;
-function flushPersistentVault() {
+export function restoreNativeStorage() {
     if (typeof window === 'undefined') return;
     try {
-        const bundle = {};
-        _memoryVault.forEach((val, key) => {
-            if (key !== VAULT_KEY && !NON_PERSISTENT_KEYS.has(key)) {
-                bundle[key] = val;
-            }
-        });
-
-        if (Object.keys(bundle).length === 0) {
+        const rawVault = _nativeGetItem ? _nativeGetItem.call(window.localStorage, VAULT_KEY) : window.localStorage.getItem(VAULT_KEY);
+        if (rawVault) {
+            let bundle = null;
             try {
-                if (_nativeRemoveItem) {
-                    _nativeRemoveItem.call(window.localStorage, VAULT_KEY);
-                }
-            } catch {
-                // ignore
+                const dec = syncDecrypt(rawVault);
+                if (dec) bundle = JSON.parse(dec);
+            } catch { /* ignore */ }
+
+            if (!bundle) {
+                try {
+                    bundle = JSON.parse(rawVault);
+                } catch { /* ignore */ }
             }
-            return;
+
+            if (!bundle) {
+                try {
+                    decryptSecret(rawVault).then(dec => {
+                        if (dec) {
+                            try {
+                                const parsed = JSON.parse(dec);
+                                if (parsed && typeof parsed === 'object') {
+                                    Object.entries(parsed).forEach(([k, v]) => {
+                                        if (k !== VAULT_KEY && v !== null && v !== undefined) {
+                                            try {
+                                                if (!window.localStorage.getItem(k)) {
+                                                    window.localStorage.setItem(k, String(v));
+                                                }
+                                            } catch { /* ignore */ }
+                                        }
+                                    });
+                                }
+                            } catch { /* ignore */ }
+                        }
+                    }).catch(() => {});
+                } catch { /* ignore */ }
+            }
+
+            if (bundle && typeof bundle === 'object') {
+                Object.entries(bundle).forEach(([k, v]) => {
+                    if (k !== VAULT_KEY && v !== null && v !== undefined) {
+                        try {
+                            if (!window.localStorage.getItem(k)) {
+                                window.localStorage.setItem(k, String(v));
+                            }
+                        } catch { /* ignore */ }
+                    }
+                });
+                try {
+                    if (_nativeRemoveItem) {
+                        _nativeRemoveItem.call(window.localStorage, VAULT_KEY);
+                    } else {
+                        window.localStorage.removeItem(VAULT_KEY);
+                    }
+                } catch { /* ignore */ }
+            }
         }
-
-        const json = JSON.stringify(bundle);
-        const encrypted = syncEncrypt(json);
-        if (_nativeSetItem) {
-            _nativeSetItem.call(window.localStorage, VAULT_KEY, encrypted);
-        }
-    } catch {
-        // silent
-    }
-}
-
-function schedulePersistVault() {
-    if (persistDebounceTimer) clearTimeout(persistDebounceTimer);
-    persistDebounceTimer = setTimeout(() => {
-        flushPersistentVault();
-    }, 150);
-}
-
-// Ensure pending debounced storage flushes write synchronously before unload
-if (typeof window !== 'undefined') {
-    try {
-        window.addEventListener('beforeunload', () => {
-            if (persistDebounceTimer) {
-                clearTimeout(persistDebounceTimer);
-                persistDebounceTimer = null;
-            }
-            flushPersistentVault();
-        });
-        window.addEventListener('pagehide', () => {
-            if (persistDebounceTimer) {
-                clearTimeout(persistDebounceTimer);
-                persistDebounceTimer = null;
-            }
-            flushPersistentVault();
-        });
     } catch {
         // ignore
     }
 }
 
 /**
- * Initializes the Zero-Knowledge Virtual Storage Engine.
- * Wipes all plaintext keys from DevTools Application Storage and routes all future
- * localStorage / sessionStorage operations through memory.
+ * Initializes secure storage handling by ensuring native storage persistence.
  */
 let isStorageEngineInitialized = false;
 export function initVirtualSecureStorage() {
     if (typeof window === 'undefined' || isStorageEngineInitialized) return;
     isStorageEngineInitialized = true;
-
-    try {
-        const nativeProto = Storage.prototype;
-
-        // 1. Synchronously decode existing persistent vault if present
-        try {
-            const rawVault = _nativeGetItem ? _nativeGetItem.call(window.localStorage, VAULT_KEY) : null;
-            if (rawVault) {
-                let dec = syncDecrypt(rawVault);
-                let loaded = false;
-                if (dec) {
-                    try {
-                        const parsed = JSON.parse(dec);
-                        if (parsed && typeof parsed === 'object') {
-                            Object.entries(parsed).forEach(([k, v]) => {
-                                if (k !== VAULT_KEY) {
-                                    _memoryVault.set(k, String(v));
-                                }
-                            });
-                            loaded = true;
-                        }
-                    } catch { /* ignore */ }
-                }
-                if (!loaded) {
-                    // Try legacy PBKDF2 AES-GCM vault fallback
-                    decryptSecret(rawVault).then(legacyDec => {
-                        if (legacyDec) {
-                            try {
-                                const parsed = JSON.parse(legacyDec);
-                                if (parsed && typeof parsed === 'object') {
-                                    Object.entries(parsed).forEach(([k, v]) => {
-                                        if (k !== VAULT_KEY && !_memoryVault.has(k)) {
-                                            _memoryVault.set(k, String(v));
-                                        }
-                                    });
-                                    schedulePersistVault();
-                                }
-                            } catch { /* ignore */ }
-                        }
-                    }).catch(() => {});
-                }
-            }
-        } catch {
-            // ignore
-        }
-
-        // 2. Discover and purge any legacy plaintext keys from DevTools Application tab
-        try {
-            const total = window.localStorage.length;
-            const legacyKeys = [];
-            for (let i = 0; i < total; i++) {
-                const k = _nativeKey ? _nativeKey.call(window.localStorage, i) : null;
-                if (k && k !== VAULT_KEY) {
-                    legacyKeys.push(k);
-                }
-            }
-
-            let hadLegacyData = false;
-            legacyKeys.forEach(k => {
-                try {
-                    const val = _nativeGetItem ? _nativeGetItem.call(window.localStorage, k) : null;
-                    if (val !== null) {
-                        if (!_memoryVault.has(k)) {
-                            _memoryVault.set(k, val);
-                        }
-                        hadLegacyData = true;
-                    }
-                    if (_nativeRemoveItem) {
-                        _nativeRemoveItem.call(window.localStorage, k);
-                    }
-                } catch {
-                    // ignore
-                }
-            });
-
-            if (hadLegacyData) {
-                flushPersistentVault();
-            }
-        } catch {
-            // ignore
-        }
-
-        // Wipe sessionStorage completely
-        try {
-            const sTotal = window.sessionStorage.length;
-            const sKeys = [];
-            for (let i = 0; i < sTotal; i++) {
-                const sk = _nativeKey ? _nativeKey.call(window.sessionStorage, i) : null;
-                if (sk) sKeys.push(sk);
-            }
-            sKeys.forEach(sk => {
-                try {
-                    const val = _nativeGetItem ? _nativeGetItem.call(window.sessionStorage, sk) : null;
-                    if (val !== null) _sessionMemoryVault.set(sk, val);
-                    if (_nativeRemoveItem) {
-                        _nativeRemoveItem.call(window.sessionStorage, sk);
-                    }
-                } catch {
-                    // ignore
-                }
-            });
-        } catch {
-            // ignore
-        }
-
-        // 3. Patch Storage.prototype to transparently redirect all calls to in-memory vault
-        nativeProto.getItem = function(k) {
-            const keyStr = String(k);
-            if (this === window.localStorage) {
-                return _memoryVault.get(keyStr) ?? null;
-            }
-            if (this === window.sessionStorage) {
-                return _sessionMemoryVault.get(keyStr) ?? null;
-            }
-            return _nativeGetItem ? _nativeGetItem.call(this, k) : null;
-        };
-
-        nativeProto.setItem = function(k, v) {
-            const keyStr = String(k);
-            const valStr = String(v);
-            if (keyStr === VAULT_KEY) {
-                // Prevent recursive insertion into vault
-                return;
-            }
-            if (this === window.localStorage) {
-                _memoryVault.set(keyStr, valStr);
-                schedulePersistVault();
-                return;
-            }
-            if (this === window.sessionStorage) {
-                _sessionMemoryVault.set(keyStr, valStr);
-                return;
-            }
-            if (_nativeSetItem) {
-                _nativeSetItem.call(this, k, v);
-            }
-        };
-
-        nativeProto.removeItem = function(k) {
-            const keyStr = String(k);
-            if (keyStr === VAULT_KEY) {
-                if (_nativeRemoveItem) {
-                    _nativeRemoveItem.call(window.localStorage, VAULT_KEY);
-                }
-                return;
-            }
-            if (this === window.localStorage) {
-                _memoryVault.delete(keyStr);
-                schedulePersistVault();
-                return;
-            }
-            if (this === window.sessionStorage) {
-                _sessionMemoryVault.delete(keyStr);
-                return;
-            }
-            if (_nativeRemoveItem) {
-                _nativeRemoveItem.call(this, k);
-            }
-        };
-
-        nativeProto.clear = function() {
-            if (this === window.localStorage) {
-                _memoryVault.clear();
-                schedulePersistVault();
-                return;
-            }
-            if (this === window.sessionStorage) {
-                _sessionMemoryVault.clear();
-                return;
-            }
-            if (_nativeClear) {
-                _nativeClear.call(this);
-            }
-        };
-
-        nativeProto.key = function(index) {
-            if (this === window.localStorage) {
-                return Array.from(_memoryVault.keys())[index] ?? null;
-            }
-            if (this === window.sessionStorage) {
-                return Array.from(_sessionMemoryVault.keys())[index] ?? null;
-            }
-            return _nativeKey ? _nativeKey.call(this, index) : null;
-        };
-
-        Object.defineProperty(nativeProto, 'length', {
-            get() {
-                if (this === window.localStorage) {
-                    return _memoryVault.size;
-                }
-                if (this === window.sessionStorage) {
-                    return _sessionMemoryVault.size;
-                }
-                return 0;
-            },
-            configurable: true,
-            enumerable: false
-        });
-
-        // 4. Wrap window.localStorage and window.sessionStorage with Proxy for object syntax (localStorage.foo = 'bar')
-        const createProxy = (storageTarget, memMap, isLocal) => {
-            return new Proxy(storageTarget, {
-                get(target, prop, receiver) {
-                    if (prop === 'getItem') return (k) => memMap.get(String(k)) ?? null;
-                    if (prop === 'setItem') return (k, v) => {
-                        const keyStr = String(k);
-                        if (keyStr === VAULT_KEY) return;
-                        memMap.set(keyStr, String(v));
-                        if (isLocal) schedulePersistVault();
-                    };
-                    if (prop === 'removeItem') return (k) => {
-                        const keyStr = String(k);
-                        if (keyStr === VAULT_KEY) {
-                            if (isLocal && _nativeRemoveItem) _nativeRemoveItem.call(window.localStorage, VAULT_KEY);
-                            return;
-                        }
-                        memMap.delete(keyStr);
-                        if (isLocal) schedulePersistVault();
-                    };
-                    if (prop === 'clear') return () => {
-                        memMap.clear();
-                        if (isLocal) schedulePersistVault();
-                    };
-                    if (prop === 'key') return (i) => Array.from(memMap.keys())[i] ?? null;
-                    if (prop === 'length') return memMap.size;
-
-                    if (typeof prop === 'string' && memMap.has(prop)) {
-                        return memMap.get(prop);
-                    }
-                    const val = Reflect.get(target, prop, receiver);
-                    return typeof val === 'function' ? val.bind(target) : val;
-                },
-                set(target, prop, value) {
-                    if (typeof prop === 'string') {
-                        if (prop === VAULT_KEY) return true;
-                        memMap.set(prop, String(value));
-                        if (isLocal) schedulePersistVault();
-                        return true;
-                    }
-                    return Reflect.set(target, prop, value);
-                },
-                deleteProperty(target, prop) {
-                    if (typeof prop === 'string') {
-                        if (prop === VAULT_KEY) {
-                            if (isLocal && _nativeRemoveItem) _nativeRemoveItem.call(window.localStorage, VAULT_KEY);
-                            return true;
-                        }
-                        memMap.delete(prop);
-                        if (isLocal) schedulePersistVault();
-                        return true;
-                    }
-                    return Reflect.deleteProperty(target, prop);
-                },
-                has(target, prop) {
-                    return memMap.has(prop) || Reflect.has(target, prop);
-                },
-                ownKeys() {
-                    return Array.from(memMap.keys());
-                },
-                getOwnPropertyDescriptor(target, prop) {
-                    if (memMap.has(prop)) {
-                        return {
-                            value: memMap.get(prop),
-                            writable: true,
-                            enumerable: true,
-                            configurable: true
-                        };
-                    }
-                    return Reflect.getOwnPropertyDescriptor(target, prop);
-                }
-            });
-        };
-
-        try {
-            const localProxy = createProxy(window.localStorage, _memoryVault, true);
-            Object.defineProperty(window, 'localStorage', {
-                value: localProxy,
-                configurable: true,
-                writable: true,
-                enumerable: true
-            });
-        } catch {
-            // ignore
-        }
-
-        try {
-            const sessionProxy = createProxy(window.sessionStorage, _sessionMemoryVault, false);
-            Object.defineProperty(window, 'sessionStorage', {
-                value: sessionProxy,
-                configurable: true,
-                writable: true,
-                enumerable: true
-            });
-        } catch {
-            // ignore
-        }
-
-    } catch {
-        // Fallback
-    }
+    restoreNativeStorage();
 }
 
-
-/**
- * Permanently locks and freezes DevTools Console after the official developer banner is output.
- * Ensures zero data, courses, tokens, or warnings can be dumped to console.
- */
-let isConsoleLocked = false;
 export function lockConsole() {
     if (typeof window === 'undefined' || isConsoleLocked) return;
     isConsoleLocked = true;
