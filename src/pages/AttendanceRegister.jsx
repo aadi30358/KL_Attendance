@@ -329,6 +329,29 @@ const AttendanceRegister = () => {
         }
     }, [location]);
 
+    // Check if navigated with intent to open Captcha for a friend
+    useEffect(() => {
+        if (location.state?.openCaptcha && location.state?.targetFriend) {
+            setTargetFriendForCaptcha(location.state.targetFriend);
+            setShowDashboard(false);
+            setLoading(false);
+        }
+    }, [location.state]);
+
+    // Cross-component trigger to immediately open Captcha for a friend or newly added profile
+    useEffect(() => {
+        const handleOpenCaptcha = (e) => {
+            const friend = e.detail?.targetFriend || e.detail?.profile;
+            if (friend) {
+                setShowDashboard(false);
+                setLoading(false);
+                setTargetFriendForCaptcha(friend);
+            }
+        };
+        window.addEventListener('kl_open_captcha', handleOpenCaptcha);
+        return () => window.removeEventListener('kl_open_captcha', handleOpenCaptcha);
+    }, []);
+
     const handleSearch = useCallback(async (fetchYear = year, fetchSemester = semester, customId = activeId) => {
         if (!fetchYear || !fetchSemester) { 
             setFetchError('Please select both Year and Semester'); 
@@ -348,6 +371,7 @@ const AttendanceRegister = () => {
         // Cannot fetch live courses from ERP without an authenticated session
         if (!hasActiveErpSession(targetId)) {
             setLoading(false);
+            setShowDashboard(false);
             const targetProfile = (getSavedFriends() || []).find(f => f.studentId === targetId || f.id === targetId) || (getMyProfile()?.studentId === targetId ? getMyProfile() : null);
             if (targetProfile?.password || targetProfile?.hasSavedPassword) {
                 setTargetFriendForCaptcha(targetProfile);
@@ -540,19 +564,33 @@ const AttendanceRegister = () => {
             const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
             const fallbackRaw = (!scopedRaw && newId) ? localStorage.getItem(`kleData_${newId}`) : null;
             const dataToParse = scopedRaw || fallbackRaw;
+            let hasValidCache = false;
             if (dataToParse) {
                 try {
                     const parsed = JSON.parse(dataToParse);
                     if (parsed.attendance_data && Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
                         setSubjects(parsed.attendance_data);
                         setShowDashboard(true);
+                        hasValidCache = true;
                     }
                 } catch {
                     // ignore
                 }
-            } else {
+            }
+            if (!hasValidCache) {
                 setSubjects([]);
-                setLoading(true);
+                setShowDashboard(false);
+            }
+
+            // If the switched profile does not have an active ERP session, prompt Captcha immediately
+            if (!hasActiveErpSession(newId)) {
+                setLoading(false);
+                setShowDashboard(false);
+                const profToVerify = newProfile || (getSavedFriends() || []).find(f => f.studentId === newId || f.id === newId) || (getMyProfile()?.studentId === newId ? getMyProfile() : null);
+                if (profToVerify?.password || profToVerify?.hasSavedPassword) {
+                    setTargetFriendForCaptcha(profToVerify);
+                    return;
+                }
             }
 
             // Immediately fetch fresh live attendance from ERP for the switched person
@@ -1233,6 +1271,20 @@ const AttendanceRegister = () => {
                     isOpen={showFriendsModal}
                     onClose={() => setShowFriendsModal(false)}
                 />
+
+                {/* Quick ERP Captcha Modal */}
+                <FriendCaptchaModal
+                    friend={targetFriendForCaptcha}
+                    isOpen={Boolean(targetFriendForCaptcha)}
+                    onClose={() => setTargetFriendForCaptcha(null)}
+                    onSuccess={(authFriend) => {
+                        setTargetFriendForCaptcha(null);
+                        const sid = authFriend?.studentId || authFriend?.id || activeId;
+                        setActiveId(sid);
+                        setActiveProfile(authFriend || getActiveProfileDetails(sid));
+                        handleSearch(year, semester, sid);
+                    }}
+                />
             </div>
         );
     }
@@ -1504,9 +1556,12 @@ const AttendanceRegister = () => {
                 friend={targetFriendForCaptcha}
                 isOpen={Boolean(targetFriendForCaptcha)}
                 onClose={() => setTargetFriendForCaptcha(null)}
-                onSuccess={() => {
+                onSuccess={(authFriend) => {
                     setTargetFriendForCaptcha(null);
-                    handleSearch(year, semester, activeId);
+                    const sid = authFriend?.studentId || authFriend?.id || activeId;
+                    setActiveId(sid);
+                    setActiveProfile(authFriend || getActiveProfileDetails(sid));
+                    handleSearch(year, semester, sid);
                 }}
             />
         </div>

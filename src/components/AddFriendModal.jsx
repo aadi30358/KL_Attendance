@@ -74,7 +74,7 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
                 if (!localStorage.getItem(`manualSem_${cleanId}`)) {
                     localStorage.setItem(`manualSem_${cleanId}`, 'Odd');
                 }
-                window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: profId }));
+                window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: profId, studentId: cleanId } }));
                 window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: saved, studentId: cleanId } }));
             } catch { /* ignore */ }
 
@@ -85,8 +85,9 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
                     onFriendSaved(saved);
                 }
                 onClose();
-                // Always redirect to Attendance Register (odd sem and year)
-                navigate('/attendance-register');
+                // Always redirect to Attendance Register (odd sem and year) and prompt Captcha immediately
+                navigate('/attendance-register', { state: { openCaptcha: true, targetFriend: saved } });
+                window.dispatchEvent(new CustomEvent('kl_open_captcha', { detail: { targetFriend: saved } }));
             }, 500);
         } catch (err) {
             setError(err.message || 'Failed to save details.');

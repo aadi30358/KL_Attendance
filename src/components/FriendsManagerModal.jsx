@@ -411,11 +411,11 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
             <AddFriendModal
                 isOpen={showAddModal}
                 onClose={() => setShowAddModal(false)}
-                onFriendSaved={() => {
+                onFriendSaved={(saved) => {
                     setFriends(getSavedFriends());
                     setShowAddModal(false);
                     onClose();
-                    navigate('/attendance-register');
+                    navigate('/attendance-register', { state: { openCaptcha: true, targetFriend: saved } });
                 }}
             />
 

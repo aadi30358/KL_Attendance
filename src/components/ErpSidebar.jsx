@@ -440,7 +440,7 @@ export default function ErpSidebar({
                             localStorage.setItem('activeErpUser', newProfile.studentId);
                         } catch { /* ignore */ }
                     }
-                    navigate('/attendance-register');
+                    navigate('/attendance-register', { state: { openCaptcha: true, targetFriend: newProfile } });
                 }}
             />
 

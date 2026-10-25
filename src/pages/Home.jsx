@@ -1918,7 +1918,7 @@ export default function Home() {
                             } catch { /* ignore */ }
                         }
                     }
-                    navigate('/attendance-register');
+                    navigate('/attendance-register', { state: { openCaptcha: true, targetFriend: newFriend } });
                 }}
             />
 

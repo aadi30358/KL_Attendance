@@ -1221,7 +1221,7 @@ const Login = () => {
                             } catch { /* ignore */ }
                         }
                     }
-                    navigate('/attendance-register');
+                    navigate('/attendance-register', { state: { openCaptcha: true, targetFriend: newFriend } });
                 }}
             />
         </div>
