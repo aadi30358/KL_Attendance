@@ -74,12 +74,21 @@ export const getSavedFriends = () => {
                             const sid = f.studentId || f.username || f.id;
                             return !deletedList.includes(f.id) && !deletedList.includes(sid);
                         })
-                        .map(f => ({
-                            ...f,
-                            nickname: stripEmojis(f.nickname || f.name) || 'Buddy',
-                            label: stripEmojis(f.nickname || f.name) || 'Buddy',
-                            emoji: ''
-                        }));
+                        .map(f => {
+                            const sid = f.studentId || f.username || f.id;
+                            const custom = sid ? localStorage.getItem(`kl_name_${sid}`) : null;
+                            const raw = stripEmojis(f.nickname || f.name);
+                            const nameToUse = custom || (raw && !raw.startsWith('Friend (') ? raw : null) || (sid ? `Friend (${sid.slice(-4)})` : 'Buddy');
+                            if (sid && nameToUse && !nameToUse.startsWith('Friend (') && !custom) {
+                                try { localStorage.setItem(`kl_name_${sid}`, nameToUse); } catch { /* ignore */ }
+                            }
+                            return {
+                                ...f,
+                                nickname: nameToUse,
+                                label: nameToUse,
+                                emoji: ''
+                            };
+                        });
                 }
             } catch { /* ignore */ }
         }
@@ -99,10 +108,12 @@ export const getSavedFriends = () => {
                             !list.some(f => (f.studentId === sid || f.username === sid || f.id === sid))
                         ) {
                             const pass = m.password || '';
+                            const custom = sid ? localStorage.getItem(`kl_name_${sid}`) : null;
+                            const nameToUse = custom || stripEmojis(m.name || m.nickname) || (sid ? `Friend (${sid.slice(-4)})` : 'Buddy');
                             list.push({
                                 id: m.id ? String(m.id) : `maddy_${sid}`,
-                                nickname: stripEmojis(m.name || m.nickname) || 'Buddy',
-                                label: stripEmojis(m.name || m.nickname) || 'Buddy',
+                                nickname: nameToUse,
+                                label: nameToUse,
                                 studentId: sid,
                                 username: sid,
                                 password: pass ? (typeof pass === 'string' && pass.length > 25 ? pass : encodePassword(pass)) : '',
@@ -146,10 +157,12 @@ export const getSavedFriends = () => {
                         !deletedList.includes(`friend_${foundSid}`) &&
                         !list.some(f => f.studentId === foundSid || f.username === foundSid || f.id === foundSid)
                     ) {
+                        const custom = localStorage.getItem(`kl_name_${foundSid}`);
+                        const nameToUse = custom || foundName || (foundSid ? `Friend (${foundSid.slice(-4)})` : 'Friend');
                         list.push({
                             id: `friend_${foundSid}`,
-                            nickname: foundName || `Friend (${foundSid.slice(-4)})`,
-                            label: foundName || `Friend (${foundSid.slice(-4)})`,
+                            nickname: nameToUse,
+                            label: nameToUse,
                             studentId: foundSid,
                             username: foundSid,
                             password: '',
@@ -229,7 +242,9 @@ export const getMyProfile = () => {
             } catch { /* ignore */ }
         }
 
-        const cleanName = stripEmojis(rawName);
+        const customName = myId ? localStorage.getItem(`kl_name_${myId}`) : null;
+        if (customName) rawName = customName;
+        const cleanName = customName || stripEmojis(rawName);
 
         // Strictly return null if neither ID nor password is saved
         if (!myId && !myPass) {
@@ -239,8 +254,8 @@ export const getMyProfile = () => {
         return {
             id: 'main',
             isFriend: false,
-            nickname: cleanName || 'My Account',
-            label: cleanName || 'My Account',
+            nickname: cleanName || (myId ? myId : 'My Profile'),
+            label: cleanName || (myId ? myId : 'My Profile'),
             studentId: myId,
             password: myPass,
             hasSavedPassword: Boolean(myPass)
@@ -270,6 +285,9 @@ export const saveMyProfile = ({ nickname, studentId, password }) => {
         }
         if (password) localStorage.setItem('rememberedPassword', encodePassword(password));
         localStorage.setItem('rememberedName', cleanNick);
+        if (cleanId && cleanNick && cleanNick !== 'My Account') {
+            localStorage.setItem(`kl_name_${cleanId}`, cleanNick);
+        }
         localStorage.removeItem('rememberedEmoji');
 
         window.dispatchEvent(new CustomEvent('kl_friends_updated'));
@@ -287,7 +305,8 @@ export const saveMyProfile = ({ nickname, studentId, password }) => {
 export const saveFriend = ({ id, nickname, studentId, password }) => {
     if (typeof window === 'undefined') return null;
     const cleanId = (studentId || '').trim();
-    const cleanNick = stripEmojis(nickname) || 'Buddy';
+    const storedCustom = cleanId ? localStorage.getItem(`kl_name_${cleanId}`) : null;
+    const cleanNick = stripEmojis(nickname) || storedCustom || 'Buddy';
     if (!cleanId || !cleanNick) {
         throw new Error('Please enter a name and student ID.');
     }
@@ -326,6 +345,11 @@ export const saveFriend = ({ id, nickname, studentId, password }) => {
         }
 
         localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friends));
+        if (cleanId && cleanNick && !cleanNick.startsWith('Friend (')) {
+            try {
+                localStorage.setItem(`kl_name_${cleanId}`, cleanNick);
+            } catch { /* ignore */ }
+        }
 
         // Remove from deleted list if previously deleted
         try {
@@ -413,6 +437,7 @@ export const deleteFriend = (friendId) => {
                 localStorage.removeItem(`activeSem_${sid}`);
                 localStorage.removeItem(`manualYear_${sid}`);
                 localStorage.removeItem(`manualSem_${sid}`);
+                localStorage.removeItem(`kl_name_${sid}`);
                 for (let i = localStorage.length - 1; i >= 0; i--) {
                     const k = localStorage.key(i);
                     if (k && (k.startsWith(`kl_timetable_${sid}`) || k.startsWith(`kleData_${sid}`) || k.startsWith(`kl_scorecard_${sid}`))) {
@@ -442,7 +467,8 @@ export const deleteFriend = (friendId) => {
 export const saveFriendTimetable = ({ studentId, nickname, timetable, academicYear = '2026-2027', semester = 'Odd Sem' }) => {
     if (typeof window === 'undefined') return null;
     const cleanId = (studentId || '').trim();
-    const cleanNick = stripEmojis(nickname) || cleanId || 'Buddy';
+    const storedCustom = cleanId ? localStorage.getItem(`kl_name_${cleanId}`) : null;
+    const cleanNick = stripEmojis(nickname) || storedCustom || cleanId || 'Buddy';
     if (!cleanId) {
         throw new Error('Please provide a valid Student ID');
     }
@@ -467,6 +493,11 @@ export const saveFriendTimetable = ({ studentId, nickname, timetable, academicYe
         }
 
         localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friends));
+        if (cleanId && cleanNick && !cleanNick.startsWith('Friend (')) {
+            try {
+                localStorage.setItem(`kl_name_${cleanId}`, cleanNick);
+            } catch { /* ignore */ }
+        }
 
         // Save timetable to storage under all candidate normalized keys
         if (timetable) {
@@ -581,17 +612,34 @@ export const getAllProfiles = () => {
     const myProfile = getMyProfile();
     const friends = getSavedFriends();
     const list = [];
-    if (myProfile && (myProfile.studentId || myProfile.password)) {
-        list.push({ ...myProfile, id: 'main', isFriend: false });
-    }
+    const seenIds = new Set();
+
     const mySid = (myProfile?.studentId || '').trim();
-    const friendList = (friends || [])
-        .filter(f => !mySid || (f.studentId !== mySid && f.username !== mySid))
-        .map(f => ({
+    const matchingFriend = mySid ? (friends || []).find(f => (f.studentId === mySid || f.username === mySid)) : null;
+    const myCustom = mySid ? localStorage.getItem(`kl_name_${mySid}`) : null;
+    const resolvedMyName = myCustom || (matchingFriend ? (matchingFriend.nickname || matchingFriend.name) : null) || (myProfile?.nickname && myProfile?.nickname !== 'My Account' && myProfile?.nickname !== 'Account' ? myProfile.nickname : null) || mySid || 'Profile';
+
+    if (myProfile && (myProfile.studentId || myProfile.password)) {
+        list.push({ ...myProfile, id: 'main', nickname: resolvedMyName, label: resolvedMyName, isFriend: false });
+        if (mySid) seenIds.add(mySid);
+    }
+
+    (friends || []).forEach(f => {
+        const sid = (f.studentId || f.username || '').trim();
+        if (sid && seenIds.has(sid)) return;
+        if (sid) seenIds.add(sid);
+        const savedName = sid ? localStorage.getItem(`kl_name_${sid}`) : null;
+        const rawNick = f.nickname && !f.nickname.startsWith('Friend (') ? f.nickname : null;
+        const fName = savedName || rawNick || f.nickname || f.name || sid || 'Buddy';
+        list.push({
             ...f,
+            nickname: fName,
+            label: fName,
             isFriend: true
-        }));
-    return [...list, ...friendList];
+        });
+    });
+
+    return list;
 };
 
 /**

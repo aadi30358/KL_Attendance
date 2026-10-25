@@ -19,7 +19,7 @@ import {
     Check,
     ArrowLeft
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import ErpSidebar from '../components/ErpSidebar';
 import {
     calculateGPA,
@@ -34,71 +34,31 @@ import {
     KLU_GRADE_POINTS
 } from '../services/gradesService';
 import { normalizeAcademicYear, normalizeSemester } from '../services/timetableService';
-import { getSavedFriends, getMyProfile } from '../services/friendsService';
+import { getAllProfiles, setActiveProfileId, getSavedFriends, getMyProfile } from '../services/friendsService';
 import { hasActiveErpSession } from '../services/erpService';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';
 
 export default function Grades() {
+    const navigate = useNavigate();
     const myProfile = useMemo(() => getMyProfile(), []);
     const myId = myProfile?.studentId || myProfile?.username || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '';
-    const myName = myProfile?.nickname || myProfile?.name || 'Account';
 
-    // Combine saved friends with TimeTablekl 'maddys' reactively
-    const [allFriends, setAllFriends] = useState(() => {
-        const list = getSavedFriends();
-        try {
-            const rawMaddys = localStorage.getItem('maddys');
-            if (rawMaddys) {
-                const parsedMaddys = JSON.parse(rawMaddys);
-                if (Array.isArray(parsedMaddys)) {
-                    parsedMaddys.forEach(m => {
-                        const sid = m.username || m.studentId || String(m.id);
-                        if (!list.some(f => (f.studentId === sid || f.username === sid))) {
-                            list.push({
-                                id: m.id || sid,
-                                nickname: m.name || m.nickname || 'Buddy',
-                                label: m.name || m.nickname || 'Buddy',
-                                studentId: sid,
-                                username: sid
-                            });
-                        }
-                    });
-                }
-            }
-        } catch { /* ignore */ }
-        return list;
-    });
+    // Unified deduplicated profiles with persistent custom names
+    const [allProfiles, setAllProfiles] = useState(() => getAllProfiles());
 
     useEffect(() => {
-        const handleFriendsSync = () => {
-            const list = getSavedFriends();
-            try {
-                const rawMaddys = localStorage.getItem('maddys');
-                if (rawMaddys) {
-                    const parsedMaddys = JSON.parse(rawMaddys);
-                    if (Array.isArray(parsedMaddys)) {
-                        parsedMaddys.forEach(m => {
-                            const sid = m.username || m.studentId || String(m.id);
-                            if (!list.some(f => (f.studentId === sid || f.username === sid))) {
-                                list.push({
-                                    id: m.id || sid,
-                                    nickname: m.name || m.nickname || 'Buddy',
-                                    label: m.name || m.nickname || 'Buddy',
-                                    studentId: sid,
-                                    username: sid
-                                });
-                            }
-                        });
-                    }
-                }
-            } catch { /* ignore */ }
-            setAllFriends(list);
+        const handleProfilesSync = () => {
+            setAllProfiles(getAllProfiles());
         };
-        window.addEventListener('kl_friends_updated', handleFriendsSync);
-        window.addEventListener('storage', handleFriendsSync);
+        window.addEventListener('kl_friends_updated', handleProfilesSync);
+        window.addEventListener('kl_active_profile_updated', handleProfilesSync);
+        window.addEventListener('kl_profile_switched', handleProfilesSync);
+        window.addEventListener('storage', handleProfilesSync);
         return () => {
-            window.removeEventListener('kl_friends_updated', handleFriendsSync);
-            window.removeEventListener('storage', handleFriendsSync);
+            window.removeEventListener('kl_friends_updated', handleProfilesSync);
+            window.removeEventListener('kl_active_profile_updated', handleProfilesSync);
+            window.removeEventListener('kl_profile_switched', handleProfilesSync);
+            window.removeEventListener('storage', handleProfilesSync);
         };
     }, []);
 
@@ -125,12 +85,13 @@ export default function Grades() {
     }, [myId]);
 
     const activeProfileName = useMemo(() => {
-        if (selectedStudentId === myId || selectedStudentId === 'main') {
-            return myName;
+        const found = (allProfiles || []).find(f => (f.studentId === selectedStudentId || f.username === selectedStudentId || f.id === selectedStudentId));
+        if (found) {
+            return found.nickname || found.label || found.name || selectedStudentId;
         }
-        const fr = allFriends.find(f => (f.studentId === selectedStudentId || f.username === selectedStudentId || f.id === selectedStudentId));
-        return fr ? (fr.nickname || fr.name || fr.label) : selectedStudentId;
-    }, [selectedStudentId, myId, myName, allFriends]);
+        const savedCustom = selectedStudentId ? localStorage.getItem(`kl_name_${selectedStudentId}`) : null;
+        return savedCustom || selectedStudentId || 'Student';
+    }, [selectedStudentId, allProfiles]);
 
     const [courses, setCourses] = useState(() => getStoredGrades(selectedStudentId));
     const [viewMode, setViewMode] = useState('cgpa'); // 'cgpa' | 'sgpa'
@@ -189,7 +150,7 @@ export default function Grades() {
                 setCourses(res.courses);
                 setSyncMessage({ type: 'success', text: `Successfully synced ${res.courses.length} courses from live ERP results!` });
             } else if (res.needsAuth) {
-                const fr = allFriends.find(f => (f.studentId === selectedStudentId || f.username === selectedStudentId || f.id === selectedStudentId));
+                const fr = (allProfiles || []).find(f => (f.studentId === selectedStudentId || f.username === selectedStudentId || f.id === selectedStudentId));
                 if (fr) {
                     setFriendCaptchaTarget(fr);
                 } else {
@@ -557,39 +518,39 @@ export default function Grades() {
                             KL University Official Credit Grading System · Scale of 10.0
                         </p>
 
-                        {/* Buddy / Profile Switcher Pills */}
+                        {/* Profile Switcher Pills - Deduplicated, showing saved custom names only */}
                         <div className="flex flex-wrap items-center gap-2 pt-1">
-                            <button
-                                type="button"
-                                onClick={() => setSelectedStudentId(myId)}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
-                                    selectedStudentId === myId
-                                        ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                                }`}
-                            >
-                                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                                <span>{myName} ({myId})</span>
-                            </button>
-
-                            {allFriends.map((friend) => {
-                                const fId = friend.studentId || friend.username || friend.id;
-                                const fName = friend.nickname || friend.name || friend.label || 'Buddy';
-                                const isSelected = selectedStudentId === fId;
+                            {allProfiles.map((prof) => {
+                                const pId = prof.studentId || prof.username || prof.id;
+                                const pName = prof.nickname || prof.label || prof.name || pId;
+                                const isSelected = selectedStudentId === pId;
 
                                 return (
                                     <button
-                                        key={friend.id || fId}
+                                        key={prof.id || pId}
                                         type="button"
-                                        onClick={() => setSelectedStudentId(fId)}
+                                        onClick={() => {
+                                            setSelectedStudentId(pId);
+                                            setActiveProfileId(prof.id || pId);
+                                            try {
+                                                localStorage.setItem('activeErpUser', pId);
+                                            } catch { /* ignore */ }
+                                            const fresh = getStoredGrades(pId);
+                                            setCourses(fresh);
+                                            if (hasActiveErpSession(pId)) {
+                                                fetchLiveErpGrades(pId).then(res => {
+                                                    if (res?.courses?.length > 0) setCourses(res.courses);
+                                                }).catch(() => null);
+                                            }
+                                        }}
                                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
                                             isSelected
                                                 ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
                                                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
                                         }`}
                                     >
-                                        <Users className="w-3 h-3 text-indigo-500" />
-                                        <span>{fName} ({fId})</span>
+                                        <Users className={`w-3 h-3 ${isSelected ? 'text-white' : 'text-indigo-500'}`} />
+                                        <span>{pName} ({pId})</span>
                                     </button>
                                 );
                             })}
@@ -759,45 +720,30 @@ export default function Grades() {
                                     Official KLU Grade Sheet Access Notice
                                 </h3>
                                 <p className="text-xs sm:text-sm text-blue-800 leading-relaxed">
-                                    {selectedStudentId !== myId
-                                        ? `Grade records for ${activeProfileName} (${selectedStudentId}) have not been loaded yet. Connect with ERP to fetch live semester grades.`
-                                        : 'KL University ERP grades sync automatically when published. You can manually refresh live grades or import enrolled courses below.'}
+                                    Official grades and CGPA for <strong className="font-bold text-slate-900">{activeProfileName} ({selectedStudentId})</strong> will appear here after logging in with ERP credentials.
                                 </p>
                                 <div className="flex flex-wrap items-center gap-3 pt-2">
-                                    {selectedStudentId !== myId ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                const fr = allFriends.find(f => (f.studentId === selectedStudentId || f.username === selectedStudentId || f.id === selectedStudentId));
-                                                if (fr) setFriendCaptchaTarget(fr);
-                                            }}
-                                            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
-                                        >
-                                            <ShieldCheck className="w-3.5 h-3.5 text-indigo-200" />
-                                            <span>Connect ERP for {activeProfileName}</span>
-                                        </button>
-                                    ) : (
-                                        <>
-                                            <button
-                                                type="button"
-                                                onClick={handleSyncLiveErpGrades}
-                                                disabled={isSyncing}
-                                                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-70"
-                                            >
-                                                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                                                <span>{isSyncing ? 'Connecting ERP...' : 'Fetch Live ERP Results'}</span>
-                                            </button>
-
-                                            <button
-                                                type="button"
-                                                onClick={handleImportFromErp}
-                                                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
-                                            >
-                                                <BookOpen className="w-3.5 h-3.5" />
-                                                <span>Import Enrolled Courses</span>
-                                            </button>
-                                        </>
-                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const targetProfile = (allProfiles || []).find(f => (f.studentId === selectedStudentId || f.username === selectedStudentId || f.id === selectedStudentId));
+                                            if (targetProfile?.password || targetProfile?.hasSavedPassword) {
+                                                setFriendCaptchaTarget(targetProfile);
+                                            } else {
+                                                navigate('/login', {
+                                                    state: {
+                                                        studentId: selectedStudentId,
+                                                        profileId: targetProfile?.id || selectedStudentId,
+                                                        view: 'grades'
+                                                    }
+                                                });
+                                            }
+                                        }}
+                                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                                    >
+                                        <ShieldCheck className="w-3.5 h-3.5 text-indigo-200" />
+                                        <span>🛡️ ERP Portal Login</span>
+                                    </button>
                                 </div>
                             </div>
                         </div>

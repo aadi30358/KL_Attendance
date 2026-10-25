@@ -810,17 +810,10 @@ const AttendanceRegister = () => {
                 sessionStorage.setItem('kl_logout_reason', 'inactivity');
             }
             await logout();
-            if (activeId) {
-                localStorage.removeItem(`kleData_${activeId}`);
-                localStorage.removeItem(`activeYear_${activeId}`);
-                localStorage.removeItem(`activeSem_${activeId}`);
-                localStorage.removeItem(`manualYear_${activeId}`);
-                localStorage.removeItem(`manualSem_${activeId}`);
-                localStorage.removeItem(`attendanceLastUpdated_${activeId}`);
-            }
+            // Preserve cached attendance (kleData_*, activeYear_*, etc.) permanently
+            // Data is only wiped when user explicitly deletes via Delete Profile
             localStorage.removeItem('activeErpUser');
             localStorage.removeItem('erpDashboardHtml');
-            localStorage.removeItem('kleData');
             sessionStorage.removeItem('erp_authenticated');
             sessionStorage.removeItem('adminLoggedOut');
             window.dispatchEvent(new Event('storage'));

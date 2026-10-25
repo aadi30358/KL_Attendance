@@ -44,7 +44,7 @@ export function AuthProvider({ children }) {
 
         localStorage.removeItem('activeErpUser');
         localStorage.removeItem('erpDashboardHtml');
-        localStorage.removeItem('kleData');
+        // kleData is preserved so offline attendance stays permanent
         localStorage.removeItem('userUniversity');
         localStorage.removeItem('userProfile');
         localStorage.removeItem('sessionCookie');

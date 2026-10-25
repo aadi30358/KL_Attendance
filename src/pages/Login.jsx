@@ -419,7 +419,10 @@ const Login = () => {
 
             if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, cleanId)) {
                 localStorage.setItem('erpDashboardHtml', loginResult.html);
-                localStorage.removeItem('kleData');
+                const cachedForUser = localStorage.getItem(`kleData_${cleanId}`);
+                if (cachedForUser) {
+                    localStorage.setItem('kleData', cachedForUser);
+                }
                 localStorage.setItem('userUniversity', 'klu');
                 setErpUser(cleanId);
                 localStorage.setItem('activeErpUser', cleanId);
