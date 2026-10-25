@@ -16,9 +16,11 @@ import {
     Share2,
     Utensils,
     ArrowLeftRight,
-    X,
-    SlidersHorizontal
+    SlidersHorizontal,
+    ShieldAlert,
+    X
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import {
     DAYS_OF_WEEK,
     KLU_SESSIONS,
@@ -313,6 +315,23 @@ export default function ClassTimetable({
         void currentTimeStr; // Retick live countdown every second
         return getLiveClassStatus(safeTimetable, effectiveId);
     }, [safeTimetable, effectiveId, currentTimeStr]);
+
+    // Verify whether authentic live ERP timetable was fetched for this student
+    const isVerifiedErpTimetable = useMemo(() => {
+        if (!safeTimetable || typeof safeTimetable !== 'object') return false;
+        if (safeTimetable._source === 'erp_live' || safeTimetable._userCustomized) return true;
+        if (typeof window !== 'undefined' && effectiveId) {
+            const scopedKey = `kl_timetable_${effectiveId}_${currentYear}_${currentSem}`;
+            const raw = localStorage.getItem(scopedKey) || localStorage.getItem(`kl_timetable_${effectiveId}`);
+            if (raw) {
+                try {
+                    const parsed = JSON.parse(raw);
+                    if (parsed?._source === 'erp_live' || parsed?._userCustomized) return true;
+                } catch { /* ignore */ }
+            }
+        }
+        return false;
+    }, [safeTimetable, effectiveId, currentYear, currentSem]);
 
     // Unique Course Codes for Alias Editing
     const uniqueCourseCodes = useMemo(() => {
@@ -934,8 +953,40 @@ export default function ClassTimetable({
                 </div>
             ) : null}
 
-            {/* ── Present (Current) & Next Class Row ── */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {!isVerifiedErpTimetable ? (
+                <div className="bg-white rounded-3xl p-8 sm:p-12 border border-slate-200/90 shadow-md text-center max-w-lg mx-auto my-10 space-y-5">
+                    <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto text-amber-600 shadow-xs">
+                        <ShieldAlert className="w-8 h-8" />
+                    </div>
+                    <div className="space-y-2">
+                        <h3 className="text-xl font-bold text-slate-900 tracking-tight">
+                            ERP Attendance Login Required
+                        </h3>
+                        <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                            First login with ERP Attendance for <span className="font-bold text-slate-900">{effectiveName} ({effectiveId})</span>, then only the timetable will be shown.
+                        </p>
+                    </div>
+                    <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+                        <button
+                            type="button"
+                            onClick={handleReloadTimetable}
+                            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
+                        >
+                            <ShieldCheck className="w-4 h-4 text-white" />
+                            <span>Login with ERP Attendance</span>
+                        </button>
+                        <Link
+                            to="/login"
+                            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all border border-slate-200 cursor-pointer"
+                        >
+                            <span>ERP Portal Login</span>
+                        </Link>
+                    </div>
+                </div>
+            ) : (
+                <>
+                    {/* ── Present (Current) & Next Class Row ── */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Present / Ongoing Class Card */}
                 <div className="p-5 rounded-3xl bg-[#090d16] text-white border border-slate-800/90 shadow-md relative overflow-hidden flex flex-col justify-between">
                     <div>
@@ -1455,6 +1506,8 @@ export default function ClassTimetable({
                     </div>
                 )}
             </div>
+        </>
+    )}
 
             {/* ── Compare Schedules Modal ("Where's Maddy?") ── */}
             <AnimatePresence>

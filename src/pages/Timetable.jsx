@@ -6,6 +6,7 @@ import ClassTimetable from '../components/ClassTimetable';
 import ErpSidebar from '../components/ErpSidebar';
 import { getActiveProfileDetails, getMyProfile, getEffectiveSavedProfile, getAllProfiles, setActiveProfileId } from '../services/friendsService';
 import { normalizeAcademicYear, normalizeSemester } from '../services/timetableService';
+import { hasActiveErpSession } from '../services/erpService';
 
 export default function Timetable() {
     const navigate = useNavigate();
@@ -13,21 +14,25 @@ export default function Timetable() {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [activeProfile, setActiveProfile] = useState(() => getActiveProfileDetails());
     const [activeId, setActiveId] = useState(() => {
+        if (!hasActiveErpSession()) return '';
         const prof = getActiveProfileDetails();
         if (prof?.isFriend && prof?.studentId) {
             return prof.studentId;
         }
-        const effective = getEffectiveSavedProfile();
-        return localStorage.getItem('activeErpUser') || prof?.studentId || effective?.studentId || myProfile?.studentId || '';
+        return localStorage.getItem('activeErpUser') || '';
     });
 
     // Synchronize active profile across events and storage
     useEffect(() => {
         const update = () => {
+            const hasSession = hasActiveErpSession();
             const prof = getActiveProfileDetails();
             setActiveProfile(prof);
-            const effective = getEffectiveSavedProfile();
-            const sid = (prof?.isFriend && prof?.studentId) ? prof.studentId : (localStorage.getItem('activeErpUser') || prof?.studentId || effective?.studentId || myProfile?.studentId || '');
+            if (!hasSession) {
+                setActiveId('');
+                return;
+            }
+            const sid = (prof?.isFriend && prof?.studentId) ? prof.studentId : (localStorage.getItem('activeErpUser') || '');
             setActiveId(sid);
         };
         window.addEventListener('kl_friends_updated', update);
@@ -150,9 +155,9 @@ export default function Timetable() {
                                     <Users className="w-7 h-7" />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">Initial ERP Authentication Required</h3>
+                                    <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">ERP Attendance Login Required</h3>
                                     <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                                        Please sign in with your ERP credentials to fetch and save your official weekly timetable. Once saved, it will remain accessible directly from this device even after logout.
+                                        First login with ERP Attendance, then only the timetable will be shown.
                                     </p>
                                 </div>
                                 <div className="pt-2">
@@ -160,7 +165,7 @@ export default function Timetable() {
                                         to="/login"
                                         className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
                                     >
-                                        <span>Sign In with ERP & Sync Timetable</span>
+                                        <span>Login with ERP Attendance</span>
                                         <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
                                     </Link>
                                 </div>
