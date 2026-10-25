@@ -731,7 +731,10 @@ export default function ClassTimetable({
                                     key={friend.id || fId}
                                     type="button"
                                     onClick={() => {
-                                        setActiveProfileId(friend.id || fId);
+                                        try {
+                                            localStorage.setItem('activeErpUser', fId);
+                                        } catch { /* ignore */ }
+                                        setActiveProfileId(friend.id || fId, fId);
                                         setActiveTargetId(fId);
                                         if (onSelectFriend) onSelectFriend(fId);
                                         if (onSelectProfile) onSelectProfile(friend);
@@ -759,11 +762,15 @@ export default function ClassTimetable({
                         <button
                             type="button"
                             onClick={() => {
-                                setActiveProfileId('main');
-                                setActiveTargetId(primaryMyId || 'main');
-                                if (onSelectFriend) onSelectFriend(primaryMyId || 'main');
-                                if (onSelectProfile) onSelectProfile(myProfile || { id: 'main', nickname: 'Account' });
-                                const fresh = getStudentTimetable(primaryMyId || 'main', primaryMyId === studentId ? erpCourses : [], currentYear, currentSem);
+                                const targetSid = primaryMyId || 'main';
+                                try {
+                                    if (primaryMyId) localStorage.setItem('activeErpUser', primaryMyId);
+                                } catch { /* ignore */ }
+                                setActiveProfileId('main', primaryMyId);
+                                setActiveTargetId(targetSid);
+                                if (onSelectFriend) onSelectFriend(targetSid);
+                                if (onSelectProfile) onSelectProfile(myProfile || { id: 'main', nickname: 'Account', studentId: primaryMyId });
+                                const fresh = getStudentTimetable(targetSid, primaryMyId === studentId ? erpCourses : [], currentYear, currentSem);
                                 setTimetable(fresh);
                             }}
                             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${

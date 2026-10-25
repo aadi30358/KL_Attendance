@@ -517,8 +517,8 @@ const AttendanceRegister = () => {
     useEffect(() => {
         const handleProfileSwitch = (e) => {
             const detail = e.detail;
-            const newId = detail?.studentId || localStorage.getItem('activeErpUser') || '';
-            const newProfile = detail?.profile || getActiveProfileDetails();
+            const newId = detail?.studentId || (typeof detail === 'string' && /^\d+$/.test(detail) ? detail : null) || localStorage.getItem('activeErpUser') || '';
+            const newProfile = detail?.profile || getActiveProfileDetails(detail?.profileId || newId);
             
             setActiveId(newId);
             setActiveProfile(newProfile);

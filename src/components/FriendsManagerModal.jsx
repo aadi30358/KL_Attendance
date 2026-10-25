@@ -49,14 +49,16 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
 
     const handleSwitchToMe = () => {
         const myId = myProfile?.studentId || localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser') || '';
-        setActiveProfileId('main');
         if (myId) {
-            localStorage.setItem('activeErpUser', myId);
+            try {
+                localStorage.setItem('activeErpUser', myId);
+            } catch { /* ignore */ }
             if (typeof setErpUser === 'function') {
                 setErpUser(myId);
             }
         }
-        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: 'main' }));
+        setActiveProfileId('main', myId);
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: 'main', studentId: myId } }));
         window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: myProfile, studentId: myId } }));
         onClose();
     };
@@ -67,24 +69,30 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
             return;
         }
         const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '') || '';
-        setActiveProfileId(profile.id || 'main');
+        const pid = profile?.id || 'main';
         if (sid) {
-            localStorage.setItem('activeErpUser', sid);
+            try {
+                localStorage.setItem('activeErpUser', sid);
+            } catch { /* ignore */ }
             if (typeof setErpUser === 'function') setErpUser(sid);
         }
-        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: profile.id || 'main' }));
+        setActiveProfileId(pid, sid);
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: pid, studentId: sid } }));
         window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile, studentId: sid } }));
         setTargetFriendForCaptcha(profile);
     };
 
     const handleCheckTimetable = (profile) => {
         const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '') || '';
-        setActiveProfileId(profile.id || 'main');
+        const pid = profile?.id || 'main';
         if (sid) {
-            localStorage.setItem('activeErpUser', sid);
+            try {
+                localStorage.setItem('activeErpUser', sid);
+            } catch { /* ignore */ }
             if (typeof setErpUser === 'function') setErpUser(sid);
         }
-        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: profile.id || 'main' }));
+        setActiveProfileId(pid, sid);
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: pid, studentId: sid } }));
         window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile, studentId: sid } }));
         onClose();
         navigate('/timetable');
@@ -92,12 +100,15 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
 
     const handleCheckGrades = (profile) => {
         const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '') || '';
-        setActiveProfileId(profile.id || 'main');
+        const pid = profile?.id || 'main';
         if (sid) {
-            localStorage.setItem('activeErpUser', sid);
+            try {
+                localStorage.setItem('activeErpUser', sid);
+            } catch { /* ignore */ }
             if (typeof setErpUser === 'function') setErpUser(sid);
         }
-        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: profile.id || 'main' }));
+        setActiveProfileId(pid, sid);
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: pid, studentId: sid } }));
         window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile, studentId: sid } }));
         onClose();
         navigate('/grades');

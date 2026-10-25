@@ -174,7 +174,10 @@ export default function Timetable() {
                                 onViewCourseAttendance={() => navigate('/login', { state: { studentId: activeId, profileId: activeId, view: 'attendance' } })}
                                 onSelectFriend={(fid) => {
                                     if (fid) {
-                                        setActiveProfileId(fid);
+                                        try {
+                                            localStorage.setItem('activeErpUser', fid);
+                                        } catch { /* ignore */ }
+                                        setActiveProfileId(fid, fid);
                                         setActiveId(fid);
                                         const allP = getAllProfiles();
                                         const match = allP.find(p => p.studentId === fid || p.username === fid);
@@ -184,7 +187,10 @@ export default function Timetable() {
                                 onSelectProfile={(profile) => {
                                     const newId = profile.studentId || profile.username || (profile.id !== 'main' ? profile.id : '');
                                     if (newId) {
-                                        setActiveProfileId(profile.id || newId);
+                                        try {
+                                            localStorage.setItem('activeErpUser', newId);
+                                        } catch { /* ignore */ }
+                                        setActiveProfileId(profile.id || newId, newId);
                                         setActiveId(newId);
                                         setActiveProfile(profile);
                                     }

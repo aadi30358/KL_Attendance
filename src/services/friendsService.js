@@ -561,14 +561,20 @@ export const getActiveProfileId = () => {
     }
 };
 
-export const setActiveProfileId = (profileId) => {
+export const setActiveProfileId = (profileId, explicitStudentId) => {
     if (typeof window === 'undefined') return;
     try {
         const finalId = profileId || 'main';
         localStorage.setItem(ACTIVE_PROFILE_KEY, finalId);
-        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: finalId }));
-        const details = getActiveProfileDetails();
-        window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: details, studentId: details?.studentId } }));
+        const details = getActiveProfileDetails(finalId);
+        const sid = explicitStudentId || details?.studentId || (finalId !== 'main' && /^\d+$/.test(finalId) ? finalId : '') || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+        if (sid) {
+            try {
+                localStorage.setItem('activeErpUser', sid);
+            } catch { /* ignore */ }
+        }
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: finalId, studentId: sid } }));
+        window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: details, studentId: sid } }));
         window.dispatchEvent(new Event('storage'));
     } catch (err) {
         console.warn('[FriendsService] Failed to set active profile:', err);
@@ -578,12 +584,14 @@ export const setActiveProfileId = (profileId) => {
 /**
  * Get active profile details (main user or friend object)
  */
-export const getActiveProfileDetails = () => {
-    const profileId = getActiveProfileId();
+export const getActiveProfileDetails = (specificProfileId) => {
+    const profileId = specificProfileId || getActiveProfileId();
     const friends = getSavedFriends();
+    const myProf = getMyProfile();
 
+    // 1. If profileId matches a friend (by id, studentId, or username)
     if (profileId && profileId !== 'main') {
-        const friend = friends.find(f => f.id === profileId);
+        const friend = friends.find(f => f.id === profileId || f.studentId === profileId || f.username === profileId);
         if (friend) {
             return {
                 ...friend,
@@ -592,9 +600,20 @@ export const getActiveProfileDetails = () => {
         }
     }
 
-    const myProf = getMyProfile();
-    if (myProf) return myProf;
+    // 2. If profileId matches myProfile (by 'main', studentId, or username)
+    if (myProf) {
+        if (profileId === 'main' || !profileId || profileId === myProf.studentId || profileId === myProf.username) {
+            return myProf;
+        }
+    }
 
+    // 3. Fallback: Check all profiles to see if any matches
+    const all = getAllProfiles();
+    const matched = all.find(p => p.id === profileId || p.studentId === profileId || p.username === profileId);
+    if (matched) return matched;
+
+    // 4. Default fallbacks
+    if (myProf) return myProf;
     if (friends.length > 0) {
         return {
             ...friends[0],

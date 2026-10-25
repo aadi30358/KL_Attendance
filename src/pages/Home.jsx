@@ -661,9 +661,14 @@ export default function Home() {
     const handleSwitchLiveProfile = (profile) => {
         const pid = profile?.id || 'main';
         const sid = profile?.studentId || profile?.username || '';
-        setActiveProfileId(pid);
+        if (sid) {
+            try {
+                localStorage.setItem('activeErpUser', sid);
+            } catch { /* ignore */ }
+        }
+        setActiveProfileId(pid, sid);
         setActiveProfile(profile);
-        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: pid }));
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: pid, studentId: sid } }));
         window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile, studentId: sid } }));
     };
 

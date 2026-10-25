@@ -136,9 +136,10 @@ export default function ErpSidebar({
     const handleSwitchProfile = (profile) => {
         const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '');
         const pid = profile?.id || 'main';
-        setActiveProfileId(pid);
         if (sid) {
-            localStorage.setItem('activeErpUser', sid);
+            try {
+                localStorage.setItem('activeErpUser', sid);
+            } catch { /* ignore */ }
             const savedCookie = localStorage.getItem(`erp_cookie_${sid}`);
             if (savedCookie) {
                 setStoredErpCookies(savedCookie, sid);
@@ -146,8 +147,9 @@ export default function ErpSidebar({
                 clearStoredErpCookies();
             }
         }
-        setActiveProfile(getActiveProfileDetails());
-        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: pid }));
+        setActiveProfileId(pid, sid);
+        setActiveProfile(getActiveProfileDetails(pid));
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: pid, studentId: sid } }));
         window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile, studentId: sid } }));
         if (onSelectProfile) onSelectProfile(profile);
     };

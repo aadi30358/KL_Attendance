@@ -75,7 +75,7 @@ export default function Grades() {
     // Sync active profile when switched in sidebar or elsewhere
     useEffect(() => {
         const update = (e) => {
-            const sid = e?.detail?.studentId || localStorage.getItem('activeErpUser') || myId;
+            const sid = e?.detail?.studentId || (typeof e?.detail === 'string' && /^\d+$/.test(e.detail) ? e.detail : null) || localStorage.getItem('activeErpUser') || myId;
             if (sid) setSelectedStudentId(sid);
         };
         window.addEventListener('kl_profile_switched', update);
@@ -527,22 +527,25 @@ export default function Grades() {
                             {allProfiles.map((prof) => {
                                 const pId = prof.studentId || prof.username || prof.id;
                                 const pName = prof.nickname || prof.label || prof.name || pId;
-                                const isSelected = selectedStudentId === pId;
+                                const isSelected = selectedStudentId === pId || selectedStudentId === prof.studentId || (prof.id === 'main' && selectedStudentId === myId);
 
                                 return (
                                     <button
                                         key={prof.id || pId}
                                         type="button"
                                         onClick={() => {
-                                            setSelectedStudentId(pId);
-                                            setActiveProfileId(prof.id || pId);
+                                            const targetSid = prof.studentId || prof.username || pId;
+                                            const targetProfId = prof.id || targetSid;
                                             try {
-                                                localStorage.setItem('activeErpUser', pId);
+                                                localStorage.setItem('activeErpUser', targetSid);
                                             } catch { /* ignore */ }
-                                            const fresh = getStoredGrades(pId);
+                                            setSelectedStudentId(targetSid);
+                                            setActiveProfileId(targetProfId, targetSid);
+                                            setSelectedCourseForDetail(null);
+                                            const fresh = getStoredGrades(targetSid);
                                             setCourses(fresh);
-                                            if (hasActiveErpSession(pId)) {
-                                                fetchLiveErpGrades(pId).then(res => {
+                                            if (hasActiveErpSession(targetSid)) {
+                                                fetchLiveErpGrades(targetSid).then(res => {
                                                     if (res?.courses?.length > 0) setCourses(res.courses);
                                                 }).catch(() => null);
                                             }
