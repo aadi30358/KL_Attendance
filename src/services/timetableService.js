@@ -1354,7 +1354,7 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         try {
             const rawTt = localStorage.getItem('timetable');
             const ttOwner = localStorage.getItem('timetable_studentId') || localStorage.getItem('rememberedId');
-            if (rawTt && (!ttOwner || ttOwner === targetId)) {
+            if (rawTt && ttOwner && ttOwner === targetId) {
                 const parsed = JSON.parse(rawTt);
                 if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
                     if (isTimetableValidForStudent(parsed, targetId)) {
@@ -1391,26 +1391,24 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         }
     }
 
-    // 4b. If viewing oneself and erpCourses is passed, check if it matches student department
-    if (coursesToUse.length === 0 && isSelf && targetId === activeErpUser && Array.isArray(erpCourses) && erpCourses.length > 0) {
+    // 4b. If erpCourses is passed for targetId, check if it matches student department
+    if (coursesToUse.length === 0 && Array.isArray(erpCourses) && erpCourses.length > 0) {
         const validList = filterCoursesForStudent(erpCourses, targetId);
         if (validList.length > 0) {
             coursesToUse = validList;
         }
     }
 
-    // 4c. Check generic student cache if year/sem match
+    // 4c. Check generic student cache (strictly scoped to targetId)
     if (coursesToUse.length === 0 && typeof window !== 'undefined') {
         try {
-            const raw = localStorage.getItem(`kleData_${targetId}`);
+            const raw = localStorage.getItem(`kleData_${targetId}`) || (isSelf && targetId === localStorage.getItem('rememberedId') ? localStorage.getItem('kleData') : null);
             if (raw) {
                 const p = JSON.parse(raw);
-                if (normalizeAcademicYear(p.year) === cleanYear && normalizeSemester(p.semester) === cleanSem) {
-                    const list = p.attendance_data || p.data || (Array.isArray(p) ? p : []);
-                    const validList = filterCoursesForStudent(list, targetId);
-                    if (validList.length > 0) {
-                        coursesToUse = validList;
-                    }
+                const list = p.attendance_data || p.data || (Array.isArray(p) ? p : []);
+                const validList = filterCoursesForStudent(list, targetId);
+                if (validList.length > 0) {
+                    coursesToUse = validList;
                 }
             }
         } catch { /* ignore */ }

@@ -21,8 +21,15 @@ let inMemoryCsrfToken = '';
 
 export const hasActiveErpSession = (studentId = null) => {
     if (typeof window === 'undefined') return Boolean(inMemoryErpCookies);
-    if (studentId && localStorage.getItem(`erp_cookie_${studentId}`)) {
-        return true;
+    if (studentId) {
+        if (localStorage.getItem(`erp_cookie_${studentId}`)) return true;
+        const activeUser = localStorage.getItem('activeErpUser');
+        if (activeUser === studentId) {
+            if (inMemoryErpCookies) return true;
+            const dashHtml = localStorage.getItem('erpDashboardHtml');
+            if (dashHtml && !dashHtml.includes('site-error') && !dashHtml.includes('id="login-form"')) return true;
+        }
+        return false;
     }
     if (inMemoryErpCookies) return true;
     const activeUser = localStorage.getItem('activeErpUser');

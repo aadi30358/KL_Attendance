@@ -402,7 +402,7 @@ const Login = () => {
                     setActiveProfileId(activeProfile.id);
                     if (activeProfile.id === 'main') {
                         saveMyProfile({
-                            nickname: activeProfile.nickname || localStorage.getItem('rememberedName') || 'Adithya',
+                            nickname: activeProfile.nickname || localStorage.getItem('rememberedName') || 'My Account',
                             studentId: cleanId,
                             password: cleanPass
                         });
@@ -429,7 +429,7 @@ const Login = () => {
                         setActiveProfileId(matchedFriend.id);
                     } else {
                         const cleanName = stripEmojis(newProfileName).trim();
-                        if (cleanName && cleanName.toLowerCase() !== 'my account' && cleanName.toLowerCase() !== 'adithya') {
+                        if (cleanName && cleanName.toLowerCase() !== 'my account') {
                             const saved = saveFriend({
                                 nickname: cleanName,
                                 studentId: cleanId,
@@ -447,8 +447,17 @@ const Login = () => {
                                     studentId: cleanId,
                                     password: cleanPass
                                 });
+                                setActiveProfileId('main');
+                            } else {
+                                const newBuddy = saveFriend({
+                                    nickname: cleanName || 'Buddy',
+                                    studentId: cleanId,
+                                    password: cleanPass
+                                });
+                                if (newBuddy) {
+                                    setActiveProfileId(newBuddy.id);
+                                }
                             }
-                            setActiveProfileId('main');
                         }
                     }
                 }
@@ -462,23 +471,12 @@ const Login = () => {
                     console.warn('[Login] Record login notice:', recErr);
                 }
 
-                // Pre-sync live ERP timetable and grades; await timetable so it is saved to persistent storage immediately
-                try {
-                    await Promise.race([
-                        fetchLiveErpTimetable(cleanId),
-                        new Promise(resolve => setTimeout(resolve, 3500))
-                    ]);
-                } catch { /* proceed */ }
+                // Pre-sync live ERP timetable and grades in background
+                fetchLiveErpTimetable(cleanId).catch(() => {});
                 fetchLiveErpGrades(cleanId).catch(() => {});
 
-                // If redirected from a specific page (e.g. /timetable), return there
-                const searchParams = new URLSearchParams(window.location.search);
-                const redirectTarget = searchParams.get('redirect');
-                if (redirectTarget && redirectTarget.startsWith('/')) {
-                    navigate(redirectTarget);
-                } else {
-                    navigate('/attendance-register');
-                }
+                // Always open Attendance Register first so real registered courses are fetched
+                navigate('/attendance-register');
             } else {
                 throw new Error("Incorrect Captcha, Student ID, or Password. Please try again.");
             }

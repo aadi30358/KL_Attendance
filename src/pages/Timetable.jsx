@@ -157,7 +157,7 @@ export default function Timetable() {
                                 </div>
                                 <div className="pt-2">
                                     <Link
-                                        to="/login?redirect=/timetable"
+                                        to="/login"
                                         className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
                                     >
                                         <span>Sign In with ERP & Sync Timetable</span>

@@ -154,6 +154,20 @@ export default function ClassTimetable({
         return 'Odd Sem';
     }, [selectedSem]);
 
+    const getStudentCourses = useCallback((id) => {
+        if (!id) return [];
+        if (id === studentId && Array.isArray(erpCourses) && erpCourses.length > 0) return erpCourses;
+        try {
+            const raw = localStorage.getItem(`kleData_${id}`) || (id === primaryMyId ? localStorage.getItem('kleData') : null);
+            if (raw) {
+                const p = JSON.parse(raw);
+                const list = p.attendance_data || p.data || (Array.isArray(p) ? p : []);
+                if (Array.isArray(list) && list.length > 0) return list;
+            }
+        } catch { /* ignore */ }
+        return [];
+    }, [studentId, erpCourses, primaryMyId]);
+
     const [timetable, setTimetable] = useState(() => getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem));
 
     useEffect(() => {
@@ -166,7 +180,7 @@ export default function ClassTimetable({
             const newTargetId = detail?.studentId || (detail?.id && detail.id !== 'main' ? detail.id : primaryMyId);
             if (newTargetId && newTargetId !== activeTargetId) {
                 setActiveTargetId(newTargetId);
-                const fresh = getStudentTimetable(newTargetId, newTargetId === studentId ? erpCourses : [], currentYear, currentSem);
+                const fresh = getStudentTimetable(newTargetId, getStudentCourses(newTargetId), currentYear, currentSem);
                 setTimetable(fresh);
             }
         };
@@ -176,7 +190,7 @@ export default function ClassTimetable({
             window.removeEventListener('kl_active_profile_updated', handleProfileSwitch);
             window.removeEventListener('kl_profile_switched', handleProfileSwitch);
         };
-    }, [activeTargetId, studentId, erpCourses, currentYear, currentSem, primaryMyId]);
+    }, [activeTargetId, studentId, getStudentCourses, currentYear, currentSem, primaryMyId]);
 
     const safeTimetable = useMemo(() => {
         const defaultDays = {
@@ -691,7 +705,7 @@ export default function ClassTimetable({
                                         setActiveTargetId(fId);
                                         if (onSelectFriend) onSelectFriend(fId);
                                         if (onSelectProfile) onSelectProfile(friend);
-                                        const fresh = getStudentTimetable(fId, [], currentYear, currentSem);
+                                        const fresh = getStudentTimetable(fId, getStudentCourses(fId), currentYear, currentSem);
                                         setTimetable(fresh);
                                         if (hasActiveErpSession(fId) && (!fresh || fresh._source !== 'erp_live')) {
                                             fetchLiveErpTimetable(fId, currentYear, currentSem).then(res => {
@@ -908,7 +922,7 @@ export default function ClassTimetable({
                                 setActiveTargetId(primaryMyId);
                                 if (onSelectFriend) onSelectFriend(primaryMyId);
                                 if (onSelectProfile) onSelectProfile(myProfile);
-                                const fresh = getStudentTimetable(primaryMyId, primaryMyId === studentId ? erpCourses : [], currentYear, currentSem);
+                                const fresh = getStudentTimetable(primaryMyId, getStudentCourses(primaryMyId), currentYear, currentSem);
                                 setTimetable(fresh);
                             }}
                             className="px-3 py-1.5 rounded-xl bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
@@ -918,27 +932,7 @@ export default function ClassTimetable({
                         </button>
                     </div>
                 </div>
-            ) : (
-                safeTimetable?._source !== 'erp_live' && (
-                    <div className="bg-amber-50 border border-amber-200/90 rounded-2xl p-3.5 px-5 flex flex-wrap items-center justify-between gap-3 text-amber-950">
-                        <div className="flex items-center gap-2.5">
-                            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
-                            <div className="text-xs">
-                                <span className="font-bold">Official ERP Timetable Not Synced:</span>{' '}
-                                <span className="text-amber-800">Showing standard curriculum. Sync with ERP to view your live classroom sections and lab venues.</span>
-                            </div>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={handleReloadTimetable}
-                            className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
-                        >
-                            <ShieldCheck className="w-3.5 h-3.5 text-white" />
-                            <span>Sync Official ERP Timetable</span>
-                        </button>
-                    </div>
-                )
-            )}
+            ) : null}
 
             {/* ── Present (Current) & Next Class Row ── */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
