@@ -275,6 +275,7 @@ export function initVirtualSecureStorage() {
     restoreNativeStorage();
 }
 
+let isConsoleLocked = false;
 export function lockConsole() {
     if (typeof window === 'undefined' || isConsoleLocked) return;
     isConsoleLocked = true;
