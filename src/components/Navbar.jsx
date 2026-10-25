@@ -31,13 +31,9 @@ const Navbar = () => {
             if (typeof setErpUser === 'function') {
                 setErpUser(null);
             }
-            const currentActiveId = erpUser || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null);
-            if (currentActiveId) {
-                localStorage.removeItem(`kleData_${currentActiveId}`);
-            }
+            // Preserve offline attendance data permanently
             localStorage.removeItem('activeErpUser');
             localStorage.removeItem('erpDashboardHtml');
-            localStorage.removeItem('kleData');
             sessionStorage.removeItem('erp_authenticated');
             sessionStorage.removeItem('adminLoggedOut');
             window.dispatchEvent(new Event('storage'));
@@ -51,11 +47,6 @@ const Navbar = () => {
     };
 
     const handleResetSemester = () => {
-        const activeId = erpUser || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null);
-        if (activeId) {
-            localStorage.removeItem(`kleData_${activeId}`);
-        }
-        localStorage.removeItem('kleData'); // Fallback
         sessionStorage.setItem('manual_sem_reset', 'true');
         window.dispatchEvent(new CustomEvent('kl_reset_selection'));
         if (location.pathname !== '/timetable') {

@@ -210,6 +210,29 @@ const Login = () => {
         };
     }, [selectedProfileId]);
 
+    // Auto-redirect to Attendance Register (page with Odd Sem & Year) if logged in or saved ERP data exists
+    useEffect(() => {
+        try {
+            const html = localStorage.getItem('erpDashboardHtml');
+            const activeUser = localStorage.getItem('activeErpUser');
+            const hasSavedData = Boolean(
+                (activeUser && localStorage.getItem(`kleData_${activeUser}`)) ||
+                localStorage.getItem('kleData')
+            );
+            const hasActiveSession = Boolean(html && !html.includes('site-error') && !html.includes('id="login-form"'));
+
+            // Don't auto-redirect if explicitly switching profiles or logging in another account
+            const isExplicitSwitch = Boolean(location.state?.studentId || location.state?.profileId || location.state?.switchAccount);
+            const logoutReason = sessionStorage.getItem('kl_logout_reason');
+
+            if ((hasActiveSession || hasSavedData) && !isExplicitSwitch && !logoutReason) {
+                navigate('/attendance-register', { replace: true });
+            }
+        } catch {
+            // ignore
+        }
+    }, [navigate, location.state]);
+
     // Check for inactivity or session expiration logout reason
     useEffect(() => {
         try {

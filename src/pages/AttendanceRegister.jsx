@@ -561,8 +561,13 @@ const AttendanceRegister = () => {
         hasRestoredCacheRef.current = true;
 
         const html = localStorage.getItem('erpDashboardHtml');
+        const activeUser = activeId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null);
+        const hasSavedData = Boolean(
+            (activeUser && localStorage.getItem(`kleData_${activeUser}`)) ||
+            localStorage.getItem('kleData')
+        );
 
-        if (!html || html.includes('site-error') || html.includes('The above error occurred') || html.includes('id="login-form"')) {
+        if ((!html || html.includes('site-error') || html.includes('The above error occurred') || html.includes('id="login-form"')) && !hasSavedData) {
             localStorage.removeItem('erpDashboardHtml');
             localStorage.removeItem('activeErpUser');
             sessionStorage.removeItem('erp_authenticated');

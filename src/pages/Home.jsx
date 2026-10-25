@@ -868,7 +868,22 @@ export default function Home() {
                                 <span>Bunk Simulator</span>
                             </motion.button>
                         </Link>
-                        <Link to="/login" className="flex-1 min-w-[125px]">
+                        <Link
+                            to={(() => {
+                                try {
+                                    const html = localStorage.getItem('erpDashboardHtml');
+                                    const activeUser = localStorage.getItem('activeErpUser');
+                                    const hasData = Boolean(
+                                        (activeUser && localStorage.getItem(`kleData_${activeUser}`)) ||
+                                        localStorage.getItem('kleData')
+                                    );
+                                    return (html && !html.includes('site-error')) || hasData ? '/attendance-register' : '/login';
+                                } catch {
+                                    return '/login';
+                                }
+                            })()}
+                            className="flex-1 min-w-[125px]"
+                        >
                             <motion.button
                                 whileHover={{ scale: 1.04 }}
                                 whileTap={{ scale: 0.96 }}
@@ -886,7 +901,7 @@ export default function Home() {
                                 ) : (
                                     <>
                                         <LogIn className="w-4 h-4 text-white group-hover:scale-110 transition-transform shrink-0" />
-                                        <span>ERP Login</span>
+                                        <span>ERP Attendance</span>
                                     </>
                                 )}
                             </motion.button>
