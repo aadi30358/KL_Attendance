@@ -78,14 +78,15 @@ export const getSavedFriends = () => {
                     parsedMaddys.forEach(m => {
                         const sid = m.username || m.studentId || String(m.id || '');
                         if (sid && !list.some(f => (f.studentId === sid || f.username === sid || f.id === sid))) {
+                            const pass = m.password || '';
                             list.push({
                                 id: m.id ? String(m.id) : `maddy_${sid}`,
                                 nickname: stripEmojis(m.name || m.nickname) || 'Buddy',
                                 label: stripEmojis(m.name || m.nickname) || 'Buddy',
                                 studentId: sid,
                                 username: sid,
-                                password: m.password ? encodePassword(m.password) : '',
-                                hasSavedPassword: Boolean(m.password),
+                                password: pass ? (typeof pass === 'string' && pass.length > 25 ? pass : encodePassword(pass)) : '',
+                                hasSavedPassword: Boolean(pass),
                                 emoji: ''
                             });
                         }
@@ -93,6 +94,54 @@ export const getSavedFriends = () => {
                 }
             }
         } catch { /* ignore */ }
+
+        // Self-Healing: Discover any accounts with stored cookies or attendance data
+        try {
+            const primaryId = (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId') || '').trim();
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (!k) continue;
+                let foundSid = null;
+                let foundName = '';
+
+                if (k.startsWith('erp_cookie_')) {
+                    foundSid = k.replace('erp_cookie_', '').trim();
+                } else if (k.startsWith('kleData_')) {
+                    foundSid = k.replace('kleData_', '').trim();
+                    try {
+                        const parsed = JSON.parse(localStorage.getItem(k) || '{}');
+                        if (parsed?.student_name) foundName = stripEmojis(parsed.student_name);
+                    } catch { /* ignore */ }
+                } else if (k.startsWith('kl_timetable_')) {
+                    const parts = k.split('_');
+                    if (parts.length >= 3 && /^\d{5,}$/.test(parts[2])) {
+                        foundSid = parts[2];
+                    }
+                }
+
+                if (foundSid && /^\d{5,}$/.test(foundSid)) {
+                    if (foundSid !== primaryId && !list.some(f => f.studentId === foundSid || f.username === foundSid || f.id === foundSid)) {
+                        list.push({
+                            id: `friend_${foundSid}`,
+                            nickname: foundName || `Friend (${foundSid.slice(-4)})`,
+                            label: foundName || `Friend (${foundSid.slice(-4)})`,
+                            studentId: foundSid,
+                            username: foundSid,
+                            password: '',
+                            hasSavedPassword: false,
+                            emoji: ''
+                        });
+                    }
+                }
+            }
+        } catch { /* ignore */ }
+
+        // If list was discovered from secondary storages, persist back defensively
+        if (list.length > 0 && (!raw || raw === '[]')) {
+            try {
+                localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(list));
+            } catch { /* ignore */ }
+        }
 
         return list;
     } catch (err) {
@@ -107,53 +156,57 @@ export const getSavedFriends = () => {
 export const getMyProfile = () => {
     if (typeof window === 'undefined') return null;
     try {
-        let myId = localStorage.getItem('rememberedId') || '';
-        const rawName = localStorage.getItem('rememberedName') || '';
-        const cleanName = stripEmojis(rawName);
-        const myPass = localStorage.getItem('rememberedPassword') || '';
+        let myId = (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId') || '').trim();
+        let rawName = localStorage.getItem('rememberedName') || '';
+        let myPass = localStorage.getItem('rememberedPassword') || '';
 
-        // Self-Healing Collision Detection:
-        // If rememberedId matches a saved friend's ID with a different name,
-        // it was corrupted during a friend login. Restore the primary user's genuine ID!
-        try {
-            const rawFriends = localStorage.getItem(FRIENDS_STORAGE_KEY);
-            if (rawFriends && myId) {
-                const friendsList = JSON.parse(rawFriends);
-                if (Array.isArray(friendsList)) {
-                    const collidedFriend = friendsList.find(f => 
-                        f.studentId === myId && 
-                        (f.nickname || '').toLowerCase() !== (cleanName || '').toLowerCase() &&
-                        f.id !== 'main'
-                    );
-                    if (collidedFriend) {
-                        const originalId = localStorage.getItem('original_my_id') || '';
-                        myId = originalId;
-                        if (originalId) {
-                            localStorage.setItem('rememberedId', originalId);
-                        } else {
-                            localStorage.removeItem('rememberedId');
-                        }
-                    }
-                }
-            }
-        } catch { /* ignore */ }
-
+        // Check legacy userCredentials if myId is still empty
         if (!myId) {
-            const activeUser = localStorage.getItem('activeErpUser');
-            // Only use activeErpUser if it does not belong to a friend
-            let isFriendUser = false;
             try {
-                const rawFriends = localStorage.getItem(FRIENDS_STORAGE_KEY);
-                if (rawFriends && activeUser) {
-                    const fl = JSON.parse(rawFriends);
-                    if (Array.isArray(fl)) isFriendUser = fl.some(f => f.studentId === activeUser);
+                const legacy = localStorage.getItem('userCredentials');
+                if (legacy) {
+                    const parsed = JSON.parse(legacy);
+                    myId = (parsed.username || parsed.idNumber || parsed.studentId || '').trim();
+                    if (parsed.password && !myPass) myPass = encodePassword(parsed.password);
+                    if (parsed.name || parsed.nickname) rawName = parsed.name || parsed.nickname;
                 }
             } catch { /* ignore */ }
-
-            myId = (!isFriendUser && activeUser) ? activeUser : (localStorage.getItem('original_my_id') || '');
         }
 
-        // Strictly return null if no account has been saved or authenticated
+        // Check activeErpUser or erp_username or timetable_studentId
+        if (!myId) {
+            const candidate = (localStorage.getItem('activeErpUser') || localStorage.getItem('erp_username') || localStorage.getItem('timetable_studentId') || '').trim();
+            if (candidate && /^\d{5,}$/.test(candidate)) {
+                // Ensure candidate does not belong to a friend
+                const rawFriends = localStorage.getItem(FRIENDS_STORAGE_KEY);
+                let isFriend = false;
+                if (rawFriends) {
+                    try {
+                        const fl = JSON.parse(rawFriends);
+                        if (Array.isArray(fl)) isFriend = fl.some(f => f.studentId === candidate && f.id !== 'main');
+                    } catch { /* ignore */ }
+                }
+                if (!isFriend) {
+                    myId = candidate;
+                }
+            }
+        }
+
+        // Defensively preserve recovered ID so it is never lost
+        if (myId) {
+            try {
+                if (!localStorage.getItem('original_my_id')) {
+                    localStorage.setItem('original_my_id', myId);
+                }
+                if (!localStorage.getItem('rememberedId')) {
+                    localStorage.setItem('rememberedId', myId);
+                }
+            } catch { /* ignore */ }
+        }
+
+        const cleanName = stripEmojis(rawName);
+
+        // Strictly return null if neither ID nor password is saved
         if (!myId && !myPass) {
             return null;
         }

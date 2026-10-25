@@ -20,6 +20,7 @@ import {
 import { 
     getMyProfile, 
     getSavedFriends, 
+    getAllProfiles,
     getActiveProfileDetails,
     deleteFriend,
     setActiveProfileId
@@ -40,8 +41,7 @@ export default function ErpSidebar({
     const navigate = useNavigate();
     const location = useLocation();
     const { isMaintenance, maintenanceConfig } = useMaintenance();
-    const [myProfile, setMyProfile] = useState(() => getMyProfile());
-    const [friends, setFriends] = useState(() => getSavedFriends());
+    const [allProfiles, setAllProfiles] = useState(() => getAllProfiles());
     const [activeProfile, setActiveProfile] = useState(() => getActiveProfileDetails());
     const [showFriendsManager, setShowFriendsManager] = useState(false);
     const [showAddModal, setShowAddModal] = useState(false);
@@ -52,8 +52,7 @@ export default function ErpSidebar({
     // Sync profiles across the app whenever storage or events update
     useEffect(() => {
         const sync = () => {
-            setMyProfile(getMyProfile());
-            setFriends(getSavedFriends());
+            setAllProfiles(getAllProfiles());
             setActiveProfile(getActiveProfileDetails());
         };
         window.addEventListener('kl_friends_updated', sync);
@@ -171,7 +170,7 @@ export default function ErpSidebar({
         e.stopPropagation();
         if (window.confirm('Are you sure you want to remove this saved friend profile?')) {
             deleteFriend(friendId);
-            setFriends(getSavedFriends());
+            setAllProfiles(getAllProfiles());
             setActiveProfile(getActiveProfileDetails());
         }
     };
@@ -263,197 +262,143 @@ export default function ErpSidebar({
                             <div className="flex items-center gap-1.5">
                                 <Users className="w-3.5 h-3.5 text-indigo-600" />
                                 <span className="text-[11px] font-black text-slate-700 uppercase tracking-wider">
-                                    Saved Accounts ({1 + friends.length})
+                                    Saved Accounts ({allProfiles.length})
                                 </span>
                             </div>
 
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (onAddNewProfile) onAddNewProfile();
-                                setEditingProfile(null);
-                                setIsEditingSelf(false);
-                                setShowAddModal(true);
-                            }}
-                            className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/90 px-2 py-0.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 shadow-2xs active:scale-95"
-                            title="Add friend details (no limit)"
-                        >
-                            <UserPlus className="w-3 h-3 text-emerald-600" />
-                            <span>Add Friend</span>
-                        </button>
-                    </div>
-
-                    <div className="space-y-1.5">
-                        {/* 1. Primary Account */}
-                        {myProfile && (
-                            <div
-                                key="profile-main"
-                                className={`p-2 rounded-xl border transition-all ${
-                                    !activeProfile?.isFriend
-                                        ? 'bg-gradient-to-r from-indigo-50/90 to-white border-indigo-400 shadow-2xs ring-1 ring-indigo-200'
-                                        : 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
-                                }`}
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (onAddNewProfile) onAddNewProfile();
+                                    setEditingProfile(null);
+                                    setIsEditingSelf(false);
+                                    setShowAddModal(true);
+                                }}
+                                className="text-[10px] font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/90 px-2 py-0.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 shadow-2xs active:scale-95"
+                                title="Add friend details (no limit)"
                             >
-                                <div className="flex items-center justify-between gap-1.5">
-                                    <div className="flex items-center gap-1.5 min-w-0">
-                                        <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-[10px] shadow-2xs shrink-0">
-                                            <User className="w-3 h-3" />
-                                        </div>
-                                        <div className="min-w-0">
-                                            <div className="flex items-center gap-1">
-                                                <span className="text-[11px] font-black text-slate-900 truncate">
-                                                    {myProfile.nickname || 'Adithya'}
-                                                </span>
-                                                {!activeProfile?.isFriend && (
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                                                )}
-                                            </div>
-                                            <p className="text-[9px] font-mono text-indigo-700 font-bold truncate leading-none">
-                                                ID: {myProfile.studentId || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || ''}
-                                            </p>
-                                        </div>
-                                    </div>
+                                <UserPlus className="w-3 h-3 text-emerald-600" />
+                                <span>Add Friend</span>
+                            </button>
+                        </div>
 
-                                    <div className="flex items-center gap-1 shrink-0">
-                                        <span className="text-[8px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded">
-                                            Primary
-                                        </span>
-                                        {activeProfile?.isFriend && (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleSwitchProfile(myProfile)}
-                                                className="text-[9px] font-bold text-indigo-600 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 transition-all cursor-pointer shadow-2xs"
-                                            >
-                                                Switch
-                                            </button>
-                                        )}
-                                    </div>
+                        <div className="space-y-1.5">
+                            {allProfiles.length === 0 ? (
+                                <div className="p-3 text-center rounded-xl border border-dashed border-slate-300 bg-white/80">
+                                    <Users className="w-5 h-5 mx-auto text-slate-400 mb-1" />
+                                    <p className="text-xs font-bold text-slate-700">No saved accounts yet</p>
+                                    <p className="text-[10px] text-slate-500 mt-0.5">Click &ldquo;+ Add Friend&rdquo; above to save an account for 1-click access.</p>
                                 </div>
+                            ) : (
+                                allProfiles.map((profile) => {
+                                    const isSelf = profile.id === 'main' || !profile.isFriend;
+                                    const isActive = activeProfile ? (
+                                        activeProfile.id === profile.id || 
+                                        (!activeProfile.isFriend && isSelf) ||
+                                        (Boolean(activeProfile.studentId) && Boolean(profile.studentId) && activeProfile.studentId === profile.studentId)
+                                    ) : false;
 
-                                {/* Direct Actions: Timetable, CGPA, Attend */}
-                                <div className="mt-1.5 pt-1 border-t border-slate-100 flex items-center gap-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => handleQuickTimetable(myProfile)}
-                                        className="flex-1 py-1 px-1 bg-blue-50/90 hover:bg-blue-100 text-blue-700 border border-blue-200/70 text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
-                                        title="View timetable without captcha"
-                                    >
-                                        <Calendar className="w-2.5 h-2.5 text-blue-600 shrink-0" />
-                                        <span>Timetable</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleQuickGrades(myProfile)}
-                                        className="flex-1 py-1 px-1 bg-amber-50/90 hover:bg-amber-100 text-amber-800 border border-amber-200/70 text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
-                                        title="View grades & CGPA without captcha"
-                                    >
-                                        <Award className="w-2.5 h-2.5 text-amber-600 shrink-0" />
-                                        <span>CGPA</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => handleQuickAttendance(myProfile)}
-                                        className="flex-1 py-1 px-1 bg-slate-900 hover:bg-indigo-600 text-white text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
-                                        title="Check attendance with captcha verification"
-                                    >
-                                        <ShieldCheck className="w-2.5 h-2.5 text-indigo-300 shrink-0" />
-                                        <span>Attend</span>
-                                    </button>
-                                </div>
-                            </div>
-                        )}
+                                    return (
+                                        <div
+                                            key={profile.id || profile.studentId}
+                                            className={`p-2 rounded-xl border transition-all ${
+                                                isActive
+                                                    ? 'bg-gradient-to-r from-indigo-50/90 to-white border-indigo-400 shadow-2xs ring-1 ring-indigo-200'
+                                                    : 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between gap-1.5">
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-[10px] shadow-2xs shrink-0 ${
+                                                        isSelf 
+                                                            ? 'bg-indigo-600 text-white' 
+                                                            : 'bg-purple-100 text-purple-700 border border-purple-200'
+                                                    }`}>
+                                                        {isSelf ? <User className="w-3 h-3" /> : <Users className="w-3 h-3" />}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <div className="flex items-center gap-1">
+                                                            <span className="text-[11px] font-black text-slate-900 truncate">
+                                                                {profile.nickname || (isSelf ? 'My Account' : 'Buddy')}
+                                                            </span>
+                                                            {isActive && (
+                                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                                            )}
+                                                        </div>
+                                                        <p className={`text-[9px] font-mono font-bold truncate leading-none ${
+                                                            isSelf ? 'text-indigo-700' : 'text-purple-700'
+                                                        }`}>
+                                                            ID: {profile.studentId || ''}
+                                                        </p>
+                                                    </div>
+                                                </div>
 
-                        {/* 2. All Saved Friends */}
-                        {friends.map((friend) => {
-                            const isActive = activeProfile?.id === friend.id;
-                            return (
-                                <div
-                                    key={friend.id}
-                                    className={`p-2 rounded-xl border transition-all ${
-                                        isActive
-                                            ? 'bg-gradient-to-r from-indigo-50/90 to-white border-indigo-400 shadow-2xs ring-1 ring-indigo-200'
-                                            : 'bg-white border-slate-200 hover:border-indigo-300 shadow-2xs'
-                                    }`}
-                                >
-                                    <div className="flex items-center justify-between gap-1.5">
-                                        <div className="flex items-center gap-1.5 min-w-0">
-                                            <div className="w-6 h-6 rounded-lg bg-purple-100 text-purple-700 border border-purple-200 flex items-center justify-center font-bold text-[10px] shadow-2xs shrink-0">
-                                                <Users className="w-3 h-3" />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <div className="flex items-center gap-1">
-                                                    <span className="text-[11px] font-black text-slate-900 truncate">
-                                                        {friend.nickname}
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    <span className={`text-[8px] font-black uppercase tracking-wider px-1 py-0.5 rounded ${
+                                                        isSelf
+                                                            ? 'bg-emerald-100 text-emerald-800'
+                                                            : 'bg-purple-100 text-purple-800'
+                                                    }`}>
+                                                        {isSelf ? 'Primary' : 'Friend'}
                                                     </span>
-                                                    {isActive && (
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                                    {!isActive && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleSwitchProfile(profile)}
+                                                            className="text-[9px] font-bold text-indigo-600 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 transition-all cursor-pointer shadow-2xs"
+                                                        >
+                                                            Switch
+                                                        </button>
+                                                    )}
+                                                    {!isSelf && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => handleDeleteFriend(e, profile.id)}
+                                                            className="p-0.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                                            title="Delete friend profile"
+                                                        >
+                                                            <Trash2 className="w-3 h-3" />
+                                                        </button>
                                                     )}
                                                 </div>
-                                                <p className="text-[9px] font-mono text-purple-700 font-bold truncate leading-none">
-                                                    ID: {friend.studentId}
-                                                </p>
                                             </div>
-                                        </div>
 
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            <span className="text-[8px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 px-1 py-0.5 rounded">
-                                                Friend
-                                            </span>
-                                            {!isActive ? (
+                                            {/* Direct Actions: Timetable, CGPA, Attend */}
+                                            <div className="mt-1.5 pt-1 border-t border-slate-100 flex items-center gap-1">
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleSwitchProfile(friend)}
-                                                    className="text-[9px] font-bold text-indigo-600 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-1.5 py-0.5 rounded border border-indigo-200 transition-all cursor-pointer shadow-2xs"
+                                                    onClick={() => handleQuickTimetable(profile)}
+                                                    className="flex-1 py-1 px-1 bg-blue-50/90 hover:bg-blue-100 text-blue-700 border border-blue-200/70 text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                                    title="View timetable without captcha"
                                                 >
-                                                    Switch
+                                                    <Calendar className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+                                                    <span>Timetable</span>
                                                 </button>
-                                            ) : null}
-                                            <button
-                                                type="button"
-                                                onClick={(e) => handleDeleteFriend(e, friend.id)}
-                                                className="p-0.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                                                title="Delete friend profile"
-                                            >
-                                                <Trash2 className="w-3 h-3" />
-                                            </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleQuickGrades(profile)}
+                                                    className="flex-1 py-1 px-1 bg-amber-50/90 hover:bg-amber-100 text-amber-800 border border-amber-200/70 text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                                    title="View grades & CGPA without captcha"
+                                                >
+                                                    <Award className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                                                    <span>CGPA</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleQuickAttendance(profile)}
+                                                    className="flex-1 py-1 px-1 bg-slate-900 hover:bg-indigo-600 text-white text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
+                                                    title="Check attendance with captcha verification"
+                                                >
+                                                    <ShieldCheck className="w-2.5 h-2.5 text-indigo-300 shrink-0" />
+                                                    <span>Attend</span>
+                                                </button>
+                                            </div>
                                         </div>
-                                    </div>
-
-                                    {/* Direct Actions: Timetable, CGPA, Attend */}
-                                    <div className="mt-1.5 pt-1 border-t border-slate-100 flex items-center gap-1">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleQuickTimetable(friend)}
-                                            className="flex-1 py-1 px-1 bg-blue-50/90 hover:bg-blue-100 text-blue-700 border border-blue-200/70 text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
-                                            title="View timetable without captcha"
-                                        >
-                                            <Calendar className="w-2.5 h-2.5 text-blue-600 shrink-0" />
-                                            <span>Timetable</span>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleQuickGrades(friend)}
-                                            className="flex-1 py-1 px-1 bg-amber-50/90 hover:bg-amber-100 text-amber-800 border border-amber-200/70 text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
-                                            title="View grades & CGPA without captcha"
-                                        >
-                                            <Award className="w-2.5 h-2.5 text-amber-600 shrink-0" />
-                                            <span>CGPA</span>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleQuickAttendance(friend)}
-                                            className="flex-1 py-1 px-1 bg-slate-900 hover:bg-indigo-600 text-white text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
-                                            title="Check attendance with captcha verification"
-                                        >
-                                            <ShieldCheck className="w-2.5 h-2.5 text-indigo-300 shrink-0" />
-                                            <span>Attend</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                                    );
+                                })
+                            )}
+                        </div>
                     </div>
-                </div>
                 </div>
             </div>
 
@@ -482,8 +427,8 @@ export default function ErpSidebar({
                     setIsEditingSelf(false);
                 }}
                 onFriendSaved={() => {
-                    setMyProfile(getMyProfile());
-                    setFriends(getSavedFriends());
+                    setAllProfiles(getAllProfiles());
+                    setActiveProfile(getActiveProfileDetails());
                     setShowAddModal(false);
                     setEditingProfile(null);
                     setIsEditingSelf(false);
