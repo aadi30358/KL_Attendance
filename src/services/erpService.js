@@ -73,7 +73,7 @@ export const hasActiveErpSession = (studentId = null) => {
 };
 
 export const getStoredErpCookies = (studentId = null) => {
-    if (typeof window === 'undefined') return '';
+    if (typeof window === 'undefined') return inMemoryErpCookies || '';
     const cleanId = (studentId || '').trim();
     if (cleanId) {
         const friendCookie = localStorage.getItem(`erp_cookie_${cleanId}`);
@@ -84,19 +84,24 @@ export const getStoredErpCookies = (studentId = null) => {
             const mainCookie = localStorage.getItem('erp_cookie_main');
             if (mainCookie) return mainCookie;
         }
+        // If inMemoryErpCookies is available without a bound user, it's the active pre-login Captcha session
+        if (inMemoryErpCookies && !inMemoryErpUser) {
+            return inMemoryErpCookies;
+        }
         return '';
     }
     const activeUser = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
     if (activeUser) {
-        return getStoredErpCookies(activeUser);
+        const userCookie = localStorage.getItem(`erp_cookie_${activeUser}`);
+        if (userCookie) return userCookie;
     }
-    return '';
+    return inMemoryErpCookies || '';
 };
 
 export const setStoredErpCookies = (val, studentId = null) => {
     inMemoryErpCookies = val || '';
-    const cleanId = (studentId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '').trim();
-    inMemoryErpUser = cleanId;
+    const cleanId = (studentId || '').trim();
+    inMemoryErpUser = cleanId; // empty string when initializing pre-login captcha session
     if (typeof window !== 'undefined' && cleanId && val) {
         try {
             localStorage.setItem(`erp_cookie_${cleanId}`, val);
@@ -426,13 +431,16 @@ export const erpService = {
 
         const cleanUsername = username.trim();
 
+        const activeCaptchaCookie = inMemoryErpCookies || getStoredErpCookies(cleanUsername);
+
         // 1. Try high-performance /api/fast-login endpoint first
         try {
             const resp = await fetch(`${apiBase || ''}/api/fast-login`, {
                 method: 'POST',
                 headers: buildErpHeaders({
                     'Content-Type': 'application/json',
-                    ...(token ? { 'x-csrf-token': token } : {})
+                    ...(token ? { 'x-csrf-token': token } : {}),
+                    ...(activeCaptchaCookie ? { 'x-erp-cookie': activeCaptchaCookie } : {})
                 }, cleanUsername),
                 body: JSON.stringify({
                     username: cleanUsername,
@@ -483,7 +491,8 @@ export const erpService = {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Pragma': 'no-cache',
             'Cache-Control': 'no-cache',
-            ...(token ? { 'x-csrf-token': token } : {})
+            ...(token ? { 'x-csrf-token': token } : {}),
+            ...(activeCaptchaCookie ? { 'x-erp-cookie': activeCaptchaCookie } : {})
         }, cleanUsername);
 
         let url = `${apiBase || ''}/index.php?r=site%2Flogin`;

@@ -397,6 +397,10 @@ const Login = () => {
                 localStorage.setItem('userUniversity', 'klu');
                 setErpUser(cleanId);
                 localStorage.setItem('activeErpUser', cleanId);
+                const currentCookies = erpService.getStoredErpCookies(cleanId);
+                if (currentCookies) {
+                    localStorage.setItem(`erp_cookie_${cleanId}`, currentCookies);
+                }
 
                 if (!isNewProfile && activeProfile) {
                     setActiveProfileId(activeProfile.id);
