@@ -166,7 +166,7 @@ export default function Grades() {
             setIsSyncing(false);
             setTimeout(() => setSyncMessage(null), 5000);
         }
-    }, [selectedStudentId, allFriends]);
+    }, [selectedStudentId, allProfiles]);
 
     const handleImportFromErp = useCallback(() => {
         try {
