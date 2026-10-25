@@ -155,9 +155,10 @@ export default function Timetable() {
                                 <div className="pt-2">
                                     <Link
                                         to="/login"
+                                        state={{ view: 'attendance' }}
                                         className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
                                     >
-                                        <span>Login with ERP Attendance</span>
+                                        <span>ERP Portal Login</span>
                                         <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
                                     </Link>
                                 </div>
@@ -170,7 +171,7 @@ export default function Timetable() {
                                 selectedYear={selectedYear}
                                 selectedSem={selectedSem}
                                 onChangeSelection={() => navigate('/attendance-register')}
-                                onViewCourseAttendance={() => navigate('/attendance-register')}
+                                onViewCourseAttendance={() => navigate('/login', { state: { studentId: activeId, profileId: activeId, view: 'attendance' } })}
                                 onSelectFriend={(fid) => {
                                     if (fid) {
                                         setActiveProfileId(fid);

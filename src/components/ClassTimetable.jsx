@@ -20,7 +20,7 @@ import {
     ShieldAlert,
     X
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
     DAYS_OF_WEEK,
     KLU_SESSIONS,
@@ -62,6 +62,7 @@ export default function ClassTimetable({
     selectedYear = '2026-2027',
     selectedSem = 'Odd Semester'
 }) {
+    const navigate = useNavigate();
     const myProfile = useMemo(() => getMyProfile(), []);
     const effectiveSaved = useMemo(() => getEffectiveSavedProfile(), []);
     const primaryMyId = myProfile?.studentId || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || effectiveSaved?.studentId || '';
@@ -718,30 +719,8 @@ export default function ClassTimetable({
                         </div>
                     </div>
 
-                    {/* Buddy / Friend Switcher Bar */}
+                    {/* Buddy / Friend Switcher Bar (Names first, Account last) */}
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                        {Boolean(primaryMyId) && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setActiveProfileId('main');
-                                    setActiveTargetId(primaryMyId);
-                                    if (onSelectFriend) onSelectFriend(primaryMyId);
-                                    if (onSelectProfile) onSelectProfile(myProfile);
-                                    const fresh = getStudentTimetable(primaryMyId, primaryMyId === studentId ? erpCourses : [], currentYear, currentSem);
-                                    setTimetable(fresh);
-                                }}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
-                                    effectiveId === primaryMyId
-                                        ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                                }`}
-                            >
-                                <span className={`w-2 h-2 rounded-full ${effectiveId === primaryMyId ? 'bg-emerald-300' : 'bg-emerald-500'}`} />
-                                <span>{primaryMyName} ({primaryMyId})</span>
-                            </button>
-                        )}
-
                         {filteredFriends.map((friend) => {
                             const fId = friend.studentId || friend.username || friend.id;
                             const fName = friend.nickname || friend.name || friend.label || 'Buddy';
@@ -775,6 +754,31 @@ export default function ClassTimetable({
                                 </button>
                             );
                         })}
+
+                        {/* Account as the LAST option */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setActiveProfileId('main');
+                                setActiveTargetId(primaryMyId || 'main');
+                                if (onSelectFriend) onSelectFriend(primaryMyId || 'main');
+                                if (onSelectProfile) onSelectProfile(myProfile || { id: 'main', nickname: 'Account' });
+                                const fresh = getStudentTimetable(primaryMyId || 'main', primaryMyId === studentId ? erpCourses : [], currentYear, currentSem);
+                                setTimetable(fresh);
+                            }}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
+                                (effectiveId === primaryMyId || effectiveId === 'main' || !filteredFriends.some(f => (f.studentId === effectiveId || f.id === effectiveId)))
+                                    ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                            }`}
+                        >
+                            <span className={`w-2 h-2 rounded-full ${
+                                (effectiveId === primaryMyId || effectiveId === 'main' || !filteredFriends.some(f => (f.studentId === effectiveId || f.id === effectiveId)))
+                                    ? 'bg-emerald-300'
+                                    : 'bg-emerald-500'
+                            }`} />
+                            <span>{primaryMyId ? `${primaryMyName || 'Account'} (${primaryMyId})` : 'Account'}</span>
+                        </button>
                     </div>
                 </div>
 
@@ -998,21 +1002,24 @@ export default function ClassTimetable({
                             First login with ERP Attendance for <span className="font-bold text-slate-900">{effectiveName} ({effectiveId})</span>, then only the timetable will be shown.
                         </p>
                     </div>
-                    <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+                    <div className="pt-2 flex items-center justify-center">
                         <button
                             type="button"
-                            onClick={handleReloadTimetable}
+                            onClick={() => {
+                                if (effectiveId) {
+                                    setActiveProfileId(effectiveId);
+                                }
+                                if (typeof onViewCourseAttendance === 'function') {
+                                    onViewCourseAttendance();
+                                }
+                                window.dispatchEvent(new CustomEvent('kl_switch_view', { detail: 'attendance' }));
+                                navigate('/login', { state: { studentId: effectiveId, profileId: effectiveId, view: 'attendance' } });
+                            }}
                             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
                         >
                             <ShieldCheck className="w-4 h-4 text-white" />
-                            <span>Login with ERP Attendance</span>
-                        </button>
-                        <Link
-                            to="/login"
-                            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all border border-slate-200 cursor-pointer"
-                        >
                             <span>ERP Portal Login</span>
-                        </Link>
+                        </button>
                     </div>
                 </div>
             ) : (

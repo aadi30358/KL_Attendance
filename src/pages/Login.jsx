@@ -22,7 +22,7 @@ import {
     Trash2, 
     Edit2
 } from 'lucide-react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { erpService, isVerifiedErpDashboard } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
 import { saveCredentialsToSheet } from '../services/gsheetsService';
@@ -51,6 +51,8 @@ import {
 
 const Login = () => {
     const { setErpUser, currentUser } = useAuth();
+    const navigate = useNavigate();
+    const location = useLocation();
     const isAdmin = currentUser?.email === 'yaswanthadithyareddy11@gmail.com' ||
                     currentUser?.email === 'yaswanthadithyareddy12@gmail.com' ||
                     currentUser?.email === 'yaswanthadithyareddy10@gmail.com' ||
@@ -109,7 +111,12 @@ const Login = () => {
     // Profiles & active selection
     const [allProfilesList, setAllProfilesList] = useState(() => getAllProfiles());
     const [selectedProfileId, setSelectedProfileId] = useState(() => {
+        const target = location.state?.studentId || location.state?.profileId;
         const list = getAllProfiles();
+        if (target) {
+            const match = list.find(p => p.studentId === target || p.username === target || p.id === target);
+            if (match) return match.id;
+        }
         const activeId = getActiveProfileId();
         if (activeId && list.some(p => p.id === activeId)) return activeId;
         return list.length > 0 ? list[0].id : 'new';
@@ -134,7 +141,11 @@ const Login = () => {
     const [showAddFriendModal, setShowAddFriendModal] = useState(false);
     const [editingFriend, setEditingFriend] = useState(null);
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [activeView, setActiveView] = useState('attendance');
+    const [activeView, setActiveView] = useState(() => {
+        if (location.state?.view === 'attendance') return 'attendance';
+        if (location.state?.view === 'timetable') return 'timetable';
+        return 'attendance';
+    });
 
     // Cross-component switch view listener
     useEffect(() => {
@@ -146,6 +157,22 @@ const Login = () => {
         window.addEventListener('kl_switch_view', handleSwitch);
         return () => window.removeEventListener('kl_switch_view', handleSwitch);
     }, []);
+
+    // Listen for incoming location state navigation (e.g. ERP Portal Login button)
+    useEffect(() => {
+        const target = location.state?.studentId || location.state?.profileId;
+        if (target) {
+            const list = getAllProfiles();
+            const match = list.find(p => p.studentId === target || p.username === target || p.id === target);
+            if (match) {
+                setSelectedProfileId(match.id);
+                setActiveProfileId(match.id);
+            }
+        }
+        if (location.state?.view) {
+            setActiveView(location.state.view);
+        }
+    }, [location.state]);
 
     // Retrieve cached ERP courses for timetable
     const getCachedCourses = (id) => {
@@ -239,7 +266,6 @@ const Login = () => {
         };
     }, []);
 
-    const navigate = useNavigate();
     const captchaUrlRef = useRef('');
     const csrfTokenRef = useRef('');
     const isSubmittingRef = useRef(false);
