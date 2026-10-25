@@ -426,12 +426,18 @@ export default function ErpSidebar({
                     setEditingProfile(null);
                     setIsEditingSelf(false);
                 }}
-                onFriendSaved={() => {
+                onFriendSaved={(newProfile) => {
                     setAllProfiles(getAllProfiles());
                     setActiveProfile(getActiveProfileDetails());
                     setShowAddModal(false);
                     setEditingProfile(null);
                     setIsEditingSelf(false);
+                    if (newProfile?.studentId) {
+                        try {
+                            localStorage.setItem('activeErpUser', newProfile.studentId);
+                        } catch { /* ignore */ }
+                    }
+                    navigate('/attendance-register');
                 }}
             />
 
@@ -443,6 +449,7 @@ export default function ErpSidebar({
                 onSuccess={() => {
                     setActiveProfile(getActiveProfileDetails());
                     setCaptchaTarget(null);
+                    navigate('/attendance-register');
                 }}
             />
         </div>

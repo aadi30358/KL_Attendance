@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { X, Eye, EyeOff, Save, Check, Users, User, Edit3, ShieldCheck } from 'lucide-react';
-import { saveFriend, saveMyProfile, decodePassword } from '../services/friendsService';
+import { useNavigate } from 'react-router-dom';
+import { saveFriend, saveMyProfile, decodePassword, setActiveProfileId } from '../services/friendsService';
 
 function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
+    const navigate = useNavigate();
     const isSelf = isMyProfile || initialFriend?.id === 'main';
 
     const [customName, setCustomName] = useState(() => {
@@ -60,6 +62,22 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
                 });
             }
 
+            // Immediately set active ERP user to this saved profile so Attendance Register loads them
+            try {
+                localStorage.setItem('activeErpUser', cleanId);
+                const profId = saved?.id || (isSelf ? 'main' : cleanId);
+                setActiveProfileId(profId);
+                const currentYr = `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
+                if (!localStorage.getItem(`manualYear_${cleanId}`)) {
+                    localStorage.setItem(`manualYear_${cleanId}`, currentYr);
+                }
+                if (!localStorage.getItem(`manualSem_${cleanId}`)) {
+                    localStorage.setItem(`manualSem_${cleanId}`, 'Odd');
+                }
+                window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: profId }));
+                window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: saved, studentId: cleanId } }));
+            } catch { /* ignore */ }
+
             setSavedSuccess(true);
             setTimeout(() => {
                 setSavedSuccess(false);
@@ -67,7 +85,9 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
                     onFriendSaved(saved);
                 }
                 onClose();
-            }, 600);
+                // Always redirect to Attendance Register (odd sem and year)
+                navigate('/attendance-register');
+            }, 500);
         } catch (err) {
             setError(err.message || 'Failed to save details.');
         }

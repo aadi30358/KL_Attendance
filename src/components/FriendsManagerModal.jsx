@@ -395,6 +395,8 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                 onFriendSaved={() => {
                     setFriends(getSavedFriends());
                     setShowAddModal(false);
+                    onClose();
+                    navigate('/attendance-register');
                 }}
             />
 
@@ -407,6 +409,7 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                     setActiveProfile(getActiveProfileDetails());
                     setTargetFriendForCaptcha(null);
                     onClose();
+                    navigate('/attendance-register');
                 }}
             />
         </>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, SlidersHorizontal } from 'lucide-react';
+import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, SlidersHorizontal, ShieldCheck } from 'lucide-react';
 import { erpService } from '../services/erpService';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -9,10 +9,11 @@ import {
     calculateAttendanceDiff,
     playAttendanceChime
 } from '../services/attendanceAlerts';
-import { getActiveProfileDetails } from '../services/friendsService';
+import { getActiveProfileDetails, getSavedFriends, getMyProfile } from '../services/friendsService';
 import { fetchLiveErpTimetable, normalizeAcademicYear, normalizeSemester, getPresentAcademicYearAndSem } from '../services/timetableService';
 import { fetchLiveErpGrades } from '../services/gradesService';
 import FriendsManagerModal from '../components/FriendsManagerModal';
+import FriendCaptchaModal from '../components/FriendCaptchaModal';
 import ErpSidebar from '../components/ErpSidebar';
 
 function formatTimeAgo(timestamp) {
@@ -282,6 +283,7 @@ const AttendanceRegister = () => {
     const [recentlyUpdatedCodes, setRecentlyUpdatedCodes] = useState(new Set());
     const [showFriendsModal, setShowFriendsModal] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [targetFriendForCaptcha, setTargetFriendForCaptcha] = useState(null);
 
     // Listen for switch view event from ErpSidebar or external triggers
 
@@ -566,8 +568,14 @@ const AttendanceRegister = () => {
             (activeUser && localStorage.getItem(`kleData_${activeUser}`)) ||
             localStorage.getItem('kleData')
         );
+        const hasSavedProfile = Boolean(
+            activeUser && (
+                (getSavedFriends() || []).some(f => (f.studentId === activeUser || f.id === activeUser)) ||
+                (getMyProfile()?.studentId === activeUser)
+            )
+        );
 
-        if ((!html || html.includes('site-error') || html.includes('The above error occurred') || html.includes('id="login-form"')) && !hasSavedData) {
+        if ((!html || html.includes('site-error') || html.includes('The above error occurred') || html.includes('id="login-form"')) && !hasSavedData && !hasSavedProfile) {
             localStorage.removeItem('erpDashboardHtml');
             localStorage.removeItem('activeErpUser');
             sessionStorage.removeItem('erp_authenticated');
@@ -1379,20 +1387,35 @@ const AttendanceRegister = () => {
                                     </div>
                                 </div>
 
-                                {fetchError && (
-                                    <motion.div 
-                                        initial={{ opacity: 0, height: 0 }}
-                                        animate={{ opacity: 1, height: 'auto' }}
-                                        className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 rounded-2xl p-4 flex items-start gap-3"
-                                    >
-                                        <div className="w-5 h-5 bg-red-100 dark:bg-red-900/60 rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                                            <span className="text-red-600 dark:text-red-400 text-xs font-black">!</span>
-                                        </div>
-                                        <p className="text-xs font-bold text-red-700 dark:text-red-300 leading-relaxed">
-                                            {fetchError}
-                                        </p>
-                                    </motion.div>
-                                )}
+                                {fetchError && (() => {
+                                    const currentSaved = (getSavedFriends() || []).find(f => f.studentId === activeId || f.id === activeId) || (getMyProfile()?.studentId === activeId ? getMyProfile() : null);
+                                    return (
+                                        <motion.div 
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 rounded-2xl p-4 flex flex-col gap-2.5"
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                <div className="w-5 h-5 bg-red-100 dark:bg-red-900/60 rounded-full flex items-center justify-center shrink-0 mt-0.5">
+                                                    <span className="text-red-600 dark:text-red-400 text-xs font-black">!</span>
+                                                </div>
+                                                <p className="text-xs font-bold text-red-700 dark:text-red-300 leading-relaxed flex-1">
+                                                    {fetchError}
+                                                </p>
+                                            </div>
+                                            {Boolean(currentSaved?.password || currentSaved?.hasSavedPassword) && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTargetFriendForCaptcha(currentSaved)}
+                                                    className="self-start px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
+                                                >
+                                                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-200" />
+                                                    <span>Verify Captcha & Fetch</span>
+                                                </button>
+                                            )}
+                                        </motion.div>
+                                    );
+                                })()}
 
                                 <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                                     onClick={() => handleSearch(year, semester)} disabled={loading}
@@ -1435,6 +1458,17 @@ const AttendanceRegister = () => {
             <FriendsManagerModal
                 isOpen={showFriendsModal}
                 onClose={() => setShowFriendsModal(false)}
+            />
+
+            {/* Quick ERP Captcha Modal */}
+            <FriendCaptchaModal
+                friend={targetFriendForCaptcha}
+                isOpen={Boolean(targetFriendForCaptcha)}
+                onClose={() => setTargetFriendForCaptcha(null)}
+                onSuccess={() => {
+                    setTargetFriendForCaptcha(null);
+                    handleSearch(year, semester, activeId);
+                }}
             />
         </div>
     );

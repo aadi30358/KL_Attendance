@@ -1861,7 +1861,14 @@ export default function Home() {
                     setEditingFriend(null);
                     if (newFriend) {
                         handleSwitchLiveProfile(newFriend);
+                        const sid = newFriend.studentId || newFriend.id;
+                        if (sid) {
+                            try {
+                                localStorage.setItem('activeErpUser', sid);
+                            } catch { /* ignore */ }
+                        }
                     }
+                    navigate('/attendance-register');
                 }}
             />
 

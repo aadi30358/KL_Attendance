@@ -64,7 +64,11 @@ export default function Grades() {
 
     // Active Profile: Self or Buddy
     const [selectedStudentId, setSelectedStudentId] = useState(() => {
-        return localStorage.getItem('activeErpUser') || myId;
+        const stored = localStorage.getItem('activeErpUser');
+        if (stored) return stored;
+        const profiles = getAllProfiles();
+        const first = profiles[0];
+        return first?.studentId || first?.username || myId || '';
     });
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -720,7 +724,7 @@ export default function Grades() {
                                     Official KLU Grade Sheet Access Notice
                                 </h3>
                                 <p className="text-xs sm:text-sm text-blue-800 leading-relaxed">
-                                    Official grades and CGPA for <strong className="font-bold text-slate-900">{activeProfileName} ({selectedStudentId})</strong> will appear here after logging in with ERP credentials.
+                                    Official grades and CGPA for <strong className="font-bold text-slate-900">{activeProfileName || selectedStudentId} ({selectedStudentId || 'Active Student'})</strong> will appear here after logging in with ERP credentials.
                                 </p>
                                 <div className="flex flex-wrap items-center gap-3 pt-2">
                                     <button
@@ -734,7 +738,7 @@ export default function Grades() {
                                                     state: {
                                                         studentId: selectedStudentId,
                                                         profileId: targetProfile?.id || selectedStudentId,
-                                                        view: 'grades'
+                                                        view: 'attendance'
                                                     }
                                                 });
                                             }
@@ -1000,6 +1004,7 @@ export default function Grades() {
                 onSuccess={() => {
                     setFriendCaptchaTarget(null);
                     handleSyncLiveErpGrades();
+                    navigate('/attendance-register');
                 }}
             />
         </div>

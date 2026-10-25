@@ -1214,7 +1214,14 @@ const Login = () => {
                     setEditingFriend(null);
                     if (newFriend) {
                         setSelectedProfileId(newFriend.id);
+                        const sid = newFriend.studentId || newFriend.id;
+                        if (sid) {
+                            try {
+                                localStorage.setItem('activeErpUser', sid);
+                            } catch { /* ignore */ }
+                        }
                     }
+                    navigate('/attendance-register');
                 }}
             />
         </div>

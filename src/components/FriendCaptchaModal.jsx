@@ -237,10 +237,8 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     onSuccess(friend);
                 }
                 onClose();
-                const path = window.location.pathname || '';
-                if (!path.includes('/timetable') && !path.includes('/grades')) {
-                    navigate('/attendance-register');
-                }
+                // Always navigate to Attendance Register (odd sem and year)
+                navigate('/attendance-register');
             } else {
                 throw new Error('Incorrect Captcha or ERP session error. Please try again.');
             }
