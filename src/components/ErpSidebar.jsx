@@ -24,6 +24,7 @@ import {
     deleteFriend,
     setActiveProfileId
 } from '../services/friendsService';
+import { setStoredErpCookies, clearStoredErpCookies } from '../services/erpService';
 import { useMaintenance } from '../services/useMaintenance';
 import FriendsManagerModal from './FriendsManagerModal';
 import AddFriendModal from './AddFriendModal';
@@ -139,6 +140,12 @@ export default function ErpSidebar({
         setActiveProfileId(pid);
         if (sid) {
             localStorage.setItem('activeErpUser', sid);
+            const savedCookie = localStorage.getItem(`erp_cookie_${sid}`);
+            if (savedCookie) {
+                setStoredErpCookies(savedCookie, sid);
+            } else {
+                clearStoredErpCookies();
+            }
         }
         setActiveProfile(getActiveProfileDetails());
         window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: pid }));

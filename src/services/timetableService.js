@@ -1306,6 +1306,10 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
                 if (cached) {
                     let parsed = JSON.parse(cached);
                     if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+                        // CRITICAL: If student has not logged into ERP attendance, never return cached live timetable
+                        if (!hasActiveErpSession(targetId) && !parsed._userCustomized) {
+                            continue;
+                        }
                         if (isTimetableValidForStudent(parsed, targetId)) {
                             const normalized = normalizeTimetableFormat(parsed, targetId);
                             if (normalized) {
@@ -1414,9 +1418,12 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         } catch { /* ignore */ }
     }
 
-    // 4d. Fall back to the authentic KLU curriculum derived directly from student ID, Year of Study & Semester
+    // 4d. Fall back to curriculum ONLY IF student has an active ERP session
     let isCurriculumFallback = false;
     if (coursesToUse.length === 0) {
+        if (!hasActiveErpSession(targetId)) {
+            return null;
+        }
         coursesToUse = getCurriculumForStudent(targetId, cleanYear, cleanSem);
         isCurriculumFallback = true;
     }
@@ -1429,9 +1436,9 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         generated._source = 'erp_live';
     }
 
-    // Only persist to localStorage if it came from real ERP courses (not synthetic fallback)
+    // Only persist to localStorage if it came from real ERP courses AND student has active ERP session
     try {
-        if (!isCurriculumFallback && Object.keys(generated).length > 0) {
+        if (!isCurriculumFallback && hasActiveErpSession(targetId) && Object.keys(generated).length > 0) {
             const primaryKey = `kl_timetable_${targetId}_${cleanYear}_${cleanSem}`;
             localStorage.setItem(primaryKey, JSON.stringify(generated));
             localStorage.setItem(`kl_timetable_${targetId}`, JSON.stringify(generated));
@@ -1474,23 +1481,20 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
     if (!targetId) return null;
     const storageKey = `kl_timetable_${targetId}_${cleanYear}_${cleanSem}`;
 
+    // Check if targetId has an active ERP session
+    if (!hasActiveErpSession(targetId)) {
+        return null;
+    }
+
     // Check if targetId has a saved session cookie
     const targetCookie = (typeof window !== 'undefined' ? localStorage.getItem(`erp_cookie_${targetId}`) : null);
-
-    // CRITICAL: ERP endpoint individualstudenttimetableget returns the timetable for the session of the currently authenticated user.
-    // If studentId does NOT match activeUser and has NO targetCookie, NEVER fetch with activeUser's session because it would overwrite targetId's timetable with activeUser's!
-    if (activeUser && targetId && targetId !== activeUser && !targetCookie) {
+    const cookie = targetCookie || getStoredErpCookies(targetId);
+    if (!cookie) {
         return null;
     }
 
     const apiBase = getErpBase();
     const csrfToken = getStoredCsrfToken();
-    const cookie = targetCookie || getStoredErpCookies(targetId);
-
-    // Guard: Only fetch live ERP timetable if student has an active session or saved cookie
-    if (!cookie && !hasActiveErpSession(targetId)) {
-        return null;
-    }
 
     // Semester value mapping: Odd=1, Even=2, Summer=3, Term3=4
     let semVal = '1';

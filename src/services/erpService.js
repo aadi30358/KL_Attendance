@@ -16,56 +16,95 @@ export const getErpBase = () => {
     return FALLBACK_ERP_BASE;
 };
 
+let inMemoryErpUser = '';
 let inMemoryErpCookies = '';
 let inMemoryCsrfToken = '';
 
 export const hasActiveErpSession = (studentId = null) => {
-    if (typeof window === 'undefined') return Boolean(inMemoryErpCookies);
-    if (studentId) {
-        if (localStorage.getItem(`erp_cookie_${studentId}`)) return true;
-        const activeUser = localStorage.getItem('activeErpUser');
-        if (activeUser === studentId) {
-            if (inMemoryErpCookies) return true;
-            const dashHtml = localStorage.getItem('erpDashboardHtml');
-            if (dashHtml && !dashHtml.includes('site-error') && !dashHtml.includes('id="login-form"')) return true;
+    if (typeof window === 'undefined') return false;
+    const cleanId = (studentId || '').trim();
+    if (cleanId) {
+        // 1. Check if this specific student has a dedicated saved ERP cookie
+        const cookie = localStorage.getItem(`erp_cookie_${cleanId}`);
+        if (cookie && cookie.trim().length > 0) return true;
+
+        // 2. Check if in-memory cookies belong to this specific student
+        if (inMemoryErpCookies && inMemoryErpUser === cleanId) return true;
+
+        // 3. Check if this student has verified stored attendance data strictly scoped to them
+        const cachedData = localStorage.getItem(`kleData_${cleanId}`);
+        if (cachedData) {
+            try {
+                const parsed = JSON.parse(cachedData);
+                const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
+                if (Array.isArray(list) && list.length > 0) {
+                    if (!parsed.studentId || parsed.studentId === cleanId) {
+                        return true;
+                    }
+                }
+            } catch { /* ignore */ }
         }
+
+        // 4. Primary user check
+        const rememberedId = localStorage.getItem('rememberedId');
+        if (cleanId === rememberedId) {
+            const myCookie = localStorage.getItem(`erp_cookie_${rememberedId}`) || localStorage.getItem('erp_cookie_main');
+            if (myCookie && myCookie.trim().length > 0) return true;
+            if (inMemoryErpCookies && (!inMemoryErpUser || inMemoryErpUser === rememberedId)) return true;
+            const myData = localStorage.getItem('kleData');
+            if (myData) {
+                try {
+                    const parsed = JSON.parse(myData);
+                    const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
+                    if (Array.isArray(list) && list.length > 0) return true;
+                } catch { /* ignore */ }
+            }
+        }
+
         return false;
     }
-    if (inMemoryErpCookies) return true;
-    const activeUser = localStorage.getItem('activeErpUser');
+
+    // No studentId passed: check active user
+    const activeUser = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
     if (activeUser) {
-        if (localStorage.getItem(`erp_cookie_${activeUser}`)) return true;
-        const dashHtml = localStorage.getItem('erpDashboardHtml');
-        if (dashHtml && !dashHtml.includes('site-error') && !dashHtml.includes('id="login-form"')) return true;
+        return hasActiveErpSession(activeUser);
     }
     return false;
 };
 
 export const getStoredErpCookies = (studentId = null) => {
-    if (studentId && typeof window !== 'undefined') {
-        const friendCookie = localStorage.getItem(`erp_cookie_${studentId}`);
+    if (typeof window === 'undefined') return '';
+    const cleanId = (studentId || '').trim();
+    if (cleanId) {
+        const friendCookie = localStorage.getItem(`erp_cookie_${cleanId}`);
         if (friendCookie) return friendCookie;
-    }
-    if (inMemoryErpCookies) return inMemoryErpCookies;
-    if (typeof window !== 'undefined') {
-        const activeUser = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
-        if (activeUser) {
-            const userCookie = localStorage.getItem(`erp_cookie_${activeUser}`);
-            if (userCookie) return userCookie;
+        if (inMemoryErpCookies && inMemoryErpUser === cleanId) return inMemoryErpCookies;
+        const rememberedId = localStorage.getItem('rememberedId');
+        if (cleanId === rememberedId) {
+            const mainCookie = localStorage.getItem('erp_cookie_main');
+            if (mainCookie) return mainCookie;
         }
+        return '';
+    }
+    const activeUser = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
+    if (activeUser) {
+        return getStoredErpCookies(activeUser);
     }
     return '';
 };
 
 export const setStoredErpCookies = (val, studentId = null) => {
     inMemoryErpCookies = val || '';
-    if (typeof window !== 'undefined') {
-        const target = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
-        if (target && val) {
-            try {
-                localStorage.setItem(`erp_cookie_${target}`, val);
-            } catch { /* ignore */ }
-        }
+    const cleanId = (studentId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '').trim();
+    inMemoryErpUser = cleanId;
+    if (typeof window !== 'undefined' && cleanId && val) {
+        try {
+            localStorage.setItem(`erp_cookie_${cleanId}`, val);
+            const rememberedId = localStorage.getItem('rememberedId');
+            if (cleanId === rememberedId) {
+                localStorage.setItem('erp_cookie_main', val);
+            }
+        } catch { /* ignore */ }
     }
 };
 
@@ -152,12 +191,24 @@ export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true, s
 };
 
 export const clearStoredErpCookies = (studentId = null) => {
-    inMemoryErpCookies = '';
-    inMemoryCsrfToken = '';
-    if (studentId && typeof window !== 'undefined') {
-        try {
-            localStorage.removeItem(`erp_cookie_${studentId}`);
-        } catch { /* ignore */ }
+    const cleanId = (studentId || '').trim();
+    if (cleanId) {
+        if (typeof window !== 'undefined') {
+            try {
+                localStorage.removeItem(`erp_cookie_${cleanId}`);
+                if (cleanId === localStorage.getItem('rememberedId')) {
+                    localStorage.removeItem('erp_cookie_main');
+                }
+            } catch { /* ignore */ }
+        }
+        if (inMemoryErpUser === cleanId) {
+            inMemoryErpCookies = '';
+            inMemoryErpUser = '';
+        }
+    } else {
+        inMemoryErpCookies = '';
+        inMemoryErpUser = '';
+        inMemoryCsrfToken = '';
     }
 };
 

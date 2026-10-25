@@ -14,24 +14,16 @@ export default function Timetable() {
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [activeProfile, setActiveProfile] = useState(() => getActiveProfileDetails());
     const [activeId, setActiveId] = useState(() => {
-        if (!hasActiveErpSession()) return '';
         const prof = getActiveProfileDetails();
-        if (prof?.isFriend && prof?.studentId) {
-            return prof.studentId;
-        }
-        return localStorage.getItem('activeErpUser') || '';
+        const sid = (prof?.isFriend && prof?.studentId) ? prof.studentId : (localStorage.getItem('activeErpUser') || '');
+        return sid;
     });
 
     // Synchronize active profile across events and storage
     useEffect(() => {
         const update = () => {
-            const hasSession = hasActiveErpSession();
             const prof = getActiveProfileDetails();
             setActiveProfile(prof);
-            if (!hasSession) {
-                setActiveId('');
-                return;
-            }
             const sid = (prof?.isFriend && prof?.studentId) ? prof.studentId : (localStorage.getItem('activeErpUser') || '');
             setActiveId(sid);
         };

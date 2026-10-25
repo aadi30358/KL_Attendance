@@ -210,6 +210,8 @@ export default function ClassTimetable({
             const val = timetable[d];
             res[d] = Array.isArray(val) ? val : (val && typeof val === 'object' ? Object.values(val) : []);
         }
+        res._source = timetable._source;
+        res._userCustomized = timetable._userCustomized;
         return res;
     }, [timetable]);
 
@@ -279,12 +281,31 @@ export default function ClassTimetable({
 
     // Sync timetable whenever effectiveId, erpCourses, currentYear or currentSem change
     useEffect(() => {
+        const hasSession = hasActiveErpSession(effectiveId);
+        if (!hasSession) {
+            setTimetable(null);
+            // Clean up any unauthenticated or contaminated timetable data for this student
+            if (typeof window !== 'undefined' && effectiveId) {
+                try {
+                    const scopedKey = `kl_timetable_${effectiveId}_${currentYear}_${currentSem}`;
+                    const raw = localStorage.getItem(scopedKey) || localStorage.getItem(`kl_timetable_${effectiveId}`);
+                    if (raw) {
+                        const parsed = JSON.parse(raw);
+                        if (!parsed?._userCustomized) {
+                            localStorage.removeItem(scopedKey);
+                            localStorage.removeItem(`kl_timetable_${effectiveId}`);
+                        }
+                    }
+                } catch { /* ignore */ }
+            }
+            return;
+        }
+
         const cached = getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem);
         setTimetable(cached);
 
         // If not yet fetched from live ERP or user refreshed, trigger live ERP fetch in background
-        const hasSession = hasActiveErpSession();
-        if (hasSession && (!cached || cached._source !== 'erp_live')) {
+        if ((!cached || cached._source !== 'erp_live')) {
             setIsRefreshing(true);
             fetchLiveErpTimetable(effectiveId, currentYear, currentSem)
                 .then((res) => {
@@ -318,9 +339,20 @@ export default function ClassTimetable({
 
     // Verify whether authentic live ERP timetable was fetched for this student
     const isVerifiedErpTimetable = useMemo(() => {
+        if (!effectiveId) return false;
+        // 1. Mandatory check: This student MUST have logged into ERP Attendance
+        if (!hasActiveErpSession(effectiveId)) return false;
+
+        // 2. Must have valid timetable slots
         if (!safeTimetable || typeof safeTimetable !== 'object') return false;
-        if (safeTimetable._source === 'erp_live' || safeTimetable._userCustomized) return true;
-        if (typeof window !== 'undefined' && effectiveId) {
+        const totalSlots = Object.values(safeTimetable).reduce((acc, curr) => acc + (Array.isArray(curr) ? curr.length : 0), 0);
+        if (totalSlots === 0) return false;
+
+        if (timetable?._source === 'erp_live' || safeTimetable._source === 'erp_live' || safeTimetable._userCustomized) {
+            return true;
+        }
+
+        if (typeof window !== 'undefined') {
             const scopedKey = `kl_timetable_${effectiveId}_${currentYear}_${currentSem}`;
             const raw = localStorage.getItem(scopedKey) || localStorage.getItem(`kl_timetable_${effectiveId}`);
             if (raw) {
@@ -331,7 +363,7 @@ export default function ClassTimetable({
             }
         }
         return false;
-    }, [safeTimetable, effectiveId, currentYear, currentSem]);
+    }, [safeTimetable, timetable, effectiveId, currentYear, currentSem]);
 
     // Unique Course Codes for Alias Editing
     const uniqueCourseCodes = useMemo(() => {
