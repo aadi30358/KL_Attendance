@@ -1,4 +1,4 @@
-import { getErpBase, buildErpHeaders, getStoredErpCookies, getStoredCsrfToken } from './erpService.js';
+import { getErpBase, buildErpHeaders, getStoredErpCookies, getStoredCsrfToken, hasActiveErpSession } from './erpService.js';
 
 export const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -493,6 +493,32 @@ export function parseKluTimetableHtml(html) {
 
             for (const table of tables) {
                 const rows = Array.from(table.querySelectorAll('tr'));
+                let slotHeaderMap = [];
+
+                // Check first row for header slot definitions (S1, S2, ..., Lunch)
+                if (rows.length > 0) {
+                    const headerCells = Array.from(rows[0].querySelectorAll('th, td'));
+                    if (headerCells.length > 1) {
+                        const hTexts = headerCells.map(hc => hc.textContent.trim().toLowerCase());
+                        if (hTexts.some(t => t.includes('day') || t.includes('period') || t.includes('slot') || /s\d+/.test(t) || /^\d+$/.test(t))) {
+                            let currSlotNum = 1;
+                            for (let hi = 1; hi < headerCells.length; hi++) {
+                                const hTxt = headerCells[hi].textContent.trim().toLowerCase();
+                                const sMatch = hTxt.match(/s\s*(\d+)/i) || hTxt.match(/^(\d+)$/);
+                                if (sMatch) {
+                                    slotHeaderMap.push({ isBreak: false, slot: parseInt(sMatch[1], 10) });
+                                    currSlotNum = parseInt(sMatch[1], 10) + 1;
+                                } else if (hTxt.includes('lunch') || hTxt.includes('break') || hTxt.includes('recess')) {
+                                    slotHeaderMap.push({ isBreak: true, slot: null });
+                                } else {
+                                    slotHeaderMap.push({ isBreak: false, slot: currSlotNum });
+                                    currSlotNum++;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 for (const row of rows) {
                     const cells = Array.from(row.querySelectorAll('td, th'));
                     if (cells.length < 2) continue;
@@ -501,24 +527,51 @@ export function parseKluTimetableHtml(html) {
                     const dayKey = dayMap[firstCellText];
                     if (!dayKey) continue;
 
-                    // Matrix format: cells 1..N correspond to session slots
-                    cells.slice(1).forEach((cell, cellIdx) => {
+                    // Matrix format: cells 1..N correspond to session slots (accounting for colspan & lunch columns)
+                    let currentSlot = 1;
+                    const contentCells = cells.slice(1);
+                    for (let c = 0; c < contentCells.length; c++) {
+                        const cell = contentCells[c];
+                        const colspan = parseInt(cell.getAttribute('colspan') || '1', 10) || 1;
                         const cellText = cell.textContent.trim();
-                        if (!cellText || cellText === '-' || cellText.length < 3) return;
+                        const isLunchCell = cellText.toLowerCase().includes('lunch') || cellText.toLowerCase().includes('break');
+
+                        let slotIndex = currentSlot;
+                        if (slotHeaderMap.length > c && slotHeaderMap[c]) {
+                            if (slotHeaderMap[c].isBreak) {
+                                continue;
+                            }
+                            slotIndex = slotHeaderMap[c].slot || currentSlot;
+                        }
+
+                        currentSlot += colspan;
+                        if (isLunchCell || !cellText || cellText === '-' || cellText.length < 3) continue;
 
                         // Match course code pattern e.g. 24SDCS01E-S, 24CS2101R-L, 24AD2001A
                         const codeMatch = cellText.match(/([0-9]{2}[A-Za-z0-9-]+(?:-[LPTS])?)/i);
                         if (codeMatch) {
-                            const fullCode = codeMatch[1].trim();
+                            let fullCode = codeMatch[1].trim();
                             const sectionMatch = cellText.match(/S-\d+/i);
                             const section = sectionMatch ? sectionMatch[0] : 'S-53';
 
-                            const comp = fullCode.endsWith('-P') ? 'Practical'
-                                : fullCode.endsWith('-T') ? 'Tutorial'
-                                : fullCode.endsWith('-S') ? 'Skill'
-                                : 'Lecture';
+                            const cellUpper = cellText.toUpperCase();
+                            let comp = 'Lecture';
+                            if (fullCode.endsWith('-P') || cellUpper.includes('PRACTICAL') || cellUpper.includes(' LAB') || cellUpper.includes('(P)') || cellUpper.includes('/P')) {
+                                comp = 'Practical';
+                                if (!fullCode.endsWith('-P')) fullCode = `${fullCode.replace(/-[LPTS]$/, '')}-P`;
+                            } else if (fullCode.endsWith('-T') || cellUpper.includes('TUTORIAL') || cellUpper.includes('(T)') || cellUpper.includes('/T')) {
+                                comp = 'Tutorial';
+                                if (!fullCode.endsWith('-T')) fullCode = `${fullCode.replace(/-[LPTS]$/, '')}-T`;
+                            } else if (fullCode.endsWith('-S') || cellUpper.includes('SKILL') || cellUpper.includes('(S)') || cellUpper.includes('/S')) {
+                                comp = 'Skill';
+                                if (!fullCode.endsWith('-S')) fullCode = `${fullCode.replace(/-[LPTS]$/, '')}-S`;
+                            } else {
+                                comp = 'Lecture';
+                                if (!fullCode.endsWith('-L') && !fullCode.endsWith('-P') && !fullCode.endsWith('-T') && !fullCode.endsWith('-S')) {
+                                    fullCode = `${fullCode}-L`;
+                                }
+                            }
 
-                            const slotIndex = cellIdx + 1;
                             const sessionInfo = KLU_SESSIONS[slotIndex - 1] || { id: `S${slotIndex}`, start: '', end: '', label: `Slot ${slotIndex}` };
                             const raw = fullCode.replace(/-[LPTS]$/, '');
                             const title = getSubjectName(raw) || getSubjectName(fullCode) || fullCode;
@@ -528,6 +581,8 @@ export function parseKluTimetableHtml(html) {
 
                             timetable[dayKey].push({
                                 period: slotIndex,
+                                periodEnd: slotIndex + colspan - 1,
+                                span: colspan,
                                 slotId: sessionInfo.id,
                                 time: sessionInfo.label || `${sessionInfo.start} – ${sessionInfo.end}`,
                                 code: fullCode,
@@ -539,7 +594,7 @@ export function parseKluTimetableHtml(html) {
                                 room
                             });
                         }
-                    });
+                    }
                 }
             }
 
@@ -558,15 +613,22 @@ export function parseKluTimetableHtml(html) {
             const dayKey = dayMap[dayMatch[1].toLowerCase()];
             if (!dayKey) continue;
 
-            const tdRegex = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+            const tdRegex = /<td([^>]*)>([\s\S]*?)<\/td>/gi;
             let tdMatch;
-            let slotIndex = 0;
+            let currentSlot = 1;
+            let isFirst = true;
             while ((tdMatch = tdRegex.exec(rowContent)) !== null) {
-                if (slotIndex === 0) {
-                    slotIndex++;
+                if (isFirst) {
+                    isFirst = false;
                     continue;
                 }
-                const cell = tdMatch[1];
+                const attrs = tdMatch[1] || '';
+                const cell = tdMatch[2] || '';
+                const colspanMatch = attrs.match(/colspan=["']?(\d+)["']?/i);
+                const colspan = colspanMatch ? (parseInt(colspanMatch[1], 10) || 1) : 1;
+                const slotIndex = currentSlot;
+                currentSlot += colspan;
+
                 const codeMatch = cell.match(/>\s*([A-Z0-9]+-[LPTS])\s*</i) || cell.match(/>\s*([0-9]{2}[A-Z0-9]+[A-Z0-9-]*)\s*</i) || cell.match(/([A-Z0-9]+-[LPTS])/i);
                 if (codeMatch) {
                     const fullCode = codeMatch[1].trim();
@@ -587,6 +649,8 @@ export function parseKluTimetableHtml(html) {
 
                     timetable[dayKey].push({
                         period: slotIndex,
+                        periodEnd: slotIndex + colspan - 1,
+                        span: colspan,
                         slotId: sessionInfo.id,
                         time: sessionInfo.label || `${sessionInfo.start} – ${sessionInfo.end}`,
                         code: fullCode,
@@ -598,7 +662,6 @@ export function parseKluTimetableHtml(html) {
                         room
                     });
                 }
-                slotIndex++;
             }
         }
 
@@ -894,11 +957,11 @@ export function filterCoursesForStudent(courses = [], studentId) {
     if (!Array.isArray(courses) || courses.length === 0) return [];
     const profile = getStudentProfileFromId(studentId);
     
-    // If student is CSE, filter out obvious test codes like 24EC1101, 23SC1101, 24UC1102 unless valid
+    // If student is CSE, filter out pure 24EC branch-specific courses if other courses exist
     if (profile.deptShort !== 'ECE') {
         const filtered = courses.filter(c => {
             const code = String(c.code || c.name || '').toUpperCase();
-            return !code.startsWith('24EC') && !code.startsWith('23SC') && !code.startsWith('24UC');
+            return !code.startsWith('24EC');
         });
         if (filtered.length > 0) return filtered;
     }
@@ -1037,22 +1100,12 @@ export function getCurriculumForStudent(studentId, cleanYear = '2026-2027', clea
 }
 
 /**
- * Validates that cached timetable data actually belongs to this student and does not contain fake or corrupted codes.
+ * Validates that cached timetable data is valid and does not contain fake or corrupted codes.
  */
-export function isTimetableValidForStudent(timetable, studentId) {
+export function isTimetableValidForStudent(timetable) {
     if (!timetable || typeof timetable !== 'object') return false;
-    const profile = getStudentProfileFromId(studentId);
     const slots = Object.values(timetable).flatMap(val => Array.isArray(val) ? val : (val && typeof val === 'object' ? Object.values(val) : []));
     if (slots.length === 0) return false;
-
-    // Check for foreign/corrupted test course codes (e.g. 24EC1101 for a CSE student)
-    if (profile.deptShort !== 'ECE') {
-        const hasForeignEcCourse = slots.some(s => {
-            const code = String(s.code || s.rawCode || '').toUpperCase();
-            return code.startsWith('24EC') || code.startsWith('23SC') || code.startsWith('24UC');
-        });
-        if (hasForeignEcCourse) return false;
-    }
 
     // Check if rooms contain corrupt labels like 'Room Room'
     const hasCorruptRoom = slots.some(s => {
@@ -1098,7 +1151,7 @@ export function buildTimetableFromErpCourses(courses = [], studentId = 'default'
         const title = course.title || course.name || KLU_COURSE_NAMES[rawCode] || 'Subject';
         const pct = course.percentage || course.percent || course.totalPercentage || 85;
 
-        // If course has explicit components, expand them
+        // If course has explicit components map, expand them
         if (comps.length > 0) {
             comps.forEach(comp => {
                 const norm = comp.toLowerCase();
@@ -1121,9 +1174,23 @@ export function buildTimetableFromErpCourses(courses = [], studentId = 'default'
                 }
             });
         } else {
-            slotPool.push({ code: `${rawCode}-L`, rawCode, title, component: 'Lecture', type: 'Lecture', weight: 100, isLab: false, pct, length: 1 });
-            slotPool.push({ code: `${rawCode}-P`, rawCode, title: `${title} (Lab)`, component: 'Practical', type: 'Practical Lab', weight: 50, isLab: true, pct, length: 2 });
-            slotPool.push({ code: `${rawCode}-T`, rawCode, title: `${title} (Tutorial)`, component: 'Tutorial', type: 'Tutorial', weight: 100, isLab: false, pct, length: 1 });
+            // Inspect course.code for direct LTPS suffix:
+            const codeUpper = String(course.code || '').trim().toUpperCase();
+            if (codeUpper.endsWith('-P') || (course.type || '').toLowerCase().includes('pract')) {
+                slotPool.push({ code: `${rawCode}-P`, rawCode, title: `${title} (Lab)`, component: 'Practical', type: 'Practical Lab', weight: 50, isLab: true, pct, length: 2 });
+            } else if (codeUpper.endsWith('-T') || (course.type || '').toLowerCase().includes('tut')) {
+                slotPool.push({ code: `${rawCode}-T`, rawCode, title: `${title} (Tutorial)`, component: 'Tutorial', type: 'Tutorial', weight: 100, isLab: false, pct, length: 1 });
+            } else if (codeUpper.endsWith('-S') || (course.type || '').toLowerCase().includes('skill')) {
+                slotPool.push({ code: `${rawCode}-S`, rawCode, title, component: 'Skill', type: 'Skill', weight: 25, isLab: false, pct, length: 1 });
+            } else if (codeUpper.endsWith('-L')) {
+                slotPool.push({ code: `${rawCode}-L`, rawCode, title, component: 'Lecture', type: 'Lecture', weight: 100, isLab: false, pct, length: 1 });
+            } else {
+                // Course without suffix: provide Lecture, and if course is known lab or skill, provide that
+                slotPool.push({ code: `${rawCode}-L`, rawCode, title, component: 'Lecture', type: 'Lecture', weight: 100, isLab: false, pct, length: 1 });
+                if (title.toLowerCase().includes('lab') || title.toLowerCase().includes('pract') || rawCode.includes('GMI') || rawCode.includes('EDS')) {
+                    slotPool.push({ code: `${rawCode}-P`, rawCode, title: `${title} (Lab)`, component: 'Practical', type: 'Practical Lab', weight: 50, isLab: true, pct, length: 2 });
+                }
+            }
         }
     });
 
@@ -1199,54 +1266,51 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
     const cleanYear = normalizeAcademicYear(selectedYear);
     const cleanSem = normalizeSemester(selectedSem);
 
-    const storageKey = `kl_timetable_${targetId}_${cleanYear}_${cleanSem}`;
+    const semVariants = [
+        cleanSem,
+        `${cleanSem} Sem`,
+        `${cleanSem} Term`,
+        cleanSem === 'Term3' ? 'Tri Sem / Term 3' : null,
+        cleanSem === 'Summer' ? 'Summer Term' : null,
+        cleanSem === 'Odd' ? 'Odd Sem' : null,
+        cleanSem === 'Even' ? 'Even Sem' : null
+    ].filter(Boolean);
 
-    // 1. Check user-customized or live ERP timetable saved in localStorage for this exact year + sem:
-    try {
-        const cached = localStorage.getItem(storageKey);
-        if (cached) {
-            let parsed = JSON.parse(cached);
-            if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-                if (isTimetableValidForStudent(parsed, targetId)) {
-                    const normalized = normalizeTimetableFormat(parsed, targetId);
-                    if (normalized) {
-                        const totalSlots = Object.values(normalized).reduce((acc, curr) => acc + (Array.isArray(curr) ? curr.length : 0), 0);
-                        if (totalSlots > 0) {
-                            return { ...normalized, _source: parsed._source, _userCustomized: parsed._userCustomized };
+    // 1. Check all candidate scoped keys in localStorage
+    if (typeof window !== 'undefined') {
+        const candidateKeys = [];
+        semVariants.forEach(s => {
+            candidateKeys.push(`kl_timetable_${targetId}_${cleanYear}_${s}`);
+        });
+        candidateKeys.push(`kl_timetable_${targetId}_${cleanYear}`);
+        candidateKeys.push(`kl_timetable_${targetId}`);
+        candidateKeys.push(`timetable_${targetId}`);
+
+        for (const storageKey of candidateKeys) {
+            try {
+                const cached = localStorage.getItem(storageKey);
+                if (cached) {
+                    let parsed = JSON.parse(cached);
+                    if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+                        if (isTimetableValidForStudent(parsed, targetId)) {
+                            const normalized = normalizeTimetableFormat(parsed, targetId);
+                            if (normalized) {
+                                const totalSlots = Object.values(normalized).reduce((acc, curr) => acc + (Array.isArray(curr) ? curr.length : 0), 0);
+                                if (totalSlots > 0) {
+                                    return { ...normalized, _source: parsed._source, _userCustomized: parsed._userCustomized };
+                                }
+                            }
                         }
                     }
-                } else {
-                    // Cached data is corrupted or foreign - clear it!
-                    localStorage.removeItem(storageKey);
                 }
+            } catch {
+                // ignore cache read error
             }
         }
-    } catch {
-        // ignore cache read error
     }
 
-    // 2. Check if TimeTablekl stored a timetable in localStorage.getItem("timetable")
-    if (typeof window !== 'undefined' && isSelf && cleanYear === '2026-2027' && cleanSem === 'Odd') {
-        try {
-            const rawTt = localStorage.getItem('timetable');
-            if (rawTt) {
-                const parsed = JSON.parse(rawTt);
-                if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-                    if (isTimetableValidForStudent(parsed, targetId)) {
-                        const normalized = normalizeTimetableFormat(parsed, targetId);
-                        if (normalized) {
-                            return normalized;
-                        }
-                    } else {
-                        localStorage.removeItem('timetable');
-                    }
-                }
-            }
-        } catch { /* ignore */ }
-    }
-
-    // 3. Check if TimeTablekl stored friend in localStorage.getItem("maddys")
-    if (typeof window !== 'undefined' && !isSelf) {
+    // 2. Check if TimeTablekl stored friend in localStorage.getItem("maddys")
+    if (typeof window !== 'undefined') {
         try {
             const rawMaddys = localStorage.getItem('maddys');
             if (rawMaddys) {
@@ -1271,27 +1335,50 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         } catch { /* ignore */ }
     }
 
-    // 4. Resolve real student courses for THIS exact student and THIS exact year/semester
-    let coursesToUse = [];
-
-    // 4a. Check scoped cache for this student + year + sem
-    if (typeof window !== 'undefined') {
+    // 3. Check if TimeTablekl stored a timetable in localStorage.getItem("timetable")
+    if (typeof window !== 'undefined' && isSelf) {
         try {
-            const scopedKey = `kleData_${targetId}_${cleanYear}_${cleanSem}`;
-            const scopedRaw = localStorage.getItem(scopedKey);
-            if (scopedRaw) {
-                const p = JSON.parse(scopedRaw);
-                const list = p.attendance_data || p.data || (Array.isArray(p) ? p : []);
-                const validList = filterCoursesForStudent(list, targetId);
-                if (validList.length > 0) {
-                    coursesToUse = validList;
+            const rawTt = localStorage.getItem('timetable');
+            const ttOwner = localStorage.getItem('timetable_studentId') || localStorage.getItem('rememberedId');
+            if (rawTt && (!ttOwner || ttOwner === targetId)) {
+                const parsed = JSON.parse(rawTt);
+                if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+                    if (isTimetableValidForStudent(parsed, targetId)) {
+                        const normalized = normalizeTimetableFormat(parsed, targetId);
+                        if (normalized) {
+                            return normalized;
+                        }
+                    }
                 }
             }
         } catch { /* ignore */ }
     }
 
+    // 4. Resolve real student courses for THIS exact student and THIS exact year/semester
+    let coursesToUse = [];
+
+    // 4a. Check scoped cache for this student + year + sem
+    if (typeof window !== 'undefined') {
+        const scopedKeys = semVariants.map(s => `kleData_${targetId}_${cleanYear}_${s}`);
+        scopedKeys.push(`kleData_${targetId}_${cleanYear}`);
+        for (const scopedKey of scopedKeys) {
+            try {
+                const scopedRaw = localStorage.getItem(scopedKey);
+                if (scopedRaw) {
+                    const p = JSON.parse(scopedRaw);
+                    const list = p.attendance_data || p.data || (Array.isArray(p) ? p : []);
+                    const validList = filterCoursesForStudent(list, targetId);
+                    if (validList.length > 0) {
+                        coursesToUse = validList;
+                        break;
+                    }
+                }
+            } catch { /* ignore */ }
+        }
+    }
+
     // 4b. If viewing oneself and erpCourses is passed, check if it matches student department
-    if (coursesToUse.length === 0 && isSelf && Array.isArray(erpCourses) && erpCourses.length > 0) {
+    if (coursesToUse.length === 0 && isSelf && targetId === activeErpUser && Array.isArray(erpCourses) && erpCourses.length > 0) {
         const validList = filterCoursesForStudent(erpCourses, targetId);
         if (validList.length > 0) {
             coursesToUse = validList;
@@ -1324,7 +1411,9 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
     const generated = buildTimetableFromErpCourses(coursesToUse, targetId, cleanYear, cleanSem);
     try {
         if (Object.keys(generated).length > 0) {
-            localStorage.setItem(storageKey, JSON.stringify(generated));
+            const primaryKey = `kl_timetable_${targetId}_${cleanYear}_${cleanSem}`;
+            localStorage.setItem(primaryKey, JSON.stringify(generated));
+            localStorage.setItem(`kl_timetable_${targetId}`, JSON.stringify(generated));
         }
     } catch {
         // ignore storage quota
@@ -1340,9 +1429,13 @@ export function saveStudentTimetable(studentId, timetableData, selectedYear = '2
     if (!studentId || !timetableData) return;
     const cleanYear = normalizeAcademicYear(selectedYear);
     const cleanSem = normalizeSemester(selectedSem);
+    const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
     try {
         const toSave = { ...timetableData, _userCustomized: true };
         localStorage.setItem(`kl_timetable_${studentId}_${cleanYear}_${cleanSem}`, JSON.stringify(toSave));
+        localStorage.setItem(`kl_timetable_${studentId}_${cleanYear}_${semDisplay}`, JSON.stringify(toSave));
+        localStorage.setItem(`kl_timetable_${studentId}_${cleanYear}`, JSON.stringify(toSave));
+        localStorage.setItem(`kl_timetable_${studentId}`, JSON.stringify(toSave));
         window.dispatchEvent(new CustomEvent('kl_timetable_updated', { detail: { studentId, year: cleanYear, sem: cleanSem } }));
     } catch {
         // ignore
@@ -1355,12 +1448,27 @@ export function saveStudentTimetable(studentId, timetableData, selectedYear = '2
 export async function fetchLiveErpTimetable(studentId, yearId, semId) {
     const cleanYear = normalizeAcademicYear(yearId);
     const cleanSem = normalizeSemester(semId);
-    const targetId = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '2400030358';
+    const activeUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
+    const targetId = studentId || activeUser || '2400030358';
     const storageKey = `kl_timetable_${targetId}_${cleanYear}_${cleanSem}`;
+
+    // Check if targetId has a saved session cookie
+    const targetCookie = (typeof window !== 'undefined' ? localStorage.getItem(`erp_cookie_${targetId}`) : null);
+
+    // CRITICAL: ERP endpoint individualstudenttimetableget returns the timetable for the session of the currently authenticated user.
+    // If studentId does NOT match activeUser and has NO targetCookie, NEVER fetch with activeUser's session because it would overwrite targetId's timetable with activeUser's!
+    if (activeUser && targetId && targetId !== activeUser && !targetCookie) {
+        return null;
+    }
 
     const apiBase = getErpBase();
     const csrfToken = getStoredCsrfToken();
-    const cookie = getStoredErpCookies();
+    const cookie = targetCookie || getStoredErpCookies(targetId);
+
+    // Guard: Only fetch live ERP timetable if student has an active session or saved cookie
+    if (!cookie && !hasActiveErpSession(targetId)) {
+        return null;
+    }
 
     // Semester value mapping: Odd=1, Even=2, Summer=3, Term3=4
     let semVal = '1';
@@ -1370,91 +1478,71 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
 
     // Candidate year IDs according to KLU ERP registration tables
     const firstYear = parseInt(cleanYear.split('-')[0], 10);
-    let yearCandidates = ['29', '18'];
-    if (firstYear === 2026) yearCandidates = ['29', '18'];
-    else if (firstYear === 2025) yearCandidates = ['19', '28', '17', '18'];
-    else if (firstYear === 2024) yearCandidates = ['16', '27', '17'];
-    else if (firstYear === 2023) yearCandidates = ['15', '26'];
-    else if (!isNaN(firstYear)) {
+    let yearCandidates = ['29', '18', '22'];
+    if (firstYear >= 2026) {
+        const offset = Math.max(0, firstYear - 2026);
+        yearCandidates = [String(29 + offset), String(18 + offset), '29', '18', '22'];
+    } else if (firstYear === 2025) {
+        yearCandidates = ['28', '17', '19', '18'];
+    } else if (firstYear === 2024) {
+        yearCandidates = ['27', '16', '17'];
+    } else if (firstYear === 2023) {
+        yearCandidates = ['26', '15'];
+    } else if (!isNaN(firstYear)) {
         const diff = firstYear - 2026;
         yearCandidates = [String(29 + diff), String(18 + diff), '29', '18'];
     }
 
-    // 1. First try backend proxy /api/fetch_timetable
-    try {
-        const backendUrls = [
-            `${apiBase || ''}/api/fetch_timetable`,
-            `${apiBase || ''}/api/fetch-timetable`,
-            `${apiBase || ''}/fetch-timetable`
-        ];
-
-        for (const bUrl of backendUrls) {
-            try {
-                const resp = await fetch(bUrl, {
-                    method: 'POST',
-                    headers: buildErpHeaders({
-                        'Content-Type': 'application/json',
-                        ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
-                        ...(cookie ? { 'x-erp-cookie': cookie } : {})
-                    }),
-                    body: JSON.stringify({
-                        studentId: targetId,
-                        yearId: cleanYear,
-                        semId: cleanSem,
-                        semVal
-                    })
-                });
-
-                if (resp.ok) {
-                    const data = await resp.json().catch(() => null);
-                    if (data?.timetable && Object.keys(data.timetable).length > 0) {
-                        const normalized = normalizeTimetableFormat(data.timetable, targetId);
-                        if (normalized && Object.values(normalized).some(arr => Array.isArray(arr) && arr.length > 0)) {
-                            normalized._source = 'erp_live';
-                            try {
-                                localStorage.setItem(storageKey, JSON.stringify(normalized));
-                            } catch (err) {
-                                void err; // Ignore storage quota or private browsing limits
-                            }
-                            window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                                detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
-                            }));
-                            return { success: true, source: 'erp_live', timetable: normalized };
-                        }
-                    }
-                    if (data?.html) {
-                        const parsed = parseKluTimetableHtml(data.html);
-                        if (parsed && Object.values(parsed).some(arr => Array.isArray(arr) && arr.length > 0)) {
-                            parsed._source = 'erp_live';
-                            try {
-                                localStorage.setItem(storageKey, JSON.stringify(parsed));
-                            } catch (err) {
-                                void err; // Ignore storage quota or private browsing limits
-                            }
-                            window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                                detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
-                            }));
-                            return { success: true, source: 'erp_live', timetable: parsed };
-                        }
-                    }
-                }
-            } catch {
-                // continue to next backend url or direct fetch
-            }
-        }
-    } catch (err) {
-        console.warn('[Timetable] Backend fetch notice:', err.message);
-    }
-
-    // 2. Direct fetch to authentic ERP route via proxy
+    // Direct fetch to authentic ERP route via reverse proxy
     try {
         const headers = buildErpHeaders({
             'Pragma': 'no-cache',
             'Cache-Control': 'no-cache',
             'X-Requested-With': 'XMLHttpRequest',
+            'Content-Type': 'application/json',
             ...(cookie ? { 'x-erp-cookie': cookie } : {})
-        });
+        }, targetId);
         if (csrfToken) headers['x-csrf-token'] = csrfToken;
+
+        // Try fast proxy endpoint /api/fetch_timetable first
+        try {
+            const proxyResp = await fetch(`${apiBase || ''}/api/fetch_timetable`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    studentId: targetId,
+                    username: targetId,
+                    yearId: cleanYear,
+                    semId: cleanSem,
+                    academic_year_code: cleanYear,
+                    semester_id: semVal
+                }),
+                credentials: 'include',
+                cache: 'no-store'
+            });
+            if (proxyResp.ok) {
+                const proxyData = await proxyResp.json().catch(() => null);
+                if (proxyData?.html) {
+                    const parsed = parseKluTimetableHtml(proxyData.html);
+                    if (parsed && Object.values(parsed).some(arr => Array.isArray(arr) && arr.length > 0)) {
+                        parsed._source = 'erp_live';
+                        const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
+                        try {
+                            localStorage.setItem(storageKey, JSON.stringify(parsed));
+                            localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${semDisplay}`, JSON.stringify(parsed));
+                            localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}`, JSON.stringify(parsed));
+                            localStorage.setItem(`kl_timetable_${targetId}`, JSON.stringify(parsed));
+                        } catch { /* ignore */ }
+                        window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                            detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
+                        }));
+                        return { success: true, source: 'erp_live', timetable: parsed };
+                    }
+                }
+            }
+        } catch {
+            // fallback to candidate URLs
+        }
 
         for (const y of yearCandidates) {
             const erpUrls = [
@@ -1477,8 +1565,12 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
                             const parsed = parseKluTimetableHtml(html);
                             if (parsed && Object.values(parsed).some(arr => Array.isArray(arr) && arr.length > 0)) {
                                 parsed._source = 'erp_live';
+                                const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
                                 try {
                                     localStorage.setItem(storageKey, JSON.stringify(parsed));
+                                    localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${semDisplay}`, JSON.stringify(parsed));
+                                    localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}`, JSON.stringify(parsed));
+                                    localStorage.setItem(`kl_timetable_${targetId}`, JSON.stringify(parsed));
                                 } catch (err) {
                                     void err; // Ignore storage quota or private browsing limits
                                 }
@@ -1494,8 +1586,8 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
                 }
             }
         }
-    } catch (e) {
-        console.warn('[Timetable] Direct ERP timetable fetch notice:', e.message);
+    } catch {
+        // silent fallback
     }
 
     return null;
@@ -1512,6 +1604,9 @@ export function parseTimeToMinutes(timeStr) {
     const m = parseInt(match[2], 10) || 0;
     if (isPM && h < 12) h += 12;
     if (isAM && h === 12) h = 0;
+    // Defensive for college timetables without AM/PM markers:
+    // Classes scheduled between 1:00 and 6:59 are PM sessions (13:00 to 18:59)
+    if (!isAM && !isPM && h >= 1 && h <= 6) h += 12;
     return h * 60 + m;
 }
 
@@ -1522,42 +1617,82 @@ export function parseTimeToMinutes(timeStr) {
  */
 export function getLiveClassStatus(timetable = {}, username = null) {
     const now = new Date();
-    // Accurate IST computation (UTC + 5:30)
-    const istOffsetMs = (5 * 60 + 30) * 60 * 1000;
-    const utcMs = now.getTime() + (now.getTimezoneOffset() * 60 * 1000);
-    const istDate = new Date(utcMs + istOffsetMs);
+    // Accurate IST computation (Asia/Kolkata = UTC + 5:30) via Intl API
+    const istFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Kolkata',
+        hour12: false,
+        weekday: 'long',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric'
+    });
+    const parts = istFormatter.formatToParts(now);
+    const getPart = (type) => parts.find(p => p.type === type)?.value;
+    const currentDayName = getPart('weekday') || ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][now.getDay()];
+    let hours = parseInt(getPart('hour') || '0', 10);
+    if (hours === 24) hours = 0; // midnight format safety
+    const minutes = parseInt(getPart('minute') || '0', 10);
+    const currentSeconds = parseInt(getPart('second') || '0', 10);
+    const currentMinutes = hours * 60 + minutes;
 
-    const currentMinutes = istDate.getHours() * 60 + istDate.getMinutes();
-    const currentSeconds = istDate.getSeconds();
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const currentDayName = days[istDate.getDay()];
+    const currentDayIdx = days.indexOf(currentDayName) >= 0 ? days.indexOf(currentDayName) : now.getDay();
+
+    const istDateString = now.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+    const istTimeString = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true });
+    const istTimeWithSecondsString = now.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).toUpperCase();
 
     const slotTimes = getSlotTimes(username);
     const todayRawSchedule = timetable?.[currentDayName] || [];
 
-    // Helper to extract period timing
+    // Helper to extract accurate period timing accounting for campus and multi-hour spans
     const resolveSlotTimes = (slot) => {
         let pStart = '';
         let pEnd = '';
-        if (slot.slotId) {
+        const endPeriod = slot.periodEnd || (slot.period && slot.span ? slot.period + slot.span - 1 : slot.period);
+
+        // 1. Campus-specific slot timings take first priority (handles Vijayawada 14 slots vs Hyderabad 9 slots)
+        if (slotTimes && slot.period && slotTimes[slot.period]) {
+            pStart = slotTimes[slot.period].start;
+            pEnd = (slotTimes[endPeriod] || slotTimes[slot.period]).end;
+        }
+
+        // 2. KLU Standard Session System
+        if (!pStart && slot.period) {
+            const startSess = KLU_SESSIONS.find(s => s.slot === slot.period);
+            const endSess = KLU_SESSIONS.find(s => s.slot === endPeriod) || startSess;
+            if (startSess) {
+                pStart = startSess.start;
+                pEnd = endSess?.end || startSess.end;
+            }
+        }
+
+        // 3. Fallback to slotId lookup
+        if (!pStart && slot.slotId) {
             const sess = KLU_SESSIONS.find(s => s.id === slot.slotId);
             if (sess) {
                 pStart = sess.start;
                 pEnd = sess.end;
             }
         }
-        if (!pStart && slotTimes && slot.period && slotTimes[slot.period]) {
-            pStart = slotTimes[slot.period].start;
-            pEnd = slotTimes[slot.periodEnd || slot.period]?.end;
+
+        // 4. Fallback to embedded time string
+        if ((!pStart || !pEnd) && slot.time) {
+            const sep = slot.time.includes('–') ? '–' : slot.time.includes('-') ? '-' : slot.time.includes('to') ? 'to' : null;
+            if (sep) {
+                const [tStart, tEnd] = slot.time.split(sep).map(s => s.trim());
+                if (!pStart) pStart = tStart;
+                if (!pEnd) pEnd = tEnd;
+            }
         }
-        if (!pStart && slot.time && slot.time.includes('–')) {
-            const [tStart, tEnd] = slot.time.split('–').map(s => s.trim());
-            pStart = tStart;
-            pEnd = tEnd;
-        }
-        if (!pStart && PERIOD_TIMINGS[slot.period]) {
-            pStart = PERIOD_TIMINGS[slot.period].start;
-            pEnd = PERIOD_TIMINGS[slot.periodEnd || slot.period]?.end;
+
+        // 5. Fallback to PERIOD_TIMINGS
+        if ((!pStart || !pEnd) && slot.period && PERIOD_TIMINGS[slot.period]) {
+            if (!pStart) pStart = PERIOD_TIMINGS[slot.period].start;
+            if (!pEnd) pEnd = PERIOD_TIMINGS[endPeriod || slot.period]?.end;
         }
 
         const startMin = parseTimeToMinutes(pStart);
@@ -1573,75 +1708,91 @@ export function getLiveClassStatus(timetable = {}, username = null) {
             ...resolveSlotTimes(slot),
             displayName: getSubjectName(slot.rawCode || slot.code)
         }))
-        .filter(slot => slot && slot.startMin && slot.endMin)
+        .filter(slot => slot && typeof slot.startMin === 'number' && typeof slot.endMin === 'number' && slot.endMin > slot.startMin)
         .sort((a, b) => a.startMin - b.startMin);
+
+    const isSunday = currentDayName === 'Sunday';
+    const hasClassesToday = todaySchedule.length > 0 && !isSunday;
 
     let currentClass = null;
     let nextClass = null;
     let previousClass = null;
 
-    for (let i = 0; i < todaySchedule.length; i++) {
-        const slot = todaySchedule[i];
-        if (currentMinutes >= slot.startMin && currentMinutes < slot.endMin) {
-            const currentTotalSeconds = currentMinutes * 60 + currentSeconds;
-            const slotStartSeconds = slot.startMin * 60;
-            const slotEndSeconds = slot.endMin * 60;
-            const totalSlotSeconds = slotEndSeconds - slotStartSeconds;
-            const elapsedSeconds = Math.max(0, currentTotalSeconds - slotStartSeconds);
-            const totalSecondsRemaining = Math.max(0, slotEndSeconds - currentTotalSeconds);
-            const minutesRemaining = Math.floor(totalSecondsRemaining / 60);
-            const secondsRemaining = totalSecondsRemaining % 60;
-            const progressPercent = totalSlotSeconds > 0 
-                ? Math.min(100, Math.max(0, Math.round((elapsedSeconds / totalSlotSeconds) * 100))) 
-                : 0;
+    if (hasClassesToday) {
+        for (let i = 0; i < todaySchedule.length; i++) {
+            const slot = todaySchedule[i];
+            if (currentMinutes >= slot.startMin && currentMinutes < slot.endMin) {
+                const currentTotalSeconds = currentMinutes * 60 + currentSeconds;
+                const slotStartSeconds = slot.startMin * 60;
+                const slotEndSeconds = slot.endMin * 60;
+                const totalSlotSeconds = slotEndSeconds - slotStartSeconds;
+                const elapsedSeconds = Math.max(0, currentTotalSeconds - slotStartSeconds);
+                const totalSecondsRemaining = Math.max(0, slotEndSeconds - currentTotalSeconds);
+                const minutesRemaining = Math.floor(totalSecondsRemaining / 60);
+                const secondsRemaining = totalSecondsRemaining % 60;
+                const progressPercent = totalSlotSeconds > 0 
+                    ? Math.min(100, Math.max(0, Math.round((elapsedSeconds / totalSlotSeconds) * 100))) 
+                    : 0;
 
-            currentClass = {
-                ...slot,
-                minutesRemaining,
-                secondsRemaining,
-                totalSecondsRemaining,
-                progressPercent
-            };
-            if (i + 1 < todaySchedule.length) {
-                const nextSlot = todaySchedule[i + 1];
-                const nextStartSeconds = nextSlot.startMin * 60;
-                const secsUntil = Math.max(0, nextStartSeconds - currentTotalSeconds);
+                currentClass = {
+                    ...slot,
+                    minutesRemaining,
+                    secondsRemaining,
+                    totalSecondsRemaining,
+                    progressPercent
+                };
+                if (i + 1 < todaySchedule.length) {
+                    const nextSlot = todaySchedule[i + 1];
+                    const nextStartSeconds = nextSlot.startMin * 60;
+                    const secsUntil = Math.max(0, nextStartSeconds - currentTotalSeconds);
+                    nextClass = {
+                        ...nextSlot,
+                        minutesUntil: Math.floor(secsUntil / 60),
+                        secondsUntil: secsUntil % 60,
+                        totalSecondsUntil: secsUntil
+                    };
+                }
+                break;
+            } else if (currentMinutes >= slot.endMin) {
+                previousClass = slot;
+            } else if (currentMinutes < slot.startMin && !nextClass) {
+                const currentTotalSeconds = currentMinutes * 60 + currentSeconds;
+                const slotStartSeconds = slot.startMin * 60;
+                const secsUntil = Math.max(0, slotStartSeconds - currentTotalSeconds);
                 nextClass = {
-                    ...nextSlot,
+                    ...slot,
                     minutesUntil: Math.floor(secsUntil / 60),
                     secondsUntil: secsUntil % 60,
                     totalSecondsUntil: secsUntil
                 };
             }
-            break;
-        } else if (currentMinutes >= slot.endMin) {
-            previousClass = slot;
-        } else if (currentMinutes < slot.startMin && !nextClass) {
-            const currentTotalSeconds = currentMinutes * 60 + currentSeconds;
-            const slotStartSeconds = slot.startMin * 60;
-            const secsUntil = Math.max(0, slotStartSeconds - currentTotalSeconds);
-            nextClass = {
-                ...slot,
-                minutesUntil: Math.floor(secsUntil / 60),
-                secondsUntil: secsUntil % 60,
-                totalSecondsUntil: secsUntil
-            };
         }
     }
 
-    const firstSlotStart = todaySchedule.length > 0 ? todaySchedule[0].startMin : parseTimeToMinutes(KLU_SESSIONS[0].start);
-    const lastSlotEnd = todaySchedule.length > 0 ? todaySchedule[todaySchedule.length - 1].endMin : parseTimeToMinutes(KLU_SESSIONS[10].end);
+    const firstSlotStart = hasClassesToday ? todaySchedule[0].startMin : parseTimeToMinutes(KLU_SESSIONS[0].start);
+    const lastSlotEnd = hasClassesToday ? todaySchedule[todaySchedule.length - 1].endMin : parseTimeToMinutes(KLU_SESSIONS[10].end);
 
-    const isCollegeHours = currentMinutes >= firstSlotStart && currentMinutes <= lastSlotEnd;
-    const isLunch = currentMinutes >= 770 && currentMinutes < 780; // 12:50 PM - 1:00 PM
+    const isBeforeCollege = hasClassesToday && currentMinutes < firstSlotStart;
+    const isCollegeHours = hasClassesToday && currentMinutes >= firstSlotStart && currentMinutes <= lastSlotEnd;
+    const isDayEnded = hasClassesToday && currentMinutes >= lastSlotEnd;
+    const isWeekendOrNoClass = !hasClassesToday || isSunday;
+
+    // Lunch break: between 12:45 PM (765m) and 1:45 PM (825m) when no class is in progress
+    const isLunch = Boolean(
+        isCollegeHours &&
+        !currentClass &&
+        currentMinutes >= 765 &&
+        currentMinutes < 825 &&
+        (nextClass ? nextClass.startMin >= 780 : true)
+    );
+
     const isFreePeriod = Boolean(isCollegeHours && !currentClass && nextClass && !isLunch);
-    const isDayEnded = Boolean(todaySchedule.length === 0 || (todaySchedule.length > 0 && currentMinutes >= lastSlotEnd));
 
     // Find the next working day's first scheduled class
     let nextWorkingDayFirstClass = null;
-    if (isDayEnded || currentDayName === 'Sunday' || todaySchedule.length === 0) {
+    if (isDayEnded || isWeekendOrNoClass) {
         for (let offset = 1; offset <= 6; offset++) {
-            const nextDayIdx = (istDate.getDay() + offset) % 7;
+            const nextDayIdx = (currentDayIdx + offset) % 7;
             const nextDayName = days[nextDayIdx];
             if (nextDayName === 'Sunday') continue;
 
@@ -1653,7 +1804,7 @@ export function getLiveClassStatus(timetable = {}, username = null) {
                     ...resolveSlotTimes(slot),
                     displayName: getSubjectName(slot.rawCode || slot.code)
                 }))
-                .filter(slot => slot && slot.startMin && slot.endMin)
+                .filter(slot => slot && typeof slot.startMin === 'number' && typeof slot.endMin === 'number' && slot.endMin > slot.startMin)
                 .sort((a, b) => a.startMin - b.startMin);
 
             if (nextDaySlots.length > 0) {
@@ -1671,20 +1822,24 @@ export function getLiveClassStatus(timetable = {}, username = null) {
     }
 
     return {
-        isClassDay: currentDayName !== 'Sunday' && todaySchedule.length > 0,
+        isClassDay: hasClassesToday,
+        hasClassesToday,
         dayName: currentDayName,
         currentMinutes,
-        istDateString: istDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' }),
-        istTimeString: istDate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }),
-        istTimeWithSecondsString: istDate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).toUpperCase(),
+        istDateString,
+        istTimeString,
+        istTimeWithSecondsString,
         currentClass,
         nextClass,
         previousClass,
         nextWorkingDayFirstClass,
+        firstClassToday: hasClassesToday ? todaySchedule[0] : null,
+        isBeforeCollege,
         isCollegeHours,
         isLunch,
         isFreePeriod,
         isDayEnded,
+        isWeekendOrNoClass,
         todaySchedule
     };
 }

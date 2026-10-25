@@ -47,9 +47,6 @@ export function useDeploymentSync() {
                 } catch {
                     // ignore
                 }
-
-                console.log(`[DeploymentSync] Newer deployment detected (${remoteVersion} > ${current}). Updating application...`);
-
                 // Purge all stale cache storages once
                 if ('caches' in window) {
                     caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k)))).finally(() => {

@@ -3,9 +3,11 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 import { initSecurityShield } from './utils/securityShield'
+import { initConsolePortfolio } from './services/consolePortfolio'
 
-// Initialize Anti-Tamper Protocol before rendering
+// Initialize Anti-Tamper Protocol and Zero-Knowledge Storage before rendering
 initSecurityShield();
+initConsolePortfolio();
 
 // Global defensive handlers to prevent network aborts or extension conflicts from breaking the UI
 if (typeof window !== 'undefined') {
@@ -14,7 +16,6 @@ if (typeof window !== 'undefined') {
       event.preventDefault();
       return;
     }
-    console.warn('[DefensiveGuard] Handled unhandled rejection:', event.reason);
     event.preventDefault();
   });
 }
@@ -31,9 +32,7 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').then((reg) => {
       // Check for latest service worker on startup
       reg.update().catch(() => {});
-    }).catch(err => {
-      console.log('SW registration note:', err);
-    });
+    }).catch(() => {});
 
     // Check for SW updates when switching tabs or focusing window
     document.addEventListener('visibilitychange', () => {

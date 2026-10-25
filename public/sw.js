@@ -1,7 +1,7 @@
 // KL Attendance - High-Speed Service Worker
 // Cache Storage is kept clean to prevent public inspection of client assets
 
-const CACHE_NAME = 'kl-attendance-v1792396564069';
+const CACHE_NAME = 'kl-attendance-v1792950098721';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -19,9 +19,4 @@ self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING' || event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
-});
-
-self.addEventListener('fetch', () => {
-  // Pass-through to browser HTTP cache for instant performance without exposing assets in DevTools Cache Storage
-  return;
 });

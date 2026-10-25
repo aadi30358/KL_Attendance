@@ -19,70 +19,47 @@ export const getErpBase = () => {
 let inMemoryErpCookies = '';
 let inMemoryCsrfToken = '';
 
-export const getStoredErpCookies = () => {
+export const hasActiveErpSession = (studentId = null) => {
+    if (studentId && typeof window !== 'undefined' && localStorage.getItem(`erp_cookie_${studentId}`)) {
+        return true;
+    }
+    return Boolean(inMemoryErpCookies || (typeof window !== 'undefined' && (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId'))));
+};
+
+export const getStoredErpCookies = (studentId = null) => {
+    if (studentId && typeof window !== 'undefined') {
+        const friendCookie = localStorage.getItem(`erp_cookie_${studentId}`);
+        if (friendCookie) return friendCookie;
+    }
     if (inMemoryErpCookies) return inMemoryErpCookies;
-    try {
-        if (typeof window !== 'undefined') {
-            const stored = sessionStorage?.getItem('erp_session_cookie') || localStorage?.getItem('erp_session_cookie');
-            if (stored) {
-                inMemoryErpCookies = stored;
-                return stored;
-            }
+    if (typeof window !== 'undefined') {
+        const activeUser = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
+        if (activeUser) {
+            const userCookie = localStorage.getItem(`erp_cookie_${activeUser}`);
+            if (userCookie) return userCookie;
         }
-    } catch {
-        // ignore
     }
     return '';
 };
 
-export const setStoredErpCookies = (val) => {
+export const setStoredErpCookies = (val, studentId = null) => {
     inMemoryErpCookies = val || '';
-    try {
-        if (typeof window !== 'undefined') {
-            if (val) {
-                sessionStorage?.setItem('erp_session_cookie', val);
-                localStorage?.setItem('erp_session_cookie', val);
-            } else {
-                sessionStorage?.removeItem('erp_session_cookie');
-                localStorage?.removeItem('erp_session_cookie');
-            }
+    if (typeof window !== 'undefined') {
+        const target = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
+        if (target && val) {
+            try {
+                localStorage.setItem(`erp_cookie_${target}`, val);
+            } catch { /* ignore */ }
         }
-    } catch {
-        // ignore
     }
 };
 
 export const getStoredCsrfToken = () => {
-    if (inMemoryCsrfToken) return inMemoryCsrfToken;
-    try {
-        if (typeof window !== 'undefined') {
-            const stored = sessionStorage?.getItem('erp_csrf_token') || localStorage?.getItem('erp_csrf_token');
-            if (stored) {
-                inMemoryCsrfToken = stored;
-                return stored;
-            }
-        }
-    } catch {
-        // ignore
-    }
-    return '';
+    return inMemoryCsrfToken || '';
 };
 
 export const setStoredCsrfToken = (val) => {
     inMemoryCsrfToken = val || '';
-    try {
-        if (typeof window !== 'undefined') {
-            if (val) {
-                sessionStorage?.setItem('erp_csrf_token', val);
-                localStorage?.setItem('erp_csrf_token', val);
-            } else {
-                sessionStorage?.removeItem('erp_csrf_token');
-                localStorage?.removeItem('erp_csrf_token');
-            }
-        }
-    } catch {
-        // ignore
-    }
 };
 
 /**
@@ -127,12 +104,12 @@ export function isVerifiedErpDashboard(html, username = '') {
 
 const IGNORED_COOKIE_ATTRS = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned']);
 
-export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true } = {}) => {
+export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true, studentId = null } = {}) => {
     try {
         if (!response) return;
         const newCookies = response.headers?.get?.('x-set-erp-cookie') || response.headers?.get?.('set-cookie');
         if (newCookies) {
-            const existing = getStoredErpCookies();
+            const existing = getStoredErpCookies(studentId);
             const cookieMap = new Map();
             if (existing && !forceAuthUpdate) {
                 existing.split(';').forEach(pair => {
@@ -152,30 +129,26 @@ export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true } 
                 }
             });
             const merged = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-            setStoredErpCookies(merged);
+            setStoredErpCookies(merged, studentId);
         }
     } catch (e) {
         console.warn("[ERP] Failed to persist cookies:", e);
     }
 };
 
-export const clearStoredErpCookies = () => {
+export const clearStoredErpCookies = (studentId = null) => {
     inMemoryErpCookies = '';
     inMemoryCsrfToken = '';
-    try {
-        sessionStorage.removeItem('erp_session_cookie');
-        localStorage.removeItem('erp_session_cookie');
-        sessionStorage.removeItem('erp_csrf_token');
-        localStorage.removeItem('erp_csrf_token');
-        sessionStorage.removeItem('erp_authenticated');
-    } catch {
-        // ignore
+    if (studentId && typeof window !== 'undefined') {
+        try {
+            localStorage.removeItem(`erp_cookie_${studentId}`);
+        } catch { /* ignore */ }
     }
 };
 
-export const buildErpHeaders = (extraHeaders = {}) => {
+export const buildErpHeaders = (extraHeaders = {}, studentId = null) => {
     const headers = { ...extraHeaders };
-    const cookie = getStoredErpCookies();
+    const cookie = getStoredErpCookies(studentId);
     if (cookie) {
         headers['x-erp-cookie'] = cookie;
     }
@@ -385,33 +358,36 @@ export const erpService = {
             token = initRes?.csrfToken;
         }
 
-        // 1. Try high-performance /api/fast-login endpoint
+        const cleanUsername = username.trim();
+
+        // 1. Try high-performance /api/fast-login endpoint first
         try {
             const resp = await fetch(`${apiBase || ''}/api/fast-login`, {
                 method: 'POST',
                 headers: buildErpHeaders({
-                    'Content-Type': 'application/json'
-                }),
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'x-csrf-token': token } : {})
+                }, cleanUsername),
                 body: JSON.stringify({
-                    username: username.trim(),
+                    username: cleanUsername,
                     password,
                     captcha: captcha.trim(),
                     csrfToken: token
                 })
             });
 
-            saveErpCookiesFromResponse(resp);
+            saveErpCookiesFromResponse(resp, { studentId: cleanUsername });
             const data = await resp.json().catch(() => null);
 
             if (data) {
                 if (data.cookies) {
-                    setStoredErpCookies(data.cookies);
+                    setStoredErpCookies(data.cookies, cleanUsername);
                 }
                 if (data.csrfToken) {
                     setStoredCsrfToken(data.csrfToken);
                 }
                 if (data.success) {
-                    if (isVerifiedErpDashboard(data.html, username)) {
+                    if (isVerifiedErpDashboard(data.html, cleanUsername)) {
                         return { success: true, verified: true, html: data.html || '' };
                     } else {
                         throw new Error(data.error || "Incorrect Student ID, Password, or Captcha.");
@@ -425,13 +401,12 @@ export const erpService = {
             if (fastErr.message && !fastErr.message.includes('fetch') && !fastErr.message.includes('NetworkError') && !fastErr.message.includes('Failed to fetch')) {
                 throw fastErr;
             }
-            console.warn("[ERP] fast-login endpoint unavailable, trying direct POST:", fastErr);
         }
 
-        // 2. Direct POST to /index.php?r=site%2Flogin
+        // 2. Direct POST to /index.php?r=site%2Flogin fallback
         const formData = new URLSearchParams();
-        formData.append('_csrf', token || '');
-        formData.append('LoginForm[username]', username.trim());
+        if (token) formData.append('_csrf', token);
+        formData.append('LoginForm[username]', cleanUsername);
         formData.append('LoginForm[password]', password);
         formData.append('LoginForm[rememberMe]', '0');
         formData.append('LoginForm[captcha]', captcha.trim());
@@ -441,20 +416,21 @@ export const erpService = {
         const headers = buildErpHeaders({
             'Content-Type': 'application/x-www-form-urlencoded',
             'Pragma': 'no-cache',
-            'Cache-Control': 'no-cache'
-        });
+            'Cache-Control': 'no-cache',
+            ...(token ? { 'x-csrf-token': token } : {})
+        }, cleanUsername);
 
         let url = `${apiBase || ''}/index.php?r=site%2Flogin`;
         let response = await fetch(url, {
             method: 'POST',
             headers,
-            body: formData,
+            body: formData.toString(),
             credentials: 'include',
             cache: 'no-store'
         });
 
         let html = await response.text();
-        saveErpCookiesFromResponse(response, { forceAuthUpdate: true });
+        saveErpCookiesFromResponse(response, { forceAuthUpdate: true, studentId: cleanUsername });
 
         // HTTP error check
         if (!response.ok || response.status >= 400) {
@@ -462,8 +438,11 @@ export const erpService = {
             const doc = parser.parseFromString(html, 'text/html');
             const alertDanger = doc.querySelector('.alert-danger, .callout-danger, .site-error');
             const alertText = alertDanger?.textContent?.trim();
-            if (alertText && !alertText.includes('The above error occurred')) {
+            if (alertText && !alertText.includes('The above error occurred') && !alertText.includes('Forbidden')) {
                 throw new Error(alertText);
+            }
+            if (response.status === 403 || response.status === 400) {
+                throw new Error("Captcha or session expired. Please refresh the captcha and try again.");
             }
             throw new Error(`Login session rejected (HTTP ${response.status}). Please refresh captcha and try again.`);
         }
@@ -542,10 +521,9 @@ export const erpService = {
                     credentials: 'include',
                     cache: 'no-store'
                 });
-                console.log("Successfully destroyed ERP session cookie.");
             }
-        } catch (e) {
-            console.error("Failed to notify ERP of logout", e);
+        } catch {
+            // silent
         }
     },
 
@@ -636,14 +614,14 @@ export const erpService = {
     },
 
     // Prime the Yii2 controller session and fetch real options
-    async getAvailableSessions() {
+    async getAvailableSessions(studentId = null) {
         try {
             const apiBase = getErpBase();
             const headers = buildErpHeaders({
                 'Pragma': 'no-cache',
                 'Cache-Control': 'no-cache',
                 'X-Requested-With': 'XMLHttpRequest'
-            });
+            }, studentId);
 
             let resp = await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
                 method: 'GET',
@@ -659,7 +637,7 @@ export const erpService = {
                     method: 'GET',
                     credentials: 'include',
                     cache: 'no-store',
-                    headers: buildErpHeaders(headers)
+                    headers: buildErpHeaders(headers, studentId)
                 });
                 if (resp.ok) html = await resp.text();
             }
@@ -669,7 +647,7 @@ export const erpService = {
                 return null;
             }
 
-            saveErpCookiesFromResponse(resp);
+            saveErpCookiesFromResponse(resp, { studentId });
             return this.parseSearchInputHtml(html);
         } catch (e) {
             console.warn("[ERP] Failed to retrieve dynamic session options:", e);
@@ -724,58 +702,18 @@ export const erpService = {
     },
 
     // Fetch Subjects and Attendance with automatic session priming and candidate fallbacks
-    async fetchAttendance(year, semester) {
-        console.log(`[ERP] Fetch Attendance initiated -> Year: "${year}", Semester: "${semester}"`);
-
+    async fetchAttendance(year, semester, studentId = null) {
         const apiBase = getErpBase();
         const csrfToken = this.getCachedCsrfToken();
+        const targetStudent = studentId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null);
 
-        // 1. Try high-performance /api/fast-attendance endpoint first (< 1s execution)
-        const isNumericDbId = /^\d+$/.test(String(year || '').trim()) && parseInt(String(year || '').trim(), 10) > 20;
-        try {
-            const resp = await fetch(`${apiBase || ''}/api/fast-attendance`, {
-                method: 'POST',
-                headers: buildErpHeaders({
-                    'Content-Type': 'application/json',
-                    ...(csrfToken ? { 'x-csrf-token': csrfToken } : {})
-                }),
-                body: JSON.stringify({
-                    year,
-                    yearId: isNumericDbId ? String(year).trim() : undefined,
-                    semester,
-                    csrfToken: csrfToken || ''
-                }),
-                signal: AbortSignal.timeout(10000)
-            });
+        // 1. Prime the controller session and discover dynamic options
 
-            saveErpCookiesFromResponse(resp);
-            if (resp.ok) {
-                const data = await resp.json().catch(() => null);
-                if (data && data.sessionExpired) {
-                    throw new Error("Your session has expired. Please log out and sign in again.");
-                }
-                if (data && data.html) {
-                    const parsed = this.parseSubjects(data.html);
-                    console.log(`[ERP] Fast-attendance query for year "${year}", sem "${semester}" returned ${parsed.length} courses.`);
-                    if (parsed.length > 0) {
-                        return parsed;
-                    }
-                    console.log(`[ERP] Fast-attendance returned 0 courses. Proceeding to systematic candidate discovery...`);
-                }
-            }
-        } catch (fastErr) {
-            if (fastErr.message?.includes('expired') || fastErr.message?.includes('sign in')) {
-                throw fastErr;
-            }
-            console.warn("[ERP] Fast-attendance endpoint failed, trying direct courselist discovery:", fastErr.message);
-        }
-
-        // 2. Prime the controller session and discover dynamic options
         let sessionInfo = null;
         try {
-            sessionInfo = await this.getAvailableSessions();
-        } catch (e) {
-            console.warn("[ERP] Session priming warning:", e);
+            sessionInfo = await this.getAvailableSessions(targetStudent);
+        } catch {
+            // silent fallback
         }
 
         const effectiveCsrfToken = sessionInfo?.csrfToken || csrfToken;
@@ -856,7 +794,6 @@ export const erpService = {
             matchedYearVal,
             ...fallbackCandidates
         ].filter(Boolean)));
-        console.log(`[ERP] Candidate Year IDs to query:`, candidateYearIds, `SemId:`, semId);
 
         let subjects = [];
         let lastHtml = '';
@@ -881,7 +818,7 @@ export const erpService = {
                             'Pragma': 'no-cache',
                             'Cache-Control': 'no-cache',
                             'Referer': 'https://newerp.kluniversity.in/index.php'
-                        }),
+                        }, targetStudent),
                         body: primeForm,
                         credentials: 'include',
                         cache: 'no-store'
@@ -909,7 +846,7 @@ export const erpService = {
                     'Pragma': 'no-cache',
                     'Cache-Control': 'no-cache',
                     'Referer': 'https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput'
-                });
+                }, targetStudent);
                 if (effectiveCsrfToken) {
                     headers['X-CSRF-Token'] = effectiveCsrfToken;
                 }
@@ -934,7 +871,7 @@ export const erpService = {
                 let html = await response.text();
                 if ((html.includes('<div id="root">') || html.includes('/vite.svg')) && apiBase !== FALLBACK_ERP_BASE) {
                     const fbHeaders = { ...headers };
-                    const cookie = getStoredErpCookies();
+                    const cookie = getStoredErpCookies(targetStudent);
                     if (cookie) fbHeaders['x-erp-cookie'] = cookie;
                     response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
                         method: 'POST',
@@ -946,7 +883,7 @@ export const erpService = {
                     html = await response.text();
                 }
 
-                saveErpCookiesFromResponse(response);
+                saveErpCookiesFromResponse(response, { studentId: targetStudent });
 
                 if (!response.ok) {
                     console.warn(`[ERP] Candidate Year ID ${currentYearId} returned status ${response.status}`);
@@ -962,7 +899,6 @@ export const erpService = {
                 const parsed = this.parseSubjects(html);
                 if (parsed.length > 0) {
                     subjects = parsed;
-                    console.log(`[ERP] Successfully fetched ${subjects.length} courses with YearId: ${currentYearId}`);
                     break;
                 }
             } catch (err) {

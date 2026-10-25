@@ -79,14 +79,14 @@ const BunkSimulator = () => {
     const [activeProfile, setActiveProfile] = useState(() => getActiveProfileDetails());
     const [activeId, setActiveId] = useState(() => {
         const prof = getActiveProfileDetails();
-        return prof?.studentId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '2400030358';
+        return prof?.studentId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '';
     });
 
     useEffect(() => {
         const updateProf = () => {
             const prof = getActiveProfileDetails();
             setActiveProfile(prof);
-            setActiveId(prof?.studentId || localStorage.getItem('activeErpUser') || '2400030358');
+            setActiveId(prof?.studentId || localStorage.getItem('activeErpUser') || '');
         };
         window.addEventListener('kl_friends_updated', updateProf);
         window.addEventListener('kl_active_profile_updated', updateProf);

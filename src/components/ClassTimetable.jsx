@@ -35,7 +35,8 @@ import {
     normalizeSemester,
     cleanRoomNumber
 } from '../services/timetableService';
-import { getSavedFriends, getMyProfile, saveFriendTimetable } from '../services/friendsService';
+import { getSavedFriends, getMyProfile, saveFriendTimetable, getEffectiveSavedProfile, setActiveProfileId } from '../services/friendsService';
+import { hasActiveErpSession } from '../services/erpService';
 import FriendCaptchaModal from './FriendCaptchaModal';
 
 const DAY_TABS = [
@@ -48,7 +49,7 @@ const DAY_TABS = [
 ];
 
 export default function ClassTimetable({
-    studentId = '2400030358',
+    studentId = '',
     studentName = 'My Profile',
     erpCourses = [],
     onViewCourseAttendance,
@@ -60,8 +61,9 @@ export default function ClassTimetable({
     selectedSem = 'Odd Semester'
 }) {
     const myProfile = useMemo(() => getMyProfile(), []);
-    const myId = myProfile?.studentId || myProfile?.username || studentId || '2400030358';
-    const myName = myProfile?.nickname || myProfile?.name || studentName || 'My Profile';
+    const effectiveSaved = useMemo(() => getEffectiveSavedProfile(), []);
+    const primaryMyId = myProfile?.studentId || (typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : '') || '';
+    const primaryMyName = myProfile?.nickname || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : '') || 'Account';
 
     // Combine saved friends with TimeTablekl 'maddys' reactively
     const [allFriends, setAllFriends] = useState(() => {
@@ -123,20 +125,24 @@ export default function ClassTimetable({
     }, []);
 
     // Active Profile: Self or Buddy
-    const [activeTargetId, setActiveTargetId] = useState(studentId || myId);
+    const [activeTargetId, setActiveTargetId] = useState(studentId || primaryMyId);
 
-    useEffect(() => {
-        if (studentId) setActiveTargetId(studentId);
-    }, [studentId]);
-
-    const effectiveId = activeTargetId || myId;
+    const effectiveId = studentId || activeTargetId || primaryMyId;
     const effectiveName = useMemo(() => {
-        if (effectiveId === myId || effectiveId === 'main') {
-            return myName;
+        if (effectiveId === primaryMyId || effectiveId === 'main') {
+            return primaryMyName;
         }
         const fr = allFriends.find(f => (f.studentId === effectiveId || f.username === effectiveId || f.id === effectiveId));
-        return fr ? (fr.nickname || fr.name || fr.label) : effectiveId;
-    }, [effectiveId, myName, myId, allFriends]);
+        return fr ? (fr.nickname || fr.name || fr.label) : (studentName && studentName !== 'My Profile' ? studentName : effectiveId);
+    }, [effectiveId, primaryMyName, primaryMyId, allFriends, studentName]);
+
+    // Friends list with primary user ID strictly excluded to prevent duplicate buttons
+    const filteredFriends = useMemo(() => {
+        return allFriends.filter(f => {
+            const sid = f.studentId || f.username || f.id;
+            return sid && sid !== primaryMyId;
+        });
+    }, [allFriends, primaryMyId]);
 
     // Dynamic Academic Year & Semester derived directly from props & selection
     const currentYear = useMemo(() => normalizeAcademicYear(selectedYear), [selectedYear]);
@@ -149,6 +155,28 @@ export default function ClassTimetable({
     }, [selectedSem]);
 
     const [timetable, setTimetable] = useState(() => getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem));
+
+    useEffect(() => {
+        if (studentId) setActiveTargetId(studentId);
+    }, [studentId]);
+
+    useEffect(() => {
+        const handleProfileSwitch = (e) => {
+            const detail = e?.detail;
+            const newTargetId = detail?.studentId || (detail?.id && detail.id !== 'main' ? detail.id : primaryMyId);
+            if (newTargetId && newTargetId !== activeTargetId) {
+                setActiveTargetId(newTargetId);
+                const fresh = getStudentTimetable(newTargetId, newTargetId === studentId ? erpCourses : [], currentYear, currentSem);
+                setTimetable(fresh);
+            }
+        };
+        window.addEventListener('kl_active_profile_updated', handleProfileSwitch);
+        window.addEventListener('kl_profile_switched', handleProfileSwitch);
+        return () => {
+            window.removeEventListener('kl_active_profile_updated', handleProfileSwitch);
+            window.removeEventListener('kl_profile_switched', handleProfileSwitch);
+        };
+    }, [activeTargetId, studentId, erpCourses, currentYear, currentSem, primaryMyId]);
 
     const safeTimetable = useMemo(() => {
         const defaultDays = {
@@ -239,7 +267,7 @@ export default function ClassTimetable({
         setTimetable(cached);
 
         // If not yet fetched from live ERP or user refreshed, trigger live ERP fetch in background
-        const hasSession = typeof window !== 'undefined' && (localStorage.getItem('erp_session_cookie') || sessionStorage.getItem('erp_session_cookie') || localStorage.getItem('activeErpUser'));
+        const hasSession = hasActiveErpSession();
         if (hasSession && (!cached || cached._source !== 'erp_live')) {
             setIsRefreshing(true);
             fetchLiveErpTimetable(effectiveId, currentYear, currentSem)
@@ -616,22 +644,24 @@ export default function ClassTimetable({
                         <button
                             type="button"
                             onClick={() => {
-                                setActiveTargetId(myId);
-                                if (onSelectFriend) onSelectFriend(myId);
-                                const fresh = getStudentTimetable(myId, myId === studentId ? erpCourses : [], currentYear, currentSem);
+                                setActiveProfileId('main');
+                                setActiveTargetId(primaryMyId);
+                                if (onSelectFriend) onSelectFriend(primaryMyId);
+                                if (onSelectProfile) onSelectProfile(myProfile);
+                                const fresh = getStudentTimetable(primaryMyId, primaryMyId === studentId ? erpCourses : [], currentYear, currentSem);
                                 setTimetable(fresh);
                             }}
                             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
-                                effectiveId === myId
+                                effectiveId === primaryMyId
                                     ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
                                     : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
                             }`}
                         >
-                            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                            <span>{myName} ({myId})</span>
+                            <span className={`w-2 h-2 rounded-full ${effectiveId === primaryMyId ? 'bg-emerald-300' : 'bg-emerald-500'}`} />
+                            <span>{primaryMyName} ({primaryMyId})</span>
                         </button>
 
-                        {allFriends.map((friend) => {
+                        {filteredFriends.map((friend) => {
                             const fId = friend.studentId || friend.username || friend.id;
                             const fName = friend.nickname || friend.name || friend.label || 'Buddy';
                             const isSelected = effectiveId === fId;
@@ -641,11 +671,17 @@ export default function ClassTimetable({
                                     key={friend.id || fId}
                                     type="button"
                                     onClick={() => {
+                                        setActiveProfileId(friend.id || fId);
                                         setActiveTargetId(fId);
                                         if (onSelectFriend) onSelectFriend(fId);
                                         if (onSelectProfile) onSelectProfile(friend);
                                         const fresh = getStudentTimetable(fId, [], currentYear, currentSem);
                                         setTimetable(fresh);
+                                        if (hasActiveErpSession(fId) && (!fresh || fresh._source !== 'erp_live')) {
+                                            fetchLiveErpTimetable(fId, currentYear, currentSem).then(res => {
+                                                if (res?.timetable) setTimetable(res.timetable);
+                                            }).catch(() => {});
+                                        }
                                     }}
                                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
                                         isSelected
@@ -653,7 +689,7 @@ export default function ClassTimetable({
                                             : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
                                     }`}
                                 >
-                                    <Users className="w-3 h-3 text-indigo-500" />
+                                    <Users className={`w-3 h-3 ${isSelected ? 'text-white' : 'text-indigo-500'}`} />
                                     <span>{fName} ({fId})</span>
                                 </button>
                             );
@@ -724,7 +760,7 @@ export default function ClassTimetable({
                                         type="button"
                                         onClick={() => {
                                             setShowMoreMenu(false);
-                                            const targetProfile = effectiveId === myId
+                                            const targetProfile = effectiveId === primaryMyId
                                                 ? myProfile
                                                 : allFriends.find(f => (f.studentId === effectiveId || f.username === effectiveId || f.id === effectiveId));
                                             if (targetProfile) {
@@ -818,7 +854,7 @@ export default function ClassTimetable({
             </div>
 
             {/* Buddy Banner when viewing friend's schedule */}
-            {effectiveId !== myId && (
+            {effectiveId !== primaryMyId && (
                 <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-3.5 px-5 flex flex-wrap items-center justify-between gap-3 text-indigo-950">
                     <div className="flex items-center gap-2.5">
                         <Users className="w-4 h-4 text-indigo-600 shrink-0" />
@@ -826,38 +862,84 @@ export default function ClassTimetable({
                             <span className="font-bold">Viewing Buddy&apos;s Schedule:</span>{' '}
                             <span className="font-extrabold text-indigo-700">{effectiveName}</span>{' '}
                             <span className="font-mono text-indigo-600">({effectiveId})</span>
+                            {safeTimetable?._source === 'erp_live' ? (
+                                <span className="ml-2 inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300">
+                                    <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                                    <span>Verified ERP Timetable</span>
+                                </span>
+                            ) : (
+                                <span className="ml-2 inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-md border border-amber-300">
+                                    <span>Curriculum Schedule</span>
+                                </span>
+                            )}
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setActiveTargetId(myId);
-                            if (onSelectFriend) onSelectFriend(myId);
-                            const fresh = getStudentTimetable(myId, myId === studentId ? erpCourses : [], currentYear, currentSem);
-                            setTimetable(fresh);
-                        }}
-                        className="px-3 py-1.5 rounded-xl bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
-                    >
-                        <span>Back to My Timetable</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {safeTimetable?._source !== 'erp_live' && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (hasActiveErpSession(effectiveId)) {
+                                        handleReloadTimetable();
+                                    } else {
+                                        const targetProfile = allFriends.find(f => (f.studentId === effectiveId || f.username === effectiveId || f.id === effectiveId));
+                                        setCaptchaModalTarget(targetProfile || {
+                                            id: effectiveId,
+                                            studentId: effectiveId,
+                                            nickname: effectiveName,
+                                            label: effectiveName
+                                        });
+                                    }
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                            >
+                                <ShieldCheck className="w-3.5 h-3.5 text-white" />
+                                <span>Sync Live ERP Timetable</span>
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setActiveProfileId('main');
+                                setActiveTargetId(primaryMyId);
+                                if (onSelectFriend) onSelectFriend(primaryMyId);
+                                if (onSelectProfile) onSelectProfile(myProfile);
+                                const fresh = getStudentTimetable(primaryMyId, primaryMyId === studentId ? erpCourses : [], currentYear, currentSem);
+                                setTimetable(fresh);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1.5"
+                        >
+                            <span>Back to My Timetable</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
                 </div>
             )}
 
             {/* ── Present (Current) & Next Class Row ── */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Present / Ongoing Class Card */}
-                <div className="p-5 rounded-3xl bg-slate-900 text-white border border-slate-800 shadow-md relative overflow-hidden flex flex-col justify-between">
+                <div className="p-5 rounded-3xl bg-[#090d16] text-white border border-slate-800/90 shadow-md relative overflow-hidden flex flex-col justify-between">
                     <div>
                         <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
-                                <span className={`w-2.5 h-2.5 rounded-full ${liveStatus.currentClass ? 'bg-emerald-400 animate-ping' : 'bg-slate-500'}`} />
-                                <span className="text-[10px] font-mono font-black uppercase tracking-[0.2em] text-slate-400">
-                                    {liveStatus.currentClass ? 'ONGOING CLASS (NOW)' : liveStatus.isLunch ? 'LUNCH BREAK' : 'FREE PERIOD / BREAK'}
+                                <span className={`w-2.5 h-2.5 rounded-full ${liveStatus.currentClass ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse' : 'bg-slate-500'}`} />
+                                <span className="text-[10px] font-mono font-black uppercase tracking-[0.2em] text-cyan-400/90">
+                                    {liveStatus.currentClass
+                                        ? 'ONGOING CLASS (NOW)'
+                                        : liveStatus.isLunch
+                                        ? 'LUNCH BREAK'
+                                        : liveStatus.isFreePeriod
+                                        ? 'FREE PERIOD / BREAK'
+                                        : liveStatus.isBeforeCollege
+                                        ? 'UPCOMING TODAY'
+                                        : liveStatus.isDayEnded
+                                        ? 'CLASSES CONCLUDED'
+                                        : 'WEEKEND / NO CLASSES'}
                                 </span>
                             </div>
-                            <span className="text-xs font-mono font-bold text-indigo-300">
-                                {currentTimeStr || 'IST'}
+                            <span className="text-xs font-mono font-bold text-cyan-400">
+                                {currentTimeStr || liveStatus.istTimeWithSecondsString || 'IST'}
                             </span>
                         </div>
 
@@ -882,7 +964,7 @@ export default function ClassTimetable({
                                 </div>
                             </div>
                         ) : liveStatus.isLunch ? (
-                            <div className="space-y-1">
+                            <div className="space-y-1 py-1">
                                 <div className="flex items-center gap-1.5 text-amber-300 font-bold text-sm">
                                     <Utensils className="w-4 h-4 text-amber-400" />
                                     <span>Lunch Break (12:45 PM – 01:45 PM)</span>
@@ -892,7 +974,7 @@ export default function ClassTimetable({
                                 </p>
                             </div>
                         ) : liveStatus.isFreePeriod ? (
-                            <div className="space-y-1">
+                            <div className="space-y-1 py-1">
                                 <div className="flex items-center gap-1.5 text-blue-300 font-bold text-sm">
                                     <Coffee className="w-4 h-4 text-blue-400" />
                                     <span>Free Period / Library Break</span>
@@ -901,18 +983,44 @@ export default function ClassTimetable({
                                     No class scheduled right now. Review lecture notes or relax.
                                 </p>
                             </div>
-                        ) : (
-                            <div className="space-y-1">
-                                <h4 className="text-base font-bold text-slate-200">
-                                    {liveStatus.isDayEnded ? 'All Classes Completed for Today' : 'No Classes Today (Weekend)'}
+                        ) : liveStatus.isBeforeCollege ? (
+                            <div className="space-y-1 py-1">
+                                <h4 className="text-sm font-bold text-slate-200 tracking-tight">
+                                    Classes Begin Today at {liveStatus.firstClassToday?.time || '7:10 AM'}
+                                </h4>
+                                {liveStatus.firstClassToday && (
+                                    <p className="text-xs text-sky-400 font-medium leading-relaxed">
+                                        First Class: {liveStatus.firstClassToday.slotId} ({liveStatus.firstClassToday.time}) · {getSlotDisplayTitle(liveStatus.firstClassToday)} {liveStatus.firstClassToday.room ? `@ Room ${cleanRoomNumber(liveStatus.firstClassToday.room)}` : ''}
+                                    </p>
+                                )}
+                            </div>
+                        ) : liveStatus.isDayEnded ? (
+                            <div className="space-y-1 py-1">
+                                <h4 className="text-sm font-bold text-slate-200 tracking-tight">
+                                    All Classes Completed for Today
                                 </h4>
                                 {liveStatus.nextWorkingDayFirstClass ? (
-                                    <p className="text-xs text-indigo-300 font-medium">
+                                    <p className="text-xs text-sky-400 font-medium leading-relaxed">
                                         Next Class: {liveStatus.nextWorkingDayFirstClass.relativeDay || liveStatus.nextWorkingDayFirstClass.day} {liveStatus.nextWorkingDayFirstClass.time} · {getSlotDisplayTitle(liveStatus.nextWorkingDayFirstClass)} {liveStatus.nextWorkingDayFirstClass.room ? `@ Room ${cleanRoomNumber(liveStatus.nextWorkingDayFirstClass.room)}` : ''}
                                     </p>
                                 ) : (
                                     <p className="text-xs text-slate-400">
-                                        Rest up and prepare for upcoming academic sessions.
+                                        All periods for today have concluded. Rest up and prepare for upcoming classes.
+                                    </p>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="space-y-1 py-1">
+                                <h4 className="text-sm font-bold text-slate-200 tracking-tight">
+                                    No Classes Scheduled Today ({liveStatus.dayName || 'Weekend'})
+                                </h4>
+                                {liveStatus.nextWorkingDayFirstClass ? (
+                                    <p className="text-xs text-sky-400 font-medium leading-relaxed">
+                                        Next Class: {liveStatus.nextWorkingDayFirstClass.relativeDay || liveStatus.nextWorkingDayFirstClass.day} {liveStatus.nextWorkingDayFirstClass.time} · {getSlotDisplayTitle(liveStatus.nextWorkingDayFirstClass)} {liveStatus.nextWorkingDayFirstClass.room ? `@ Room ${cleanRoomNumber(liveStatus.nextWorkingDayFirstClass.room)}` : ''}
+                                    </p>
+                                ) : (
+                                    <p className="text-xs text-slate-400">
+                                        Enjoy your weekend / break!
                                     </p>
                                 )}
                             </div>
@@ -923,13 +1031,13 @@ export default function ClassTimetable({
                         <div className="mt-4 pt-3 border-t border-slate-800 space-y-2">
                             <div className="flex items-center justify-between text-xs text-slate-400">
                                 <span>Class in progress ({liveStatus.currentClass.progressPercent || 0}%)</span>
-                                <span className="text-emerald-400 font-bold">
-                                    {liveStatus.currentClass.minutesRemaining}m {liveStatus.currentClass.secondsRemaining}s left
+                                <span className="text-emerald-400 font-bold font-mono">
+                                    {liveStatus.currentClass.minutesRemaining}m {liveStatus.currentClass.secondsRemaining ?? 0}s left
                                 </span>
                             </div>
                             <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
                                 <div
-                                    className="bg-indigo-500 h-full rounded-full transition-all duration-1000 ease-linear"
+                                    className="bg-indigo-500 h-full rounded-full transition-all duration-1000 ease-linear shadow-[0_0_8px_rgba(129,140,248,0.6)]"
                                     style={{ width: `${liveStatus.currentClass.progressPercent || 0}%` }}
                                 />
                             </div>
@@ -938,14 +1046,14 @@ export default function ClassTimetable({
                 </div>
 
                 {/* Upcoming / Next Class Card */}
-                <div className="p-5 rounded-3xl bg-slate-900 text-white border border-slate-800 shadow-md flex flex-col justify-between">
+                <div className="p-5 rounded-3xl bg-[#090d16] text-white border border-slate-800/90 shadow-md flex flex-col justify-between">
                     <div>
                         <div className="flex items-center justify-between mb-3">
                             <span className="text-[10px] font-mono font-black uppercase tracking-[0.2em] text-slate-400">
                                 NEXT CLASS (UPCOMING)
                             </span>
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                                {liveStatus.nextClass ? (liveStatus.nextClass.minutesUntil <= 60 ? `Starts in ${liveStatus.nextClass.minutesUntil}m` : 'Next Up') : 'Concluded'}
+                                {liveStatus.nextClass ? (liveStatus.nextClass.minutesUntil <= 60 ? `Starts in ${liveStatus.nextClass.minutesUntil}m` : 'Next Up') : liveStatus.isBeforeCollege ? 'First Period' : liveStatus.isWeekendOrNoClass ? 'Weekend' : 'Concluded'}
                             </span>
                         </div>
 
@@ -969,6 +1077,46 @@ export default function ClassTimetable({
                                     )}
                                 </div>
                             </div>
+                        ) : liveStatus.isBeforeCollege && liveStatus.firstClassToday ? (
+                            <div className="space-y-2">
+                                <h4 className="text-lg sm:text-xl font-black text-white leading-tight">
+                                    {getSlotDisplayTitle(liveStatus.firstClassToday)}
+                                </h4>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 pt-0.5">
+                                    <span className="text-indigo-300 font-bold">
+                                        {liveStatus.firstClassToday.slotId} ({liveStatus.firstClassToday.time})
+                                    </span>
+                                    {liveStatus.firstClassToday.room && (
+                                        <>
+                                            <span>•</span>
+                                            <span className="text-amber-300 font-bold flex items-center gap-1">
+                                                <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                                                <span>Room {cleanRoomNumber(liveStatus.firstClassToday.room)}</span>
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        ) : liveStatus.nextWorkingDayFirstClass ? (
+                            <div className="space-y-2">
+                                <h4 className="text-base sm:text-lg font-black text-white leading-tight">
+                                    {liveStatus.nextWorkingDayFirstClass.relativeDay}: {getSlotDisplayTitle(liveStatus.nextWorkingDayFirstClass)}
+                                </h4>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 pt-0.5">
+                                    <span className="text-indigo-300 font-bold">
+                                        {liveStatus.nextWorkingDayFirstClass.slotId} ({liveStatus.nextWorkingDayFirstClass.time})
+                                    </span>
+                                    {liveStatus.nextWorkingDayFirstClass.room && (
+                                        <>
+                                            <span>•</span>
+                                            <span className="text-amber-300 font-bold flex items-center gap-1">
+                                                <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                                                <span>Room {cleanRoomNumber(liveStatus.nextWorkingDayFirstClass.room)}</span>
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
                         ) : (
                             <div className="space-y-1">
                                 <h4 className="text-base font-bold text-slate-300">
@@ -982,8 +1130,22 @@ export default function ClassTimetable({
                     </div>
 
                     <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-                        <span>{liveStatus.previousClass ? `Previous: ${getSlotDisplayTitle(liveStatus.previousClass)} (Rm ${cleanRoomNumber(liveStatus.previousClass.room)})` : 'Next Period'}</span>
-                        <span className="text-white font-medium">{liveStatus.nextClass ? liveStatus.nextClass.time : 'None'}</span>
+                        <span className="truncate max-w-[200px] sm:max-w-xs">
+                            Previous: {liveStatus.previousClass ? (
+                                <strong className="text-slate-300 font-semibold">
+                                    {getSlotDisplayTitle(liveStatus.previousClass)}{liveStatus.previousClass.room ? ` (Rm ${cleanRoomNumber(liveStatus.previousClass.room)})` : ''}
+                                </strong>
+                            ) : (liveStatus.isDayEnded && Array.isArray(liveStatus.todaySchedule) && liveStatus.todaySchedule.length > 0) ? (
+                                <strong className="text-slate-300 font-semibold">
+                                    {getSlotDisplayTitle(liveStatus.todaySchedule[liveStatus.todaySchedule.length - 1])}
+                                </strong>
+                            ) : (
+                                <span className="text-slate-500 font-medium">None</span>
+                            )}
+                        </span>
+                        <span className="font-mono text-white font-bold shrink-0 text-xs">
+                            {liveStatus.nextClass ? liveStatus.nextClass.time : (liveStatus.nextWorkingDayFirstClass ? `${liveStatus.nextWorkingDayFirstClass.relativeDay} ${liveStatus.nextWorkingDayFirstClass.time.split('–')[0].trim()}` : 'None')}
+                        </span>
                     </div>
                 </div>
             </div>
@@ -1226,7 +1388,13 @@ export default function ClassTimetable({
                                                 </td>
 
                                                 {KLU_SESSIONS.map((sess) => {
-                                                    const classItem = slots.find(s => s.period === sess.slot || s.slotId === sess.id);
+                                                    const classItem = slots.find(s => {
+                                                        if (s.period === sess.slot || s.slotId === sess.id) return true;
+                                                        const startP = s.periodStart || s.period;
+                                                        const endP = s.periodEnd || (s.period && s.span ? s.period + s.span - 1 : s.period);
+                                                        if (startP && endP && sess.slot >= startP && sess.slot <= endP) return true;
+                                                        return false;
+                                                    });
                                                     if (!classItem) {
                                                         return (
                                                             <td key={sess.id} className="p-2 border-r border-slate-200 text-slate-300 font-mono text-center">
@@ -1321,8 +1489,8 @@ export default function ClassTimetable({
                                         onChange={(e) => setCompareLeftId(e.target.value)}
                                         className="w-full bg-[#17171b] text-white text-xs font-bold p-2.5 rounded-xl border border-[#2a2a31] outline-none"
                                     >
-                                        <option value={myId}>{myName} ({myId})</option>
-                                        {allFriends.map(f => (
+                                        <option value={primaryMyId}>{primaryMyName} ({primaryMyId})</option>
+                                        {filteredFriends.map(f => (
                                             <option key={f.id || f.studentId} value={f.studentId || f.username}>{f.nickname || f.name} ({f.studentId})</option>
                                         ))}
                                     </select>
@@ -1335,10 +1503,10 @@ export default function ClassTimetable({
                                         onChange={(e) => setCompareRightId(e.target.value)}
                                         className="w-full bg-[#17171b] text-white text-xs font-bold p-2.5 rounded-xl border border-[#2a2a31] outline-none"
                                     >
-                                        {allFriends.map(f => (
+                                        {filteredFriends.map(f => (
                                             <option key={f.id || f.studentId} value={f.studentId || f.username}>{f.nickname || f.name} ({f.studentId})</option>
                                         ))}
-                                        <option value={myId}>{myName} ({myId})</option>
+                                        <option value={primaryMyId}>{primaryMyName} ({primaryMyId})</option>
                                     </select>
                                 </div>
                             </div>
@@ -1346,8 +1514,20 @@ export default function ClassTimetable({
                             {/* Comparison Rows */}
                             <div className="space-y-2">
                                 {KLU_SESSIONS.map((sess) => {
-                                    const leftSlot = (leftCompareTimetable[compareDay] || []).find(s => s.period === sess.slot || s.slotId === sess.id);
-                                    const rightSlot = (rightCompareTimetable[compareDay] || []).find(s => s.period === sess.slot || s.slotId === sess.id);
+                                    const leftSlot = (leftCompareTimetable[compareDay] || []).find(s => {
+                                        if (s.period === sess.slot || s.slotId === sess.id) return true;
+                                        const startP = s.periodStart || s.period;
+                                        const endP = s.periodEnd || (s.period && s.span ? s.period + s.span - 1 : s.period);
+                                        if (startP && endP && sess.slot >= startP && sess.slot <= endP) return true;
+                                        return false;
+                                    });
+                                    const rightSlot = (rightCompareTimetable[compareDay] || []).find(s => {
+                                        if (s.period === sess.slot || s.slotId === sess.id) return true;
+                                        const startP = s.periodStart || s.period;
+                                        const endP = s.periodEnd || (s.period && s.span ? s.period + s.span - 1 : s.period);
+                                        if (startP && endP && sess.slot >= startP && sess.slot <= endP) return true;
+                                        return false;
+                                    });
 
                                     const isBothFree = !leftSlot && !rightSlot;
                                     const isSameClass = leftSlot && rightSlot && (leftSlot.code === rightSlot.code || leftSlot.rawCode === rightSlot.rawCode);

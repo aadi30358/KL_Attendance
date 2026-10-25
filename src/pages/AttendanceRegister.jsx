@@ -191,7 +191,7 @@ const AttendanceRegister = () => {
         if (initialProfile?.isFriend && initialProfile?.studentId) {
             return initialProfile.studentId;
         }
-        return localStorage.getItem('activeErpUser') || initialProfile?.studentId || '2400030358';
+        return localStorage.getItem('activeErpUser') || initialProfile?.studentId || '';
     });
     const storageKey = activeId ? `kleData_${activeId}` : 'kleData';
 
@@ -250,7 +250,7 @@ const AttendanceRegister = () => {
     const [subjects, setSubjects] = useState(() => {
         if (!activeId) return [];
         try {
-            const cached = localStorage.getItem(`kleData_${activeId}`) || localStorage.getItem('kleData');
+            const cached = localStorage.getItem(`kleData_${activeId}`) || ((activeId && activeId === localStorage.getItem('rememberedId')) ? localStorage.getItem('kleData') : null);
             if (cached) {
                 const parsed = JSON.parse(cached);
                 const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
@@ -343,8 +343,7 @@ const AttendanceRegister = () => {
         const targetId = customId || activeId || localStorage.getItem('activeErpUser') || '';
 
         try {
-            console.log(`[ERP] Fetching records for Year: "${queryYear}" (${fetchYear}), Sem: "${fetchSemester}"...`);
-            const data = await erpService.fetchAttendance(queryYear, fetchSemester);
+            const data = await erpService.fetchAttendance(queryYear, fetchSemester, targetId);
             let finalCourses = Array.isArray(data) ? data : [];
             let finalYear = normYear;
             let finalSem = normSem;
@@ -363,7 +362,7 @@ const AttendanceRegister = () => {
                     for (const candY of candidateYears) {
                         for (const candS of candSems) {
                             try {
-                                const altData = await erpService.fetchAttendance(candY, candS);
+                                const altData = await erpService.fetchAttendance(candY, candS, targetId);
                                 if (Array.isArray(altData) && altData.length > 0) {
                                     finalCourses = altData;
                                     finalYear = candY;
@@ -377,43 +376,72 @@ const AttendanceRegister = () => {
                 }
             }
 
-            setSubjects(finalCourses);
-            setShowDashboard(true);
-            setYear(finalYear);
-            setSemester(finalSem);
-            setLastUpdated(Date.now());
-            setSessionStatus('active');
+            if (finalCourses.length > 0) {
+                setSubjects(finalCourses);
+                setShowDashboard(true);
+                setYear(finalYear);
+                setSemester(finalSem);
+                setLastUpdated(Date.now());
+                setSessionStatus('active');
 
-            // Trigger live ERP timetable sync in background
-            if (targetId) {
-                fetchLiveErpTimetable(targetId, finalYear, finalSem).then((res) => {
-                    if (res?.timetable) {
-                        window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                            detail: { studentId: targetId, year: finalYear, sem: finalSem }
-                        }));
-                    }
-                }).catch(() => null);
-            }
-
-            const keyToUse = targetId ? `kleData_${targetId}` : 'kleData';
-            try {
-                const payload = JSON.stringify({ 
-                    attendance_data: finalCourses, 
-                    year: finalYear, 
-                    semester: finalSem, 
-                    timestamp: Date.now() 
-                });
-                localStorage.setItem(keyToUse, payload);
+                // Trigger live ERP timetable sync in background
                 if (targetId) {
-                    localStorage.setItem(`activeYear_${targetId}`, finalYear);
-                    localStorage.setItem(`activeSem_${targetId}`, finalSem);
-                    localStorage.setItem(`manualYear_${targetId}`, finalYear);
-                    localStorage.setItem(`manualSem_${targetId}`, finalSem);
-                    localStorage.setItem(`kleData_${targetId}_${finalYear}_${finalSem}`, payload);
-                    localStorage.setItem(`attendanceLastUpdated_${targetId}`, String(Date.now()));
+                    fetchLiveErpTimetable(targetId, finalYear, finalSem).then((res) => {
+                        if (res?.timetable) {
+                            window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                                detail: { studentId: targetId, year: finalYear, sem: finalSem }
+                            }));
+                        }
+                    }).catch(() => null);
                 }
-            } catch (storageErr) {
-                console.warn('[Storage] Quota exceeded or private browsing:', storageErr);
+
+                const keyToUse = targetId ? `kleData_${targetId}` : 'kleData';
+                try {
+                    const payload = JSON.stringify({ 
+                        attendance_data: finalCourses, 
+                        year: finalYear, 
+                        semester: finalSem, 
+                        timestamp: Date.now() 
+                    });
+                    localStorage.setItem(keyToUse, payload);
+                    if (targetId) {
+                        localStorage.setItem(`activeYear_${targetId}`, finalYear);
+                        localStorage.setItem(`activeSem_${targetId}`, finalSem);
+                        localStorage.setItem(`manualYear_${targetId}`, finalYear);
+                        localStorage.setItem(`manualSem_${targetId}`, finalSem);
+                        localStorage.setItem(`kleData_${targetId}_${finalYear}_${finalSem}`, payload);
+                        localStorage.setItem(`attendanceLastUpdated_${targetId}`, String(Date.now()));
+                    }
+                } catch (storageErr) {
+                    console.warn('[Storage] Quota exceeded or private browsing:', storageErr);
+                }
+            } else {
+                // If live fetch returned 0 courses, check if cached attendance exists for this person
+                const scopedKey = targetId ? `kleData_${targetId}_${finalYear}_${finalSem}` : null;
+                const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
+                const generalKey = targetId ? `kleData_${targetId}` : 'kleData';
+                const generalRaw = localStorage.getItem(generalKey);
+                const dataToUse = scopedRaw || generalRaw;
+                let cachedCourses = [];
+                if (dataToUse) {
+                    try {
+                        const parsed = JSON.parse(dataToUse);
+                        const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
+                        if (Array.isArray(list) && list.length > 0) {
+                            cachedCourses = list;
+                        }
+                    } catch { /* ignore */ }
+                }
+
+                if (cachedCourses.length > 0) {
+                    setSubjects(cachedCourses);
+                    setShowDashboard(true);
+                    setYear(finalYear);
+                    setSemester(finalSem);
+                } else {
+                    setSubjects([]);
+                    setShowDashboard(false);
+                }
             }
         } catch (error) {
             console.warn('[ERP] Attendance query notice:', error.message);
@@ -435,7 +463,7 @@ const AttendanceRegister = () => {
 
             // 2. Restore from student's general cached attendance (kleData_id or kleData)
             const fallbackKey = targetId ? `kleData_${targetId}` : 'kleData';
-            const fallbackRaw = localStorage.getItem(fallbackKey) || (targetId ? localStorage.getItem('kleData') : null);
+            const fallbackRaw = localStorage.getItem(fallbackKey) || ((targetId && targetId === localStorage.getItem('rememberedId')) ? localStorage.getItem('kleData') : null);
             if (fallbackRaw) {
                 try {
                     const parsed = JSON.parse(fallbackRaw);
@@ -572,7 +600,7 @@ const AttendanceRegister = () => {
 
         // Dynamically discover registered sessions from ERP
         let isMounted = true;
-        erpService.getAvailableSessions().then(sessionData => {
+        erpService.getAvailableSessions(activeId).then(sessionData => {
             if (!isMounted || !sessionData) return;
             if (sessionData.years && sessionData.years.length > 0) {
                 // Filter out ancient ERP years (e.g. 2012-2016) to keep dropdown compact and perfectly centered

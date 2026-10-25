@@ -48,7 +48,7 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
     };
 
     const handleSwitchToMe = () => {
-        const myId = localStorage.getItem('rememberedId') || '2400030358';
+        const myId = myProfile?.studentId || localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser') || '';
         setActiveProfileId('main');
         if (myId) {
             localStorage.setItem('activeErpUser', myId);
@@ -70,7 +70,7 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
     };
 
     const handleCheckTimetable = (profile) => {
-        const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '') || '2400030358';
+        const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '') || '';
         setActiveProfileId(profile.id || 'main');
         if (sid) {
             localStorage.setItem('activeErpUser', sid);
@@ -83,7 +83,7 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
     };
 
     const handleCheckGrades = (profile) => {
-        const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '') || '2400030358';
+        const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '') || '';
         setActiveProfileId(profile.id || 'main');
         if (sid) {
             localStorage.setItem('activeErpUser', sid);
@@ -215,7 +215,7 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                                                     )}
                                                 </div>
                                                 <p className="text-xs text-slate-500 font-bold truncate">
-                                                    ID: {myProfile.studentId || '2400030358'}
+                                                    ID: {myProfile.studentId || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || ''}
                                                 </p>
                                             </div>
                                         </div>

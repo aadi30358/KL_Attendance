@@ -107,30 +107,68 @@ export const getSavedFriends = () => {
 export const getMyProfile = () => {
     if (typeof window === 'undefined') return null;
     try {
-        const myId = localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser') || '';
-        const rawName = localStorage.getItem('rememberedName') || 'My Account';
-        const cleanName = stripEmojis(rawName) || 'My Account';
+        let myId = localStorage.getItem('rememberedId') || '';
+        const rawName = localStorage.getItem('rememberedName') || '';
+        const cleanName = stripEmojis(rawName);
         const myPass = localStorage.getItem('rememberedPassword') || '';
+
+        // Self-Healing Collision Detection:
+        // If rememberedId matches a saved friend's ID with a different name,
+        // it was corrupted during a friend login. Restore the primary user's genuine ID!
+        try {
+            const rawFriends = localStorage.getItem(FRIENDS_STORAGE_KEY);
+            if (rawFriends && myId) {
+                const friendsList = JSON.parse(rawFriends);
+                if (Array.isArray(friendsList)) {
+                    const collidedFriend = friendsList.find(f => 
+                        f.studentId === myId && 
+                        (f.nickname || '').toLowerCase() !== (cleanName || '').toLowerCase() &&
+                        f.id !== 'main'
+                    );
+                    if (collidedFriend) {
+                        const originalId = localStorage.getItem('original_my_id') || '';
+                        myId = originalId;
+                        if (originalId) {
+                            localStorage.setItem('rememberedId', originalId);
+                        } else {
+                            localStorage.removeItem('rememberedId');
+                        }
+                    }
+                }
+            }
+        } catch { /* ignore */ }
+
+        if (!myId) {
+            const activeUser = localStorage.getItem('activeErpUser');
+            // Only use activeErpUser if it does not belong to a friend
+            let isFriendUser = false;
+            try {
+                const rawFriends = localStorage.getItem(FRIENDS_STORAGE_KEY);
+                if (rawFriends && activeUser) {
+                    const fl = JSON.parse(rawFriends);
+                    if (Array.isArray(fl)) isFriendUser = fl.some(f => f.studentId === activeUser);
+                }
+            } catch { /* ignore */ }
+
+            myId = (!isFriendUser && activeUser) ? activeUser : (localStorage.getItem('original_my_id') || '');
+        }
+
+        // Strictly return null if no account has been saved or authenticated
+        if (!myId && !myPass) {
+            return null;
+        }
 
         return {
             id: 'main',
             isFriend: false,
-            nickname: cleanName,
-            label: cleanName,
+            nickname: cleanName || 'My Account',
+            label: cleanName || 'My Account',
             studentId: myId,
             password: myPass,
             hasSavedPassword: Boolean(myPass)
         };
     } catch {
-        return {
-            id: 'main',
-            isFriend: false,
-            nickname: 'My Account',
-            label: 'My Account',
-            studentId: '',
-            password: '',
-            hasSavedPassword: false
-        };
+        return null;
     }
 };
 
@@ -140,10 +178,18 @@ export const getMyProfile = () => {
 export const saveMyProfile = ({ nickname, studentId, password }) => {
     if (typeof window === 'undefined') return null;
     const cleanId = (studentId || '').trim();
-    const cleanNick = stripEmojis(nickname) || 'My Account';
+    const cleanNick = stripEmojis(nickname) || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : '') || 'My Account';
 
     try {
-        if (cleanId) localStorage.setItem('rememberedId', cleanId);
+        if (cleanId) {
+            // Guard: Never save a friend's ID as my profile
+            const friends = getSavedFriends();
+            const isFriend = friends.some(f => f.studentId === cleanId && (f.nickname || '').toLowerCase() !== cleanNick.toLowerCase());
+            if (!isFriend) {
+                localStorage.setItem('rememberedId', cleanId);
+                localStorage.setItem('original_my_id', cleanId);
+            }
+        }
         if (password) localStorage.setItem('rememberedPassword', encodePassword(password));
         localStorage.setItem('rememberedName', cleanNick);
         localStorage.removeItem('rememberedEmoji');
@@ -298,14 +344,24 @@ export const saveFriendTimetable = ({ studentId, nickname, timetable, academicYe
 
         localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friends));
 
-        // Save timetable to storage
+        // Save timetable to storage under all candidate normalized keys
         if (timetable) {
+            const rawYr = String(academicYear || '').trim();
+            const yrMatch = rawYr.match(/\b(20\d\d)-(20\d\d)\b/);
+            const normYear = yrMatch ? `${yrMatch[1]}-${yrMatch[2]}` : (rawYr.startsWith('20') ? `${rawYr.slice(0, 4)}-${parseInt(rawYr.slice(0, 4), 10) + 1}` : '2026-2027');
             const sLow = String(semester || '').trim().toLowerCase();
-            const semClean = sLow.includes('summer') || sLow === '3' ? 'Summer Term'
-                : sLow.includes('even') || sLow === '2' ? 'Even Sem'
-                : ((sLow.includes('term') && !sLow.includes('summer')) || sLow.includes('tri') || sLow === '4') ? 'Tri Sem / Term 3'
+            const semNorm = sLow.includes('summer') || sLow === '3' ? 'Summer'
+                : sLow.includes('even') || sLow === '2' ? 'Even'
+                : ((sLow.includes('term') && !sLow.includes('summer')) || sLow.includes('tri') || sLow === '4') ? 'Term3'
+                : 'Odd';
+            const semClean = semNorm === 'Summer' ? 'Summer Term'
+                : semNorm === 'Even' ? 'Even Sem'
+                : semNorm === 'Term3' ? 'Tri Sem / Term 3'
                 : 'Odd Sem';
-            localStorage.setItem(`kl_timetable_${cleanId}_${academicYear}_${semClean}`, JSON.stringify(timetable));
+
+            localStorage.setItem(`kl_timetable_${cleanId}_${normYear}_${semNorm}`, JSON.stringify(timetable));
+            localStorage.setItem(`kl_timetable_${cleanId}_${normYear}_${semClean}`, JSON.stringify(timetable));
+            localStorage.setItem(`kl_timetable_${cleanId}_${normYear}`, JSON.stringify(timetable));
             localStorage.setItem(`kl_timetable_${cleanId}`, JSON.stringify(timetable));
         }
 
@@ -350,14 +406,15 @@ export const getActiveProfileId = () => {
     }
 };
 
-/**
- * Set active profile ID
- */
 export const setActiveProfileId = (profileId) => {
     if (typeof window === 'undefined') return;
     try {
-        localStorage.setItem(ACTIVE_PROFILE_KEY, profileId || 'main');
-        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: profileId }));
+        const finalId = profileId || 'main';
+        localStorage.setItem(ACTIVE_PROFILE_KEY, finalId);
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: finalId }));
+        const details = getActiveProfileDetails();
+        window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: details, studentId: details?.studentId } }));
+        window.dispatchEvent(new Event('storage'));
     } catch (err) {
         console.warn('[FriendsService] Failed to set active profile:', err);
     }
@@ -368,20 +425,29 @@ export const setActiveProfileId = (profileId) => {
  */
 export const getActiveProfileDetails = () => {
     const profileId = getActiveProfileId();
-    if (profileId === 'main') {
-        return getMyProfile();
+    const friends = getSavedFriends();
+
+    if (profileId && profileId !== 'main') {
+        const friend = friends.find(f => f.id === profileId);
+        if (friend) {
+            return {
+                ...friend,
+                isFriend: true
+            };
+        }
     }
 
-    const friends = getSavedFriends();
-    const friend = friends.find(f => f.id === profileId);
-    if (friend) {
+    const myProf = getMyProfile();
+    if (myProf) return myProf;
+
+    if (friends.length > 0) {
         return {
-            ...friend,
+            ...friends[0],
             isFriend: true
         };
     }
 
-    return getMyProfile();
+    return null;
 };
 
 /**
@@ -392,7 +458,71 @@ export const getAllProfiles = () => {
     const friends = getSavedFriends();
     const list = [];
     if (myProfile && (myProfile.studentId || myProfile.password)) {
-        list.push(myProfile);
+        list.push({ ...myProfile, id: 'main', isFriend: false });
     }
-    return [...list, ...friends];
+    const mySid = (myProfile?.studentId || '').trim();
+    const friendList = (friends || [])
+        .filter(f => !mySid || (f.studentId !== mySid && f.username !== mySid))
+        .map(f => ({
+            ...f,
+            isFriend: true
+        }));
+    return [...list, ...friendList];
 };
+
+/**
+ * Check if a profile has saved credentials (password, cookie, or remembered credentials)
+ */
+export const profileHasCredentials = (profile) => {
+    if (!profile) return false;
+    const sid = (profile.studentId || profile.username || '').trim();
+    if (!sid) return false;
+    if (profile.id === 'main' || !profile.isFriend) {
+        return Boolean(
+            profile.password ||
+            profile.hasSavedPassword ||
+            (typeof window !== 'undefined' && (
+                localStorage.getItem('rememberedPassword') ||
+                localStorage.getItem('userCredentials_enc') ||
+                localStorage.getItem('rememberedId') ||
+                localStorage.getItem('activeErpUser')
+            ))
+        );
+    }
+    return Boolean(
+        profile.hasSavedPassword ||
+        profile.password ||
+        (typeof window !== 'undefined' && localStorage.getItem(`erp_cookie_${sid}`))
+    );
+};
+
+/**
+ * Get all saved accounts that actually have credentials
+ */
+export const getSavedProfilesWithCredentials = () => {
+    const all = getAllProfiles();
+    return all.filter(profileHasCredentials);
+};
+
+/**
+ * Get the effective active saved profile:
+ * Returns the currently active profile if it has credentials,
+ * or the first saved profile with credentials,
+ * or null if no credentials are saved anywhere.
+ */
+export const getEffectiveSavedProfile = () => {
+    const active = getActiveProfileDetails();
+    if (active && ((active.studentId || active.username || '').trim() || profileHasCredentials(active))) {
+        return active;
+    }
+    const withCreds = getSavedProfilesWithCredentials();
+    if (withCreds.length > 0) {
+        return withCreds[0];
+    }
+    const all = getAllProfiles();
+    if (all.length > 0) {
+        return all[0];
+    }
+    return null;
+};
+

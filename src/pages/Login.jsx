@@ -34,6 +34,7 @@ import SEO from '../components/SEO';
 import AddFriendModal from '../components/AddFriendModal';
 import ErpSidebar from '../components/ErpSidebar';
 import { fetchLiveErpGrades } from '../services/gradesService';
+import { fetchLiveErpTimetable } from '../services/timetableService';
 import ClassTimetable from '../components/ClassTimetable';
 import { 
     saveFriend, 
@@ -43,7 +44,9 @@ import {
     decodePassword, 
     setActiveProfileId, 
     getActiveProfileId, 
-    stripEmojis 
+    stripEmojis,
+    getSavedFriends,
+    getMyProfile
 } from '../services/friendsService';
 
 const Login = () => {
@@ -329,8 +332,8 @@ const Login = () => {
     const activeProfile = !isNewProfile
         ? (allProfilesList.find(p => p.id === selectedProfileId) || allProfilesList[0] || null)
         : null;
-    const timetableStudentId = activeProfile?.studentId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '2400030358';
-    const timetableStudentName = activeProfile?.nickname || activeProfile?.name || 'My Profile';
+    const timetableStudentId = activeProfile?.studentId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '';
+    const timetableStudentName = activeProfile?.nickname || activeProfile?.name || 'Account';
 
     // Focus captcha input whenever selected profile changes
     useEffect(() => {
@@ -403,25 +406,50 @@ const Login = () => {
                             studentId: cleanId,
                             password: cleanPass
                         });
+                    } else {
+                        saveFriend({
+                            id: activeProfile.id,
+                            nickname: activeProfile.nickname || 'Buddy',
+                            studentId: cleanId,
+                            password: cleanPass
+                        });
                     }
                 } else {
-                    const cleanName = stripEmojis(newProfileName).trim();
-                    if (cleanName && cleanName.toLowerCase() !== 'my account' && cleanName.toLowerCase() !== 'adithya') {
-                        const saved = saveFriend({
-                            nickname: cleanName,
+                    // Check if cleanId matches an existing saved friend
+                    const existingFriends = getSavedFriends();
+                    const matchedFriend = existingFriends.find(f => (f.studentId || '').toLowerCase() === cleanId.toLowerCase());
+
+                    if (matchedFriend) {
+                        saveFriend({
+                            id: matchedFriend.id,
+                            nickname: matchedFriend.nickname || 'Buddy',
                             studentId: cleanId,
                             password: cleanPass
                         });
-                        if (saved) {
-                            setActiveProfileId(saved.id);
-                        }
+                        setActiveProfileId(matchedFriend.id);
                     } else {
-                        saveMyProfile({
-                            nickname: cleanName || localStorage.getItem('rememberedName') || 'Adithya',
-                            studentId: cleanId,
-                            password: cleanPass
-                        });
-                        setActiveProfileId('main');
+                        const cleanName = stripEmojis(newProfileName).trim();
+                        if (cleanName && cleanName.toLowerCase() !== 'my account' && cleanName.toLowerCase() !== 'adithya') {
+                            const saved = saveFriend({
+                                nickname: cleanName,
+                                studentId: cleanId,
+                                password: cleanPass
+                            });
+                            if (saved) {
+                                setActiveProfileId(saved.id);
+                            }
+                        } else {
+                            // Only save as myProfile if no rememberedId exists or if it matches cleanId
+                            const currentMy = getMyProfile();
+                            if (!currentMy?.studentId || currentMy.studentId === cleanId) {
+                                saveMyProfile({
+                                    nickname: cleanName || localStorage.getItem('rememberedName') || 'My Account',
+                                    studentId: cleanId,
+                                    password: cleanPass
+                                });
+                            }
+                            setActiveProfileId('main');
+                        }
                     }
                 }
 
@@ -434,8 +462,9 @@ const Login = () => {
                     console.warn('[Login] Record login notice:', recErr);
                 }
 
-                // Pre-sync live ERP grades in background (< 1s)
+                // Pre-sync live ERP grades and timetable in background (< 1s)
                 fetchLiveErpGrades(cleanId).catch(() => {});
+                fetchLiveErpTimetable(cleanId).catch(() => {});
 
                 navigate('/attendance-register');
             } else {
@@ -649,7 +678,7 @@ const Login = () => {
                             </span>
                         </div>
                         <span className="text-[10px] sm:text-[11px] font-semibold text-white/95 tracking-wide leading-none mt-1 whitespace-nowrap">
-                            ERP Login • {timetableStudentName} ({timetableStudentId})
+                            {timetableStudentId ? `ERP Login • ${timetableStudentName} (${timetableStudentId})` : 'ERP Student Portal Login'}
                         </span>
                     </div>
 
@@ -696,6 +725,19 @@ const Login = () => {
                                 studentName={timetableStudentName}
                                 erpCourses={getCachedCourses(timetableStudentId)}
                                 onViewCourseAttendance={() => setActiveView('attendance')}
+                                onSelectFriend={(fid) => {
+                                    if (fid) {
+                                        setActiveProfileId(fid);
+                                        const match = allProfilesList.find(p => p.studentId === fid || p.username === fid);
+                                        if (match) setSelectedProfileId(match.id);
+                                    }
+                                }}
+                                onSelectProfile={(profile) => {
+                                    if (profile?.id) {
+                                        setActiveProfileId(profile.id);
+                                        setSelectedProfileId(profile.id);
+                                    }
+                                }}
                             />
                         </div>
                     ) : (

@@ -4,6 +4,7 @@ import { ShieldCheck, RefreshCcw, Loader2, X, AlertCircle } from 'lucide-react';
 import { erpService, isVerifiedErpDashboard } from '../services/erpService';
 import { decodePassword, setActiveProfileId, saveMyProfile, saveFriend } from '../services/friendsService';
 import { fetchLiveErpGrades } from '../services/gradesService';
+import { fetchLiveErpTimetable } from '../services/timetableService';
 import { useMaintenance } from '../services/useMaintenance';
 import { useAuth } from '../context/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -77,8 +78,6 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         const loadInitial = async () => {
             setLoadingCaptcha(true);
             try {
-                erpService.clearStoredErpCookies();
-                sessionStorage.removeItem('erp_authenticated');
                 const res = await erpService.getInitialState();
                 if (!isMounted) return;
                 if (res?.csrfToken) {
@@ -155,10 +154,9 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, studentId)) {
                 // Save session for profile
                 localStorage.setItem('erpDashboardHtml', loginResult.html);
-                localStorage.removeItem('kleData');
                 localStorage.setItem('userUniversity', 'klu');
                 localStorage.setItem('activeErpUser', studentId);
-                const currentCookies = erpService.getStoredErpCookies();
+                const currentCookies = erpService.getStoredErpCookies(studentId);
                 if (currentCookies) {
                     localStorage.setItem(`erp_cookie_${studentId}`, currentCookies);
                 }
@@ -188,6 +186,41 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     }
                 }
 
+                // Determine target session
+                const targetYear = localStorage.getItem(`activeYear_${studentId}`) || localStorage.getItem('selectedAcademicYear') || '2026-2027';
+                const targetSem = localStorage.getItem(`activeSem_${studentId}`) || localStorage.getItem('selectedSemester') || 'Odd';
+
+                // Immediately trigger live timetable & attendance sync for friend
+                fetchLiveErpTimetable(studentId, targetYear, targetSem).then(res => {
+                    if (res?.timetable) {
+                        window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                            detail: { studentId, year: targetYear, sem: targetSem }
+                        }));
+                    }
+                }).catch(() => {});
+
+                erpService.fetchAttendance(targetYear, targetSem, studentId).then(data => {
+                    if (Array.isArray(data) && data.length > 0) {
+                        const payload = JSON.stringify({
+                            attendance_data: data,
+                            year: targetYear,
+                            semester: targetSem,
+                            timestamp: Date.now()
+                        });
+                        localStorage.setItem(`kleData_${studentId}`, payload);
+                        localStorage.setItem(`kleData_${studentId}_${targetYear}_${targetSem}`, payload);
+                        localStorage.setItem(`activeYear_${studentId}`, targetYear);
+                        localStorage.setItem(`activeSem_${studentId}`, targetSem);
+                        localStorage.setItem(`attendanceLastUpdated_${studentId}`, String(Date.now()));
+                        window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
+                            detail: { studentId, data }
+                        }));
+                    }
+                }).catch(() => {});
+
+                // Pre-sync live ERP grades in background (< 1s)
+                fetchLiveErpGrades(studentId).catch(() => {});
+
                 // Notify all listeners that a profile has successfully authenticated
                 window.dispatchEvent(new CustomEvent('kl_profile_switched', {
                     detail: {
@@ -195,9 +228,6 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                         studentId
                     }
                 }));
-
-                // Pre-sync live ERP grades in background (< 1s)
-                fetchLiveErpGrades(studentId).catch(() => {});
 
                 if (onSuccess) {
                     onSuccess(friend);

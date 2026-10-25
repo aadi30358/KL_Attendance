@@ -11,9 +11,10 @@ service cloud.firestore {
     }
 
     // Config documents (global announcements, grading weights, maintenance)
+    // Only verified Admin can modify configuration; sync and deployment events allowed for automated release sync
     match /config/{docId} {
       allow read: if true;
-      allow write: if true;
+      allow write: if isAdmin() || docId in ['sync', 'deployment'];
     }
 
     // User profiles - allows real student roll numbers (6-16 alphanumeric) or authenticated owner/admin
@@ -23,35 +24,35 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Feedback collection - public creation with size validation, read/update/delete enabled for admin operations
+    // Feedback collection - public creation with size validation, update/delete strictly restricted to admin
     match /feedback/{fbId} {
       allow read: if true;
       allow create: if request.resource.data.message is string && 
                        request.resource.data.message.size() > 0 && 
                        request.resource.data.message.size() <= 2500;
-      allow update, delete: if true;
+      allow update, delete: if isAdmin();
     }
 
-    // Verified student login logs - validated student ID pattern, public read for admin dashboard live tracking
+    // Verified student login logs - validated student ID pattern, update/delete strictly restricted to admin
     match /userLogins/{loginId} {
       allow read: if true;
       allow create: if request.resource.data.studentId is string && 
                        request.resource.data.studentId.matches('^[0-9A-Za-z]{6,16}$');
-      allow update, delete: if true;
+      allow update, delete: if isAdmin();
     }
 
-    // Registered students summary - validated student ID, public read for admin users tab
+    // Registered students summary - validated student ID, delete strictly restricted to admin
     match /students/{studentId} {
       allow read: if true;
       allow create, update: if studentId.matches('^[0-9A-Za-z]{6,16}$');
-      allow delete: if true;
+      allow delete: if isAdmin();
     }
 
-    // Analytics counters (daily visits, aggregate traffic) - strictly controlled keys
+    // Analytics counters (daily visits, aggregate traffic) - strictly controlled keys, delete strictly restricted to admin
     match /analytics/{docId} {
       allow read: if true;
       allow create, update: if docId in ['logins', 'traffic'];
-      allow delete: if true;
+      allow delete: if isAdmin();
     }
 
     // Attendance session cache - Closed to prevent unauthenticated access or tampering
@@ -65,4 +66,3 @@ service cloud.firestore {
     }
   }
 }
-

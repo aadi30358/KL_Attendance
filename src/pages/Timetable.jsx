@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Users, ArrowLeft } from 'lucide-react';
 import ClassTimetable from '../components/ClassTimetable';
 import ErpSidebar from '../components/ErpSidebar';
-import { getActiveProfileDetails, getMyProfile } from '../services/friendsService';
+import { getActiveProfileDetails, getMyProfile, getEffectiveSavedProfile, getAllProfiles, setActiveProfileId } from '../services/friendsService';
 import { normalizeAcademicYear, normalizeSemester } from '../services/timetableService';
 
 export default function Timetable() {
@@ -17,7 +17,8 @@ export default function Timetable() {
         if (prof?.isFriend && prof?.studentId) {
             return prof.studentId;
         }
-        return localStorage.getItem('activeErpUser') || prof?.studentId || myProfile?.studentId || '2400030358';
+        const effective = getEffectiveSavedProfile();
+        return localStorage.getItem('activeErpUser') || prof?.studentId || effective?.studentId || myProfile?.studentId || '';
     });
 
     // Synchronize active profile across events and storage
@@ -25,7 +26,8 @@ export default function Timetable() {
         const update = () => {
             const prof = getActiveProfileDetails();
             setActiveProfile(prof);
-            const sid = (prof?.isFriend && prof?.studentId) ? prof.studentId : (localStorage.getItem('activeErpUser') || prof?.studentId || '2400030358');
+            const effective = getEffectiveSavedProfile();
+            const sid = (prof?.isFriend && prof?.studentId) ? prof.studentId : (localStorage.getItem('activeErpUser') || prof?.studentId || effective?.studentId || myProfile?.studentId || '');
             setActiveId(sid);
         };
         window.addEventListener('kl_friends_updated', update);
@@ -54,7 +56,7 @@ export default function Timetable() {
 
     const erpCourses = useMemo(() => {
         try {
-            const cached = localStorage.getItem(`kleData_${activeId}`) || localStorage.getItem('kleData');
+            const cached = localStorage.getItem(`kleData_${activeId}`) || (activeId === myProfile?.studentId ? localStorage.getItem('kleData') : null);
             if (cached) {
                 const parsed = JSON.parse(cached);
                 const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
@@ -64,7 +66,7 @@ export default function Timetable() {
             /* ignore parse error */
         }
         return [];
-    }, [activeId]);
+    }, [activeId, myProfile?.studentId]);
 
     return (
         <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
@@ -105,7 +107,7 @@ export default function Timetable() {
                             </span>
                         </div>
                         <span className="text-[10px] sm:text-[11px] font-semibold text-white/95 tracking-wide leading-none mt-1 whitespace-nowrap">
-                            Class Timetable • {activeProfile?.nickname || 'My Profile'} ({activeId})
+                            {activeId ? `Class Timetable • ${activeProfile?.nickname || 'Account'} (${activeId})` : 'Class Timetable'}
                         </span>
                     </div>
 
@@ -131,6 +133,7 @@ export default function Timetable() {
                     onSelectProfile={(profile) => {
                         const newId = profile.studentId || profile.username || (profile.id !== 'main' ? profile.id : '');
                         if (newId) {
+                            setActiveProfileId(profile.id || newId);
                             setActiveId(newId);
                             setActiveProfile(profile);
                         }
@@ -141,22 +144,55 @@ export default function Timetable() {
                     <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 pointer-events-none" />
 
                     <div className="max-w-7xl mx-auto">
-                        <ClassTimetable
-                            studentId={activeId}
-                            studentName={activeProfile?.nickname || 'My Profile'}
-                            erpCourses={erpCourses}
-                            selectedYear={selectedYear}
-                            selectedSem={selectedSem}
-                            onChangeSelection={() => navigate('/attendance-register')}
-                            onViewCourseAttendance={() => navigate('/attendance-register')}
-                            onSelectProfile={(profile) => {
-                                const newId = profile.studentId || profile.username || (profile.id !== 'main' ? profile.id : '');
-                                if (newId) {
-                                    setActiveId(newId);
-                                    setActiveProfile(profile);
-                                }
-                            }}
-                        />
+                        {!activeId ? (
+                            <div className="max-w-md mx-auto my-16 p-8 bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-200/80 dark:border-slate-700 text-center space-y-4">
+                                <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-100 dark:border-indigo-800 flex items-center justify-center mx-auto text-indigo-600 dark:text-indigo-400 shadow-2xs">
+                                    <Users className="w-7 h-7" />
+                                </div>
+                                <div className="space-y-1.5">
+                                    <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">Login Required</h3>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                                        Please sign in to your ERP account to view your live weekly timetable, room numbers, and lecture timings.
+                                    </p>
+                                </div>
+                                <div className="pt-2">
+                                    <Link
+                                        to="/login"
+                                        className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
+                                    >
+                                        <span>Login to ERP</span>
+                                        <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
+                                    </Link>
+                                </div>
+                            </div>
+                        ) : (
+                            <ClassTimetable
+                                studentId={activeId}
+                                studentName={activeProfile?.nickname || 'Account'}
+                                erpCourses={erpCourses}
+                                selectedYear={selectedYear}
+                                selectedSem={selectedSem}
+                                onChangeSelection={() => navigate('/attendance-register')}
+                                onViewCourseAttendance={() => navigate('/attendance-register')}
+                                onSelectFriend={(fid) => {
+                                    if (fid) {
+                                        setActiveProfileId(fid);
+                                        setActiveId(fid);
+                                        const allP = getAllProfiles();
+                                        const match = allP.find(p => p.studentId === fid || p.username === fid);
+                                        if (match) setActiveProfile(match);
+                                    }
+                                }}
+                                onSelectProfile={(profile) => {
+                                    const newId = profile.studentId || profile.username || (profile.id !== 'main' ? profile.id : '');
+                                    if (newId) {
+                                        setActiveProfileId(profile.id || newId);
+                                        setActiveId(newId);
+                                        setActiveProfile(profile);
+                                    }
+                                }}
+                            />
+                        )}
                     </div>
                 </main>
             </div>

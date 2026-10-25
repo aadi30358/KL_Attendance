@@ -3,7 +3,7 @@
  * Extracted and adapted from TimeTablekl 
  * Accurately calculates SGPA, CGPA, and Percentage according to official KLU regulations.
  */
-import { getErpBase, buildErpHeaders, getStoredErpCookies, getStoredCsrfToken } from './erpService.js';
+import { getErpBase, buildErpHeaders, getStoredErpCookies, getStoredCsrfToken, hasActiveErpSession } from './erpService.js';
 
 export const decodeHtml = (text) => {
     if (!text) return "";
@@ -514,42 +514,12 @@ export const fetchLiveErpGrades = async (studentId) => {
     const cookie = isCurrentlyActiveUser ? getStoredErpCookies() : (friendCookie || getStoredErpCookies());
     const csrfToken = getStoredCsrfToken();
 
-    const headers = buildErpHeaders({
-        'Content-Type': 'application/json',
-        ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
-        ...(cookie ? { 'x-erp-cookie': cookie } : {})
-    });
-
-    const endpoints = [
-        `${apiBase || ''}/api/fetch-cgpa`,
-        `${apiBase || ''}/api/fetch_cgpa`,
-        `${apiBase || ''}/fetch-cgpa`
-    ];
-
-    for (const ep of endpoints) {
-        try {
-            const resp = await fetch(ep, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({ studentId: targetId, username: targetId }),
-                credentials: 'include',
-                cache: 'no-store'
-            });
-
-            if (resp.ok) {
-                const data = await resp.json().catch(() => null);
-                const list = data?.courses || data?.data;
-                if (data?.success && Array.isArray(list) && list.length > 0) {
-                    saveGradesAndMappings(targetId, list);
-                    return { success: true, source: 'erp_live', courses: list };
-                }
-            }
-        } catch (err) {
-            console.warn('[GradesService] Backend fetch notice for', ep, err.message);
-        }
+    // Guard: Only fetch live ERP grades if active session or cookie exists
+    if (!cookie && !hasActiveErpSession()) {
+        return { success: false, message: 'No active ERP session.' };
     }
 
-    // Direct fetch fallback if on same host or proxy
+    // Direct fetch to authentic ERP CGPA endpoint via reverse proxy
     try {
         const directResp = await fetch(`${apiBase || ''}/index.php?r=studentinfo%2Fstudentendexamresult%2Fsearchgetmycgpa`, {
             method: 'GET',
@@ -571,8 +541,8 @@ export const fetchLiveErpGrades = async (studentId) => {
                 }
             }
         }
-    } catch (e) {
-        console.warn('[GradesService] Direct ERP CGPA fetch notice:', e.message);
+    } catch {
+        // silent fallback
     }
 
     return { success: false, message: 'Could not fetch live grades from ERP. Results may be unpublished or session expired.' };
@@ -608,47 +578,12 @@ export const fetchLiveMarksDetail = async (targetHref, studentId, courseCode) =>
     const csrfToken = getStoredCsrfToken();
     const cookie = getStoredErpCookies();
 
-    const headers = buildErpHeaders({
-        'Content-Type': 'application/json',
-        ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
-        ...(cookie ? { 'x-erp-cookie': cookie } : {})
-    });
-
-    const endpoints = [
-        `${apiBase || ''}/api/fetch-marks-detail`,
-        `${apiBase || ''}/api/fetch_marks_detail`,
-        `${apiBase || ''}/fetch-marks-detail`
-    ];
-
-    for (const ep of endpoints) {
-        try {
-            const resp = await fetch(ep, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({ targetHref, studentId: targetId, username: targetId }),
-                credentials: 'include',
-                cache: 'no-store'
-            });
-
-            if (resp.ok) {
-                const data = await resp.json().catch(() => null);
-                if (data?.success && data?.scorecard && Object.keys(data.scorecard).length > 0) {
-                    if (typeof window !== 'undefined' && cleanCode) {
-                        try {
-                            localStorage.setItem(`kl_scorecard_${targetId}_${cleanCode}`, JSON.stringify(data.scorecard));
-                        } catch (err) {
-                            void err;
-                        }
-                    }
-                    return { success: true, scorecard: data.scorecard };
-                }
-            }
-        } catch (err) {
-            console.warn('[GradesService] Marks detail fetch notice:', err.message);
-        }
+    // Guard: Only fetch marks detail if active session or cookie exists
+    if (!cookie && !hasActiveErpSession()) {
+        return { success: false, message: 'No active ERP session.' };
     }
 
-    // Direct fetch fallback if targetHref is a full or relative URL on same host
+    // Direct fetch if targetHref is a full or relative URL on same host
     if (targetHref && targetHref.includes('.php')) {
         try {
             const cleanHref = targetHref.startsWith('http') ? targetHref : `${apiBase || ''}/${targetHref.replace(/^\//, '')}`;

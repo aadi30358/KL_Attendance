@@ -35,12 +35,13 @@ import {
 } from '../services/gradesService';
 import { normalizeAcademicYear, normalizeSemester } from '../services/timetableService';
 import { getSavedFriends, getMyProfile } from '../services/friendsService';
+import { hasActiveErpSession } from '../services/erpService';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';
 
 export default function Grades() {
     const myProfile = useMemo(() => getMyProfile(), []);
-    const myId = myProfile?.studentId || myProfile?.username || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '2400030358';
-    const myName = myProfile?.nickname || myProfile?.name || 'My Profile';
+    const myId = myProfile?.studentId || myProfile?.username || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '';
+    const myName = myProfile?.nickname || myProfile?.name || 'Account';
 
     // Combine saved friends with TimeTablekl 'maddys' reactively
     const [allFriends, setAllFriends] = useState(() => {
@@ -192,13 +193,14 @@ export default function Grades() {
                 if (fr) {
                     setFriendCaptchaTarget(fr);
                 } else {
-                    setSyncMessage({ type: 'error', text: res.message || 'Please connect ERP to fetch live results.' });
+                    console.warn('[Grades] Needs auth to sync live ERP results');
                 }
             } else {
-                setSyncMessage({ type: 'error', text: res.message || 'Could not fetch live grades from ERP. Results may be unpublished or session expired.' });
+                // Suppress red error banner as requested: "and that picture line it should be hide"
+                console.warn('[Grades] ERP live sync notice:', res?.message);
             }
         } catch (err) {
-            setSyncMessage({ type: 'error', text: err.message || 'Error communicating with ERP grades service.' });
+            console.warn('[Grades] ERP grades sync caught error:', err?.message);
         } finally {
             setIsSyncing(false);
             setTimeout(() => setSyncMessage(null), 5000);
@@ -225,7 +227,7 @@ export default function Grades() {
     // Auto-sync ERP grades on mount and active session in < 1 second
     useEffect(() => {
         const isSelf = selectedStudentId === myId || selectedStudentId === 'main';
-        const hasSession = typeof window !== 'undefined' && (localStorage.getItem('erp_session_cookie') || sessionStorage.getItem('erp_session_cookie') || localStorage.getItem('activeErpUser'));
+        const hasSession = hasActiveErpSession();
         const friendCookie = !isSelf && typeof window !== 'undefined' ? localStorage.getItem(`erp_cookie_${selectedStudentId}`) : null;
         const activeErp = typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null;
         
@@ -684,18 +686,14 @@ export default function Grades() {
                     </div>
                 </div>
 
-                {syncMessage && (
+                {syncMessage && syncMessage.type === 'success' && (
                     <motion.div
                         initial={{ opacity: 0, y: -8 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -8 }}
-                        className={`p-4 rounded-2xl text-xs font-bold flex items-center gap-2.5 border shadow-2xs ${
-                            syncMessage.type === 'success'
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                : 'bg-rose-50 text-rose-800 border-rose-200'
-                        }`}
+                        className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2.5 border shadow-2xs bg-emerald-50 text-emerald-800 border-emerald-200"
                     >
-                        {syncMessage.type === 'success' ? <Check className="w-4 h-4 text-emerald-600 shrink-0" /> : <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />}
+                        <Check className="w-4 h-4 text-emerald-600 shrink-0" />
                         <span>{syncMessage.text}</span>
                     </motion.div>
                 )}

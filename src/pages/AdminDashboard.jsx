@@ -684,24 +684,7 @@ export default function AdminDashboard() {
                 // non-critical fallback
             }
 
-            try {
-                const apiBase = APP_CONFIG.API_URL || '';
-                if (apiBase) {
-                    const token = sessionStorage.getItem('admin_token') || localStorage.getItem('admin_token') || '';
-                    const reqHeaders = {};
-                    if (token) reqHeaders['Authorization'] = `Bearer ${token}`;
 
-                    const resp = await fetch(`${apiBase}/api/logins`, { headers: reqHeaders });
-                    if (resp.ok) {
-                        const data = await resp.json();
-                        if (data.success && Array.isArray(data.logins) && data.logins.length > 0) {
-                            setUserLogins(prev => cleanAndDeduplicateLogins([...data.logins, ...prev]));
-                        }
-                    }
-                }
-            } catch {
-                // non-critical
-            }
         };
 
         syncLiveSources();

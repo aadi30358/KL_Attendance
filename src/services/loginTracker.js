@@ -120,20 +120,7 @@ export async function recordStudentLogin(studentId, customTimestamp = null) {
         // ignore
     }
 
-    // 3. Post to cloud backend with keepalive
-    try {
-        const apiBase = APP_CONFIG.API_URL || '';
-        if (apiBase) {
-            fetch(`${apiBase}/api/logins`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(loginRecord),
-                keepalive: true
-            }).catch(() => {});
-        }
-    } catch {
-        // ignore
-    }
+    // 3. Cloud analytics tracked directly via Firestore below
 
     // 4. Save to Firestore (individual log in userLogins, profile counters in students & users, analytics)
     try {
@@ -163,9 +150,8 @@ export async function recordStudentLogin(studentId, customTimestamp = null) {
                 lastLoginAt: timestamp
             }, { merge: true })
         ]);
-        console.log(`[LoginTracker] Login recorded for ${cleanId} (Session: ${loginId})`);
-    } catch (err) {
-        console.warn('Firestore login record notice:', err);
+    } catch {
+        // silent
     }
 
     return loginRecord;

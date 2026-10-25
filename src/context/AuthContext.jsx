@@ -49,27 +49,16 @@ export function AuthProvider({ children }) {
         localStorage.removeItem('userProfile');
         localStorage.removeItem('sessionCookie');
         localStorage.removeItem('isAdminAuthenticated');
-        localStorage.removeItem('admin_token');
-        localStorage.removeItem('kl_active_profile_id');
-
-        try {
-            Object.keys(localStorage).forEach(key => {
-                if (
-                    key.startsWith('kleData_') ||
-                    key.startsWith('attendance_') ||
-                    key.startsWith('activeYear_') ||
-                    key.startsWith('activeSem_') ||
-                    key.startsWith('attendanceLastUpdated_')
-                ) {
-                    localStorage.removeItem(key);
-                }
-            });
-        } catch {
-            // ignore
-        }
-
         setErpUser(null);
         setCurrentUser(null);
+
+        // Notify app components that live ERP session ended while preserving saved credentials
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('kl_active_profile_updated'));
+            window.dispatchEvent(new CustomEvent('kl_friends_updated'));
+            window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: null } }));
+            window.dispatchEvent(new Event('storage'));
+        }
 
         // Sign out Firebase Auth cleanly
         try {

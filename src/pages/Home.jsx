@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion, useMotionValue, useSpring, useTransform, useScroll, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Calculator, Calendar, Clock, Sparkles, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, User, Users, UserPlus, Key } from 'lucide-react';
-import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS } from '../services/timetableService';
-import { getActiveProfileDetails, getAllProfiles, setActiveProfileId } from '../services/friendsService';
+import { ArrowRight, Calculator, Calendar, Clock, Sparkles, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, User, Users, UserPlus, Key, BarChart3, ShieldCheck } from 'lucide-react';
+import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, getPresentAcademicYearAndSem, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS } from '../services/timetableService';
+import { getActiveProfileDetails, getAllProfiles, setActiveProfileId, getSavedFriends, getSavedProfilesWithCredentials, profileHasCredentials, getEffectiveSavedProfile } from '../services/friendsService';
+import { hasActiveErpSession } from '../services/erpService';
 import AddFriendModal from '../components/AddFriendModal';
+import FriendCaptchaModal from '../components/FriendCaptchaModal';
 
 // --- Ultra-Advanced 3D Parallax Card ---
 const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, to, accentColor, activeBorderColor = "border-indigo-600", hoverBorderColor = "hover:border-indigo-600", onClick, isUnderMaintenance = false }) => {
@@ -56,9 +58,9 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
             whileHover={isMobile ? {} : { y: -6, scale: 1.01 }}
             className={`relative h-full transition-transform duration-200 ease-out group transform-gpu ${className}`}
         >
-            {/* Dynamic Depth Background - Disabled on mobile to preserve GPU memory */}
+            {/* Dynamic Depth Background - hardware-accelerated for zero lag */}
             <div
-                className={`hidden sm:block absolute inset-0 rounded-[2rem] sm:rounded-[2.5rem] opacity-20 sm:opacity-30 blur-xl sm:blur-2xl transition-colors duration-500 pointer-events-none ${colorClass.replace('text', 'bg')}`}
+                className={`hidden sm:block absolute inset-0 rounded-[2rem] sm:rounded-[2.5rem] opacity-20 blur-lg transition-colors duration-500 pointer-events-none ${colorClass.replace('text', 'bg')}`}
             />
 
             <div
@@ -66,7 +68,7 @@ const ThreeDParallaxCard = ({ children, className = "", icon: Icon, colorClass, 
                     setIsClicked(!isClicked);
                     if (onClick) onClick(e);
                 }}
-                className={`relative h-full bg-white dark:bg-[#1e293b] sm:bg-white/80 dark:sm:bg-[#1e293b]/95 sm:backdrop-blur-xl border-2 transition-colors duration-300 rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-7 shadow-xl hover:shadow-2xl overflow-hidden flex flex-col justify-between z-10 cursor-pointer touch-pan-y ${
+                className={`relative h-full bg-white dark:bg-[#1e293b] border-2 transition-colors duration-300 rounded-[2rem] sm:rounded-[2.5rem] p-5 sm:p-7 shadow-lg hover:shadow-xl overflow-hidden flex flex-col justify-between z-10 cursor-pointer touch-pan-y ${
                     isClicked ? activeBorderColor : `border-black dark:border-slate-700/60 ${hoverBorderColor}`
                 }`}
             >
@@ -564,64 +566,124 @@ export default function Home() {
         return () => window.removeEventListener('resize', check);
     }, []);
 
-    // Live Class Tracking State & Hook
+    // Live Class Tracking State & Hook (High-performance 15s interval, pauses when backgrounded)
     const [nowTick, setNowTick] = useState(() => Date.now());
 
     useEffect(() => {
-        const timer = setInterval(() => setNowTick(Date.now()), 1000);
-        return () => clearInterval(timer);
+        let timer = null;
+        const startTimer = () => {
+            if (!timer) {
+                timer = setInterval(() => {
+                    if (typeof document !== 'undefined' && document.hidden) return;
+                    setNowTick(Date.now());
+                }, 15000);
+            }
+        };
+        const stopTimer = () => {
+            if (timer) {
+                clearInterval(timer);
+                timer = null;
+            }
+        };
+        const handleVisibility = () => {
+            if (typeof document !== 'undefined' && document.hidden) {
+                stopTimer();
+            } else {
+                setNowTick(Date.now());
+                startTimer();
+            }
+        };
+
+        startTimer();
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => {
+            stopTimer();
+            document.removeEventListener('visibilitychange', handleVisibility);
+        };
     }, []);
 
+    const navigate = useNavigate();
     const [allProfiles, setAllProfiles] = useState(() => getAllProfiles());
     const [activeProfile, setActiveProfile] = useState(() => getActiveProfileDetails());
     const [showAddFriendModal, setShowAddFriendModal] = useState(false);
-
-    const [activeStudentId, setActiveStudentId] = useState(() => {
-        if (typeof window !== 'undefined') {
-            const prof = getActiveProfileDetails();
-            if (prof?.studentId) return prof.studentId;
-            return localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '2400030358';
-        }
-        return '2400030358';
-    });
+    const [captchaAttendanceTarget, setCaptchaAttendanceTarget] = useState(null);
+    const [timetableTick, setTimetableTick] = useState(0);
 
     useEffect(() => {
-        const updateProfiles = (e) => {
+        const updateProfiles = () => {
             const updated = getAllProfiles();
             setAllProfiles(updated);
-            const prof = getActiveProfileDetails();
-            setActiveProfile(prof);
-            const detailSid = e?.detail?.studentId;
-            const sid = detailSid || (prof?.studentId ? prof.studentId : null) || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '2400030358';
-            setActiveStudentId(sid);
+            setActiveProfile(getActiveProfileDetails());
+        };
+        const handleTimetableUpdate = () => {
+            setTimetableTick(t => t + 1);
         };
         window.addEventListener('kl_friends_updated', updateProfiles);
         window.addEventListener('kl_profile_switched', updateProfiles);
         window.addEventListener('kl_active_profile_updated', updateProfiles);
+        window.addEventListener('kl_timetable_updated', handleTimetableUpdate);
         window.addEventListener('storage', updateProfiles);
         return () => {
             window.removeEventListener('kl_friends_updated', updateProfiles);
             window.removeEventListener('kl_profile_switched', updateProfiles);
             window.removeEventListener('kl_active_profile_updated', updateProfiles);
+            window.removeEventListener('kl_timetable_updated', handleTimetableUpdate);
             window.removeEventListener('storage', updateProfiles);
         };
     }, []);
 
-    const handleSwitchLiveProfile = (profile) => {
-        const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '');
-        const pid = profile?.id || 'main';
-        setActiveProfileId(pid);
-        if (sid) {
-            localStorage.setItem('activeErpUser', sid);
-            setActiveStudentId(sid);
+    // All saved accounts (Primary Account + any saved friends with valid IDs)
+    const savedAccounts = useMemo(() => {
+        return allProfiles.filter(p => Boolean((p.studentId || p.username || '').trim()));
+    }, [allProfiles]);
+
+    const hasAnySavedLogins = savedAccounts.length > 0;
+
+    // Resolve effective saved profile:
+    // If the currently selected profile is saved, use it.
+    // Otherwise, automatically pick the first saved profile available.
+    const effectiveProfile = useMemo(() => {
+        if (activeProfile && (activeProfile.studentId || activeProfile.username)) {
+            const found = savedAccounts.find(p => (p.id === activeProfile.id) || (p.studentId && p.studentId === activeProfile.studentId));
+            if (found) return found;
+            return activeProfile;
         }
+        if (savedAccounts.length > 0) {
+            return savedAccounts[0];
+        }
+        return null;
+    }, [activeProfile, savedAccounts]);
+
+    // Student ID: ONLY the saved account's ID, never arbitrary hardcoded fallbacks
+    const activeStudentId = effectiveProfile?.studentId || effectiveProfile?.username || null;
+    const hasSavedCredentials = Boolean(activeStudentId);
+
+    const handleSwitchLiveProfile = (profile) => {
+        const pid = profile?.id || 'main';
+        const sid = profile?.studentId || profile?.username || '';
+        setActiveProfileId(pid);
         setActiveProfile(profile);
         window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: pid }));
         window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile, studentId: sid } }));
     };
 
+    const handleQuickCheckAttendance = (profileToVerify = null) => {
+        const target = profileToVerify || effectiveProfile || activeProfile;
+        const targetSid = target?.studentId || target?.username || '';
+        if (hasActiveErpSession(targetSid)) {
+            navigate('/attendance-register');
+            return;
+        }
+        if (target) {
+            setCaptchaAttendanceTarget(target);
+        } else {
+            navigate('/login');
+        }
+    };
+
     const presentSemInfo = useMemo(() => {
-        return getTruePresentAcademicYearAndSem(activeStudentId);
+        if (!activeStudentId) return getTruePresentAcademicYearAndSem();
+        return getPresentAcademicYearAndSem(activeStudentId);
     }, [activeStudentId]);
 
     const activeYear = presentSemInfo.year;
@@ -635,11 +697,14 @@ export default function Home() {
     }, [presentSemInfo.sem]);
 
     const studentTimetable = useMemo(() => {
+        void timetableTick;
+        if (!activeStudentId) return {};
         return getStudentTimetable(activeStudentId, [], activeYear, activeSem);
-    }, [activeStudentId, activeYear, activeSem]);
+    }, [activeStudentId, activeYear, activeSem, timetableTick]);
 
     const liveClassStatus = useMemo(() => {
         void nowTick;
+        if (!activeStudentId) return null;
         return getLiveClassStatus(studentTimetable, activeStudentId);
     }, [studentTimetable, activeStudentId, nowTick]);
 
@@ -657,19 +722,6 @@ export default function Home() {
 
     const [displayMode, setDisplayMode] = useState('codes'); // 'codes' | 'aliases'
     const [editingFriend, setEditingFriend] = useState(null);
-
-    const hasSavedCredentials = useMemo(() => {
-        // Main profile always displays present semester default timetable
-        if (!activeProfile || !activeProfile.isFriend || activeProfile.id === 'main') {
-            return true;
-        }
-        // For friend profiles: only show present sem timetable when their credentials are saved
-        return Boolean(
-            activeProfile.hasSavedPassword ||
-            activeProfile.password ||
-            localStorage.getItem(`erp_cookie_${activeStudentId}`)
-        );
-    }, [activeProfile, activeStudentId]);
 
     const { scrollY } = useScroll();
     const heroY = useTransform(scrollY, [0, 500], [0, 150]);
@@ -870,80 +922,121 @@ export default function Home() {
                                 </div>
                             </div>
 
-                            <Link
-                                to="/timetable"
-                                className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold transition-all border border-indigo-200/80 dark:border-indigo-700/60 shadow-2xs group"
-                            >
-                                <span>View Full Timetable</span>
-                                <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
-                            </Link>
-                        </div>
-
-                        {/* Profile & Friend Switcher Tabs */}
-                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-2.5 scrollbar-none">
-                            {allProfiles.map((p) => {
-                                const isSelected = (activeProfile?.id === p.id) || (!activeProfile?.isFriend && p.id === 'main');
-                                const pName = p.nickname || p.name || 'Account';
-                                const pId = p.studentId || p.username;
-                                return (
+                            <div className="flex items-center gap-2">
+                                {hasAnySavedLogins && (
                                     <button
-                                        key={p.id || pId}
                                         type="button"
-                                        onClick={() => handleSwitchLiveProfile(p)}
-                                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 border ${
-                                            isSelected
-                                                ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white border-indigo-600 shadow-xs shadow-indigo-500/20'
-                                                : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-slate-700/80'
-                                        }`}
+                                        onClick={() => handleQuickCheckAttendance(effectiveProfile)}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/80 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold transition-all border border-emerald-200/80 dark:border-emerald-700/60 shadow-2xs cursor-pointer active:scale-95"
+                                        title="Check Attendance (Captcha Only)"
                                     >
-                                        {p.isFriend ? <Users className="w-3 h-3" /> : <User className="w-3 h-3" />}
-                                        <span>{pName}</span>
-                                        {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                                        <BarChart3 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                        <span>Check Attendance</span>
                                     </button>
-                                );
-                            })}
-
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setEditingFriend(null);
-                                    setShowAddFriendModal(true);
-                                }}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 shrink-0 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 shadow-2xs"
-                            >
-                                <UserPlus className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                                <span>+ Add Friend</span>
-                            </button>
-                        </div>
-
-                        {/* Prominent Active Profile, Year/Sem & Time Badge */}
-                        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60 mb-3 text-[11px]">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse shrink-0" />
-                                <span className="text-slate-500 dark:text-slate-400 font-medium">Viewing Live Schedule:</span>
-                                <span className="font-extrabold text-indigo-700 dark:text-indigo-300">
-                                    {activeProfile?.nickname || 'My Account'}
-                                </span>
-                                <span className="text-[10px] font-mono text-slate-700 dark:text-slate-200 font-bold bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 shadow-2xs">
-                                    ID: {activeStudentId}
-                                </span>
-                                <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/60 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
-                                    <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
-                                    <span>Present Sem</span>
-                                    <span>•</span>
-                                    <span>{activeSem}</span>
-                                </span>
-                            </div>
-
-                            <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-500 dark:text-slate-400">
-                                <span>{liveClassStatus.istDateString}</span>
-                                <span>•</span>
-                                <span className="font-mono font-bold text-indigo-600 dark:text-sky-400">{liveClassStatus.istTimeString}</span>
+                                )}
+                                <Link
+                                    to="/timetable"
+                                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold transition-all border border-indigo-200/80 dark:border-indigo-700/60 shadow-2xs group"
+                                >
+                                    <span>View Full Timetable</span>
+                                    <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                                </Link>
                             </div>
                         </div>
 
-                        {/* Present and After Class 2-Column Grid (Image 1 Dark Theme) */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                        {!hasAnySavedLogins ? (
+                            <div className="py-8 px-4 text-center space-y-3">
+                                <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-center mx-auto shadow-2xs">
+                                    <Compass className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                                </div>
+                                <div className="max-w-md mx-auto space-y-1">
+                                    <h4 className="text-base font-black text-slate-900 dark:text-white">
+                                        Login Required to Track Live Classes
+                                    </h4>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                                        Sign in to ERP or save your credentials to view ongoing lectures, room numbers, and next class countdown in real-time.
+                                    </p>
+                                </div>
+                                <div className="pt-1">
+                                    <Link
+                                        to="/login"
+                                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
+                                    >
+                                        <LogIn className="w-3.5 h-3.5" />
+                                        <span>Login to ERP</span>
+                                        <ArrowRight className="w-3.5 h-3.5" />
+                                    </Link>
+                                </div>
+                            </div>
+                        ) : (
+                            <>
+                                {/* Profile & Friend Switcher Tabs */}
+                                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 mb-2.5 scrollbar-none">
+                                    {savedAccounts.map((p) => {
+                                        const isSelected = effectiveProfile ? (effectiveProfile.id === p.id) : (p.id === 'main');
+                                        const pName = p.nickname || p.name || 'Account';
+                                        const pId = p.studentId || p.username;
+                                        return (
+                                            <button
+                                                key={p.id || pId}
+                                                type="button"
+                                                onClick={() => handleSwitchLiveProfile(p)}
+                                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 border ${
+                                                    isSelected
+                                                        ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-xs shadow-blue-500/25'
+                                                        : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200/80 dark:border-slate-700/80'
+                                                }`}
+                                            >
+                                                {p.isFriend ? <Users className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                                                <span>{pName}</span>
+                                                {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+                                            </button>
+                                        );
+                                    })}
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setEditingFriend(null);
+                                            setShowAddFriendModal(true);
+                                        }}
+                                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 shrink-0 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 shadow-2xs"
+                                    >
+                                        <UserPlus className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                        <span>+ Add Friend</span>
+                                    </button>
+                                </div>
+
+                                {/* Prominent Active Profile, Year/Sem & Time Badge */}
+                                <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-slate-50/70 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/60 mb-3 text-[11px]">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse shrink-0" />
+                                        <span className="text-slate-500 dark:text-slate-400 font-medium">Viewing Live Schedule:</span>
+                                        <span className="font-extrabold text-indigo-700 dark:text-indigo-300">
+                                            {effectiveProfile?.nickname || 'My Account'}
+                                        </span>
+                                        <span className="text-[10px] font-mono text-slate-700 dark:text-slate-200 font-bold bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 shadow-2xs">
+                                            ID: {activeStudentId}
+                                        </span>
+                                        <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/60 px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                                            <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />
+                                            <span>Present Sem</span>
+                                            <span>•</span>
+                                            <span>{activeSem}</span>
+                                        </span>
+                                    </div>
+
+                                    {liveClassStatus && (
+                                        <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-slate-500 dark:text-slate-400">
+                                            <span>{liveClassStatus.istDateString}</span>
+                                            <span>•</span>
+                                            <span className="font-mono font-bold text-indigo-600 dark:text-sky-400">{liveClassStatus.istTimeString}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {liveClassStatus && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                             {/* Column 1: Present / Ongoing Class or Free Period / Break */}
                             <div className="p-4 sm:p-5 rounded-2xl bg-[#090d16] text-white border border-slate-800/90 flex flex-col justify-between gap-3 shadow-xl hover:border-slate-700/80 transition-all">
                                 <div className="space-y-2">
@@ -957,7 +1050,11 @@ export default function Home() {
                                                     ? 'LUNCH BREAK'
                                                     : liveClassStatus.isFreePeriod
                                                     ? 'FREE PERIOD / BREAK'
-                                                    : 'CLASSES CONCLUDED'}
+                                                    : liveClassStatus.isBeforeCollege
+                                                    ? 'UPCOMING TODAY'
+                                                    : liveClassStatus.isDayEnded
+                                                    ? 'CLASSES CONCLUDED'
+                                                    : 'WEEKEND / NO CLASSES'}
                                             </span>
                                         </span>
                                         <div className="flex items-center gap-2">
@@ -994,10 +1091,10 @@ export default function Home() {
                                         <div className="space-y-1 py-1">
                                             <div className="flex items-center gap-2 text-amber-300 font-bold text-sm">
                                                 <Utensils className="w-4 h-4 text-amber-400" />
-                                                <span>Lunch Break (12:50 PM – 01:00 PM)</span>
+                                                <span>Lunch Break (12:45 PM – 01:45 PM)</span>
                                             </div>
                                             <p className="text-xs text-slate-400">
-                                                Afternoon academic sessions resume at 1:00 PM.
+                                                Afternoon academic sessions commence shortly.
                                             </p>
                                         </div>
                                     ) : liveClassStatus.isFreePeriod ? (
@@ -1007,10 +1104,21 @@ export default function Home() {
                                                 <span>Free Period / Library Break</span>
                                             </div>
                                             <p className="text-xs text-slate-400">
-                                                No scheduled lecture right now. Relax or review notes.
+                                                No lecture scheduled right now. Review notes or prepare for the next session.
                                             </p>
                                         </div>
-                                    ) : (
+                                    ) : liveClassStatus.isBeforeCollege ? (
+                                        <div className="space-y-1 py-1">
+                                            <h4 className="text-sm font-bold text-slate-200 tracking-tight">
+                                                Classes Begin Today at {liveClassStatus.firstClassToday?.time || '7:10 AM'}
+                                            </h4>
+                                            {liveClassStatus.firstClassToday ? (
+                                                <p className="text-xs text-sky-400 font-medium leading-relaxed">
+                                                    First Class: {liveClassStatus.firstClassToday.slotId} ({liveClassStatus.firstClassToday.time}) · {getCourseTitle(liveClassStatus.firstClassToday)} {liveClassStatus.firstClassToday.room ? `@ Room ${cleanRoomNumber(liveClassStatus.firstClassToday.room)}` : ''}
+                                                </p>
+                                            ) : null}
+                                        </div>
+                                    ) : liveClassStatus.isDayEnded ? (
                                         <div className="space-y-1 py-1">
                                             <h4 className="text-sm font-bold text-slate-200 tracking-tight">
                                                 All Classes Completed for Today
@@ -1022,6 +1130,21 @@ export default function Home() {
                                             ) : (
                                                 <p className="text-xs text-slate-400">
                                                     All periods for today have concluded. Rest up and prepare for upcoming classes.
+                                                </p>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-1 py-1">
+                                            <h4 className="text-sm font-bold text-slate-200 tracking-tight">
+                                                No Classes Scheduled Today ({liveClassStatus.dayName})
+                                            </h4>
+                                            {liveClassStatus.nextWorkingDayFirstClass ? (
+                                                <p className="text-xs text-sky-400 font-medium leading-relaxed">
+                                                    Next Class: {liveClassStatus.nextWorkingDayFirstClass.relativeDay || liveClassStatus.nextWorkingDayFirstClass.day} {liveClassStatus.nextWorkingDayFirstClass.time} · {getCourseTitle(liveClassStatus.nextWorkingDayFirstClass)} {liveClassStatus.nextWorkingDayFirstClass.room ? `@ Room ${cleanRoomNumber(liveClassStatus.nextWorkingDayFirstClass.room)}` : ''}
+                                                </p>
+                                            ) : (
+                                                <p className="text-xs text-slate-400">
+                                                    Enjoy your weekend / break!
                                                 </p>
                                             )}
                                         </div>
@@ -1057,7 +1180,15 @@ export default function Home() {
                                         </span>
                                         {liveClassStatus.nextClass ? (
                                             <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-[#181d38] text-indigo-300 border border-indigo-700/60 font-mono tracking-wider">
-                                                Next Up
+                                                {liveClassStatus.nextClass.minutesUntil <= 60 ? `Starts in ${liveClassStatus.nextClass.minutesUntil}m` : 'Next Up'}
+                                            </span>
+                                        ) : liveClassStatus.isBeforeCollege ? (
+                                            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-[#181d38] text-sky-300 border border-sky-700/60 font-mono tracking-wider">
+                                                First Period
+                                            </span>
+                                        ) : liveClassStatus.isWeekendOrNoClass ? (
+                                            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-800/80 text-slate-400 border border-slate-700 font-mono">
+                                                Weekend
                                             </span>
                                         ) : (
                                             <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-800/80 text-slate-400 border border-slate-700 font-mono">
@@ -1089,6 +1220,52 @@ export default function Home() {
                                                 )}
                                             </div>
                                         </div>
+                                    ) : liveClassStatus.isBeforeCollege && liveClassStatus.firstClassToday ? (
+                                        <div className="space-y-1.5 pt-0.5">
+                                            <h4
+                                                className="text-lg sm:text-xl font-black text-white leading-tight tracking-tight line-clamp-1"
+                                                title={getCourseTitle(liveClassStatus.firstClassToday)}
+                                            >
+                                                {getCourseTitle(liveClassStatus.firstClassToday)}
+                                            </h4>
+                                            <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300 pt-0.5">
+                                                <span className="text-indigo-300 font-semibold text-xs">
+                                                    {liveClassStatus.firstClassToday.slotId} ({liveClassStatus.firstClassToday.time})
+                                                </span>
+                                                {liveClassStatus.firstClassToday.room && (
+                                                    <>
+                                                        <span className="text-slate-500 font-bold">•</span>
+                                                        <span className="inline-flex items-center gap-1 text-amber-400 font-bold text-xs">
+                                                            <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                                                            <span>Room {cleanRoomNumber(liveClassStatus.firstClassToday.room)}</span>
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ) : liveClassStatus.nextWorkingDayFirstClass ? (
+                                        <div className="space-y-1.5 pt-0.5">
+                                            <h4
+                                                className="text-base sm:text-lg font-black text-white leading-tight tracking-tight line-clamp-1"
+                                                title={getCourseTitle(liveClassStatus.nextWorkingDayFirstClass)}
+                                            >
+                                                {liveClassStatus.nextWorkingDayFirstClass.relativeDay}: {getCourseTitle(liveClassStatus.nextWorkingDayFirstClass)}
+                                            </h4>
+                                            <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300 pt-0.5">
+                                                <span className="text-indigo-300 font-semibold text-xs">
+                                                    {liveClassStatus.nextWorkingDayFirstClass.slotId} ({liveClassStatus.nextWorkingDayFirstClass.time})
+                                                </span>
+                                                {liveClassStatus.nextWorkingDayFirstClass.room && (
+                                                    <>
+                                                        <span className="text-slate-500 font-bold">•</span>
+                                                        <span className="inline-flex items-center gap-1 text-amber-400 font-bold text-xs">
+                                                            <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                                                            <span>Room {cleanRoomNumber(liveClassStatus.nextWorkingDayFirstClass.room)}</span>
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
                                     ) : (
                                         <div className="space-y-1 py-1">
                                             <h4 className="text-sm font-bold text-slate-300 tracking-tight">
@@ -1107,19 +1284,57 @@ export default function Home() {
                                             <strong className="text-slate-300 font-semibold">
                                                 {getCourseTitle(liveClassStatus.previousClass)}{liveClassStatus.previousClass.room ? ` (Rm ${cleanRoomNumber(liveClassStatus.previousClass.room)})` : ''}
                                             </strong>
+                                        ) : (liveClassStatus.isDayEnded && liveClassStatus.todaySchedule.length > 0) ? (
+                                            <strong className="text-slate-300 font-semibold">
+                                                {getCourseTitle(liveClassStatus.todaySchedule[liveClassStatus.todaySchedule.length - 1])}
+                                            </strong>
                                         ) : (
                                             <span className="text-slate-500 font-medium">None</span>
                                         )}
                                     </span>
                                     <span className="font-mono text-white font-bold shrink-0 text-xs">
-                                        {liveClassStatus.nextClass ? liveClassStatus.nextClass.time : 'None'}
+                                        {liveClassStatus.nextClass ? liveClassStatus.nextClass.time : (liveClassStatus.nextWorkingDayFirstClass ? `${liveClassStatus.nextWorkingDayFirstClass.relativeDay} ${liveClassStatus.nextWorkingDayFirstClass.time.split('–')[0].trim()}` : 'None')}
                                     </span>
                                 </div>
                             </div>
                         </div>
+                    )}
+                </>
+            )}
 
                         {/* ── Present Sem Default Timetable (Week Matrix Only) with Generous Gap ── */}
-                        {hasSavedCredentials ? (
+                        {!hasAnySavedLogins ? (
+                            /* Notice when there are NO saved logins in the website */
+                            <div className="mt-8 pt-6 border-t border-slate-200/70 dark:border-slate-700/60">
+                                <div className="p-6 sm:p-8 rounded-2xl bg-gradient-to-br from-indigo-50/70 via-white to-slate-50 dark:from-slate-800/80 dark:via-slate-800/50 dark:to-slate-800/80 border border-indigo-100 dark:border-slate-700 text-center space-y-4 shadow-2xs">
+                                    <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-center mx-auto shadow-2xs">
+                                        <CalendarDays className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                                    </div>
+                                    <div className="max-w-md mx-auto space-y-1.5">
+                                        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-100/80 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-[10px] font-black uppercase tracking-wider">
+                                            <Key className="w-3 h-3" />
+                                            <span>Login Required</span>
+                                        </div>
+                                        <h4 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight">
+                                            Login to View Your Timetable
+                                        </h4>
+                                        <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+                                            After login you can see your personalized weekly timetable, class timings, and classrooms here.
+                                        </p>
+                                    </div>
+                                    <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+                                        <Link
+                                            to="/login"
+                                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 active:scale-95 text-white transition-all shadow-md shadow-indigo-500/25 cursor-pointer"
+                                        >
+                                            <LogIn className="w-4 h-4" />
+                                            <span>Login to ERP</span>
+                                            <ArrowRight className="w-4 h-4" />
+                                        </Link>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : hasSavedCredentials ? (
                             <div className="mt-8 pt-6 border-t border-slate-200/70 dark:border-slate-700/60 space-y-4">
                                 {/* Section Header matching Image 2 */}
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1129,12 +1344,12 @@ export default function Home() {
                                             <h4 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
                                                 <span>Weekly Timetable</span>
                                                 <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200/80 dark:border-indigo-800 px-2 py-0.5 rounded-md">
-                                                    {activeYear} · {activeSem}
+                                                    {effectiveProfile?.nickname || 'Account'} · {activeYear} · {activeSem}
                                                 </span>
                                             </h4>
                                         </div>
                                         <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                                            Class schedules, classrooms, and timing breakdown
+                                            Class schedules, classrooms, and timing breakdown for ID: {activeStudentId}
                                         </p>
                                     </div>
 
@@ -1234,7 +1449,7 @@ export default function Home() {
 
                                                             {KLU_SESSIONS.map((sess) => {
                                                                 const classItem = slots.find(
-                                                                    (s) => s.period === sess.slot || s.slotId === sess.id
+                                                                    (s) => s.period === sess.slot || s.slotId === sess.id || (s.period <= sess.slot && sess.slot <= (s.periodEnd || (s.period + (s.span || 1) - 1)))
                                                                 );
                                                                 if (!classItem) {
                                                                     return (
@@ -1632,6 +1847,17 @@ export default function Home() {
                     if (newFriend) {
                         handleSwitchLiveProfile(newFriend);
                     }
+                }}
+            />
+
+            {/* Quick Attendance Captcha Verification Modal */}
+            <FriendCaptchaModal
+                friend={captchaAttendanceTarget}
+                isOpen={Boolean(captchaAttendanceTarget)}
+                onClose={() => setCaptchaAttendanceTarget(null)}
+                onSuccess={() => {
+                    setCaptchaAttendanceTarget(null);
+                    navigate('/attendance-register');
                 }}
             />
         </div>

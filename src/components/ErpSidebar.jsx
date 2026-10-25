@@ -302,7 +302,7 @@ export default function ErpSidebar({
                                                 )}
                                             </div>
                                             <p className="text-[9px] font-mono text-indigo-700 font-bold truncate leading-none">
-                                                ID: {myProfile.studentId || '2400030358'}
+                                                ID: {myProfile.studentId || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || ''}
                                             </p>
                                         </div>
                                     </div>
