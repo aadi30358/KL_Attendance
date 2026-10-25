@@ -163,6 +163,7 @@ export default function ErpSidebar({
     };
 
     const handleQuickAttendance = (profile) => {
+        handleSwitchProfile(profile);
         setCaptchaTarget(profile);
     };
 

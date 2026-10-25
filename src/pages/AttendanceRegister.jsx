@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, SlidersHorizontal, ShieldCheck } from 'lucide-react';
-import { erpService } from '../services/erpService';
+import { erpService, hasActiveErpSession } from '../services/erpService';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import {
@@ -345,6 +345,25 @@ const AttendanceRegister = () => {
         const queryYear = normYear;
         const targetId = customId || activeId || localStorage.getItem('activeErpUser') || '';
 
+        // Cannot fetch live courses from ERP without an authenticated session
+        if (!hasActiveErpSession(targetId)) {
+            setLoading(false);
+            const targetProfile = (getSavedFriends() || []).find(f => f.studentId === targetId || f.id === targetId) || (getMyProfile()?.studentId === targetId ? getMyProfile() : null);
+            if (targetProfile?.password || targetProfile?.hasSavedPassword) {
+                setTargetFriendForCaptcha(targetProfile);
+                return;
+            } else {
+                navigate('/login', {
+                    state: {
+                        studentId: targetId,
+                        profileId: targetProfile?.id || targetId,
+                        view: 'attendance'
+                    }
+                });
+                return;
+            }
+        }
+
         try {
             const data = await erpService.fetchAttendance(queryYear, fetchSemester, targetId);
             let finalCourses = Array.isArray(data) ? data : [];
@@ -608,10 +627,18 @@ const AttendanceRegister = () => {
                 // ignore
             }
         } else {
-            // Auto fetch attendance immediately so user does not need to click "Fetch Attendance"
             setYear(initY);
             setSemester(initS);
-            handleSearch(initY, initS, activeId);
+            if (hasActiveErpSession(activeId)) {
+                handleSearch(initY, initS, activeId);
+            } else {
+                setLoading(false);
+                setShowDashboard(false);
+                const prof = (getSavedFriends() || []).find(f => f.studentId === activeId || f.id === activeId) || (getMyProfile()?.studentId === activeId ? getMyProfile() : null);
+                if (prof?.password || prof?.hasSavedPassword) {
+                    setTargetFriendForCaptcha(prof);
+                }
+            }
         }
 
         // Dynamically discover registered sessions from ERP
@@ -1418,7 +1445,17 @@ const AttendanceRegister = () => {
                                 })()}
 
                                 <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                    onClick={() => handleSearch(year, semester)} disabled={loading}
+                                    onClick={() => {
+                                        if (!hasActiveErpSession(activeId)) {
+                                            const currentSaved = (getSavedFriends() || []).find(f => f.studentId === activeId || f.id === activeId) || (getMyProfile()?.studentId === activeId ? getMyProfile() : null);
+                                            if (currentSaved?.password || currentSaved?.hasSavedPassword) {
+                                                setTargetFriendForCaptcha(currentSaved);
+                                                return;
+                                            }
+                                        }
+                                        handleSearch(year, semester);
+                                    }} 
+                                    disabled={loading}
                                     className="w-full bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 active:scale-[0.98] text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-600/25 hover:shadow-indigo-600/35 transition-all mt-2 flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-85">
                                     {loading ? (
                                         <div className="flex items-center gap-2.5">
@@ -1426,7 +1463,9 @@ const AttendanceRegister = () => {
                                             <span className="text-sm font-bold tracking-wide">Fetching Attendance…</span>
                                         </div>
                                     ) : (
-                                        <span className="text-sm font-black tracking-wide">Get Attendance</span>
+                                        <span className="text-sm font-black tracking-wide">
+                                            {!hasActiveErpSession(activeId) ? '🛡️ Login with Captcha & Get Attendance' : 'Get Attendance'}
+                                        </span>
                                     )}
                                 </motion.button>
 

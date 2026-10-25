@@ -66,6 +66,14 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
             alert(maintenanceConfig?.message || 'ERP login is currently under maintenance. Direct login is paused.');
             return;
         }
+        const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '') || '';
+        setActiveProfileId(profile.id || 'main');
+        if (sid) {
+            localStorage.setItem('activeErpUser', sid);
+            if (typeof setErpUser === 'function') setErpUser(sid);
+        }
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: profile.id || 'main' }));
+        window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile, studentId: sid } }));
         setTargetFriendForCaptcha(profile);
     };
 

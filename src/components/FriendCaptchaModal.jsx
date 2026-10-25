@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { ShieldCheck, RefreshCcw, Loader2, X, AlertCircle } from 'lucide-react';
 import { erpService, isVerifiedErpDashboard } from '../services/erpService';
-import { decodePassword, setActiveProfileId, saveMyProfile, saveFriend } from '../services/friendsService';
+import { decodePassword, setActiveProfileId, saveMyProfile, saveFriend, getSavedFriends, getMyProfile } from '../services/friendsService';
 import { fetchLiveErpGrades } from '../services/gradesService';
 import { fetchLiveErpTimetable } from '../services/timetableService';
 import { useMaintenance } from '../services/useMaintenance';
@@ -30,7 +30,15 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
 
     const savedPassword = useMemo(() => {
         if (!friend) return '';
-        const candidate = friend.password || (friend.id === 'main' ? (typeof window !== 'undefined' ? localStorage.getItem('rememberedPassword') : '') : '');
+        let candidate = friend.password;
+        const sid = friend.studentId || friend.username || (friend.id !== 'main' ? friend.id : '') || '';
+        if (!candidate && sid) {
+            const foundInFriends = (getSavedFriends() || []).find(f => f.studentId === sid || f.username === sid || f.id === sid);
+            if (foundInFriends?.password) candidate = foundInFriends.password;
+        }
+        if (!candidate && (friend.id === 'main' || sid === (typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : ''))) {
+            candidate = (typeof window !== 'undefined' ? localStorage.getItem('rememberedPassword') : '') || getMyProfile()?.password;
+        }
         if (!candidate) return '';
         const decoded = decodePassword(candidate);
         return decoded || candidate;
@@ -203,7 +211,11 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     }
                 } catch { /* proceed */ }
 
-                erpService.fetchAttendance(targetYear, targetSem, studentId).then(data => {
+                try {
+                    const data = await Promise.race([
+                        erpService.fetchAttendance(targetYear, targetSem, studentId),
+                        new Promise(resolve => setTimeout(() => resolve([]), 6000))
+                    ]);
                     if (Array.isArray(data) && data.length > 0) {
                         const payload = JSON.stringify({
                             attendance_data: data,
@@ -220,7 +232,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                             detail: { studentId, data }
                         }));
                     }
-                }).catch(() => {});
+                } catch { /* proceed */ }
 
                 // Pre-sync live ERP grades in background (< 1s)
                 fetchLiveErpGrades(studentId).catch(() => {});
