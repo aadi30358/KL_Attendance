@@ -190,14 +190,18 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 const targetYear = localStorage.getItem(`activeYear_${studentId}`) || localStorage.getItem('selectedAcademicYear') || '2026-2027';
                 const targetSem = localStorage.getItem(`activeSem_${studentId}`) || localStorage.getItem('selectedSemester') || 'Odd';
 
-                // Immediately trigger live timetable & attendance sync for friend
-                fetchLiveErpTimetable(studentId, targetYear, targetSem).then(res => {
+                // Pre-sync and await live timetable so it is guaranteed saved to persistent storage
+                try {
+                    const res = await Promise.race([
+                        fetchLiveErpTimetable(studentId, targetYear, targetSem),
+                        new Promise(resolve => setTimeout(resolve, 3500))
+                    ]);
                     if (res?.timetable) {
                         window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
                             detail: { studentId, year: targetYear, sem: targetSem }
                         }));
                     }
-                }).catch(() => {});
+                } catch { /* proceed */ }
 
                 erpService.fetchAttendance(targetYear, targetSem, studentId).then(data => {
                     if (Array.isArray(data) && data.length > 0) {

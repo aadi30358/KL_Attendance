@@ -168,8 +168,9 @@ export const getGradeBadgeStyle = (grade, course) => {
  */
 export const getStoredGrades = (studentId) => {
     if (typeof window === 'undefined') return [];
-    const mainUser = localStorage.getItem('activeErpUser') || localStorage.getItem('erp_username') || '2400030358';
+    const mainUser = localStorage.getItem('activeErpUser') || localStorage.getItem('erp_username') || localStorage.getItem('rememberedId') || '';
     const targetId = studentId || mainUser;
+    if (!targetId) return [];
     const isMain = targetId === mainUser || targetId === 'main';
 
     // 1. Check student-specific stored grades
@@ -218,7 +219,8 @@ export const getStoredGrades = (studentId) => {
  */
 export const getEnrolledCoursesTemplate = (studentId) => {
     if (typeof window === 'undefined') return [];
-    const targetId = studentId || localStorage.getItem('activeErpUser') || '2400030358';
+    const targetId = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+    if (!targetId) return [];
 
     try {
         const erpKey = `kleData_${targetId}`;
@@ -267,7 +269,8 @@ export const getEnrolledCoursesTemplate = (studentId) => {
 export const saveStoredGrades = (studentId, grades) => {
     if (typeof window === 'undefined' || !Array.isArray(grades)) return;
     try {
-        const targetId = studentId || localStorage.getItem('activeErpUser') || '2400030358';
+        const targetId = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+        if (!targetId) return;
         const key = `kl_grades_${targetId}`;
         localStorage.setItem(key, JSON.stringify(grades));
     } catch {
@@ -343,7 +346,8 @@ export const deleteCourseFromScorecard = (studentId, courseCode) => {
  * Clears all stored grades
  */
 export const resetGradesToDefault = (studentId) => {
-    const targetId = studentId || localStorage.getItem('activeErpUser') || '2400030358';
+    const targetId = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+    if (!targetId) return [];
     try {
         localStorage.removeItem(`kl_grades_${targetId}`);
     } catch (err) {
@@ -465,8 +469,9 @@ export const parseCgpaTableHtml = (html) => {
  */
 export const saveGradesAndMappings = (studentId, courses) => {
     if (!Array.isArray(courses)) return;
-    const mainUser = localStorage.getItem('activeErpUser') || localStorage.getItem('erp_username') || '2400030358';
+    const mainUser = localStorage.getItem('activeErpUser') || localStorage.getItem('erp_username') || localStorage.getItem('rememberedId') || '';
     const targetId = studentId || mainUser;
+    if (!targetId) return;
     const isMain = targetId === mainUser || targetId === 'main';
 
     try {
@@ -503,8 +508,9 @@ export const saveGradesAndMappings = (studentId, courses) => {
  * Fetches authentic historical SGPA and CGPA results directly from KLU ERP searchgetmycgpa endpoint.
  */
 export const fetchLiveErpGrades = async (studentId) => {
-    const mainUser = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '2400030358';
+    const mainUser = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
     const targetId = studentId || mainUser;
+    if (!targetId) return { success: false, message: 'No student specified.' };
     const isFriend = targetId && mainUser && targetId !== mainUser;
 
     const apiBase = getErpBase();
@@ -552,7 +558,8 @@ export const fetchLiveErpGrades = async (studentId) => {
  * Fetches detailed component marks (internals, externals, lab, assignments) for a specific course scorecard.
  */
 export const fetchLiveMarksDetail = async (targetHref, studentId, courseCode) => {
-    const targetId = studentId || localStorage.getItem('activeErpUser') || '2400030358';
+    const targetId = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+    if (!targetId) return { success: false, message: 'No student specified.' };
     const cleanCode = (courseCode || '').toUpperCase().trim();
 
     // 1. Check local cache first

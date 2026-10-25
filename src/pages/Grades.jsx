@@ -317,7 +317,7 @@ export default function Grades() {
         // Resolve Offering Year accurately matching KLU ERP curriculum structure
         let offeringYear = findField(['offering_year', 'offeringYear', 'Offering Year'], '');
         if (!offeringYear) {
-            const studentId = String(selectedStudentId || localStorage.getItem('activeErpUser') || '2400030358');
+            const studentId = String(selectedStudentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '');
             const joinYearMatch = studentId.match(/^(\d{2})/);
             const acyMatch = acy.match(/^(\d{4})/);
             if (joinYearMatch && acyMatch) {

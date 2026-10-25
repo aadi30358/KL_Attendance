@@ -884,14 +884,27 @@ export function getStudentProfileFromId(studentId) {
     const raw = String(studentId || '').trim();
     const digits = raw.replace(/\D/g, '');
     
-    // Default to creator's ID 2400030358 if missing or too short
-    const targetDigits = (digits.length >= 8) ? digits : '2400030358';
+    const targetDigits = digits || '';
+    if (!targetDigits || targetDigits.length < 6) {
+        return {
+            studentId: targetDigits,
+            batchYear: 24,
+            admissionYear: 2024,
+            campus: 'vijayawada',
+            deptCode: '03',
+            deptShort: 'CSE',
+            deptName: 'Computer Science & Engineering',
+            rollNumber: 1,
+            section: 'S-1',
+            homeRoom: 'C324'
+        };
+    }
     
     const batchYear = parseInt(targetDigits.slice(0, 2), 10) || 24;
     const campusDigits = targetDigits.slice(2, 5);
     const campus = campusDigits === '000' ? 'vijayawada' : 'hyderabad';
     const deptCode = targetDigits.slice(5, 7) || '03';
-    const rollNumber = parseInt(targetDigits.slice(7), 10) || 358;
+    const rollNumber = parseInt(targetDigits.slice(7), 10) || 1;
     
     // Determine Department
     let deptName = 'Computer Science & Engineering';
@@ -1197,7 +1210,7 @@ export function buildTimetableFromErpCourses(courses = [], studentId = 'default'
     // Authentic section and designated room from Student Profile
     const studentSection = profile.section;
     const studentHomeRoom = profile.homeRoom;
-    const studentSeed = hashCode(studentId || '2400030358');
+    const studentSeed = hashCode(studentId || 'klu_student');
 
     // Distribute slots across Monday - Saturday matching KLU 14-session timetable
     DAYS_OF_WEEK.forEach((day, dayIndex) => {
@@ -1260,7 +1273,8 @@ export function buildTimetableFromErpCourses(courses = [], studentId = 'default'
  */
 export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '2026-2027', selectedSem = 'Odd') {
     const activeErpUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
-    const targetId = studentId || activeErpUser || '2400030358';
+    const targetId = studentId || activeErpUser || '';
+    if (!targetId) return null;
     const isSelf = !studentId || studentId === 'default' || studentId === activeErpUser;
 
     const cleanYear = normalizeAcademicYear(selectedYear);
@@ -1403,14 +1417,23 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
     }
 
     // 4d. Fall back to the authentic KLU curriculum derived directly from student ID, Year of Study & Semester
+    let isCurriculumFallback = false;
     if (coursesToUse.length === 0) {
         coursesToUse = getCurriculumForStudent(targetId, cleanYear, cleanSem);
+        isCurriculumFallback = true;
     }
 
     // 5. Build fresh timetable mapped to the actual registered courses for this semester
     const generated = buildTimetableFromErpCourses(coursesToUse, targetId, cleanYear, cleanSem);
+    if (isCurriculumFallback) {
+        generated._source = 'curriculum';
+    } else {
+        generated._source = 'erp_live';
+    }
+
+    // Only persist to localStorage if it came from real ERP courses (not synthetic fallback)
     try {
-        if (Object.keys(generated).length > 0) {
+        if (!isCurriculumFallback && Object.keys(generated).length > 0) {
             const primaryKey = `kl_timetable_${targetId}_${cleanYear}_${cleanSem}`;
             localStorage.setItem(primaryKey, JSON.stringify(generated));
             localStorage.setItem(`kl_timetable_${targetId}`, JSON.stringify(generated));
@@ -1449,7 +1472,8 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
     const cleanYear = normalizeAcademicYear(yearId);
     const cleanSem = normalizeSemester(semId);
     const activeUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
-    const targetId = studentId || activeUser || '2400030358';
+    const targetId = studentId || activeUser || '';
+    if (!targetId) return null;
     const storageKey = `kl_timetable_${targetId}_${cleanYear}_${cleanSem}`;
 
     // Check if targetId has a saved session cookie
@@ -1844,4 +1868,44 @@ export function getLiveClassStatus(timetable = {}, username = null) {
     };
 }
 
+/**
+ * Checks whether an authentic ERP timetable is saved locally for this student.
+ */
+export function hasSavedErpTimetable(studentId, selectedYear = '2026-2027', selectedSem = 'Odd') {
+    if (!studentId || typeof window === 'undefined') return false;
+    const cleanYear = normalizeAcademicYear(selectedYear);
+    const cleanSem = normalizeSemester(selectedSem);
 
+    const semVariants = [
+        cleanSem,
+        `${cleanSem} Sem`,
+        `${cleanSem} Term`,
+        cleanSem === 'Term3' ? 'Tri Sem / Term 3' : null,
+        cleanSem === 'Summer' ? 'Summer Term' : null,
+        cleanSem === 'Odd' ? 'Odd Sem' : null,
+        cleanSem === 'Even' ? 'Even Sem' : null
+    ].filter(Boolean);
+
+    const candidateKeys = [];
+    semVariants.forEach(s => {
+        candidateKeys.push(`kl_timetable_${studentId}_${cleanYear}_${s}`);
+    });
+    candidateKeys.push(`kl_timetable_${studentId}_${cleanYear}`);
+    candidateKeys.push(`kl_timetable_${studentId}`);
+    candidateKeys.push(`timetable_${studentId}`);
+
+    for (const storageKey of candidateKeys) {
+        try {
+            const cached = localStorage.getItem(storageKey);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed && typeof parsed === 'object') {
+                    if (parsed._source === 'erp_live' || parsed._userCustomized === true) {
+                        return true;
+                    }
+                }
+            }
+        } catch { /* ignore */ }
+    }
+    return false;
+}

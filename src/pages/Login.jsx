@@ -462,11 +462,23 @@ const Login = () => {
                     console.warn('[Login] Record login notice:', recErr);
                 }
 
-                // Pre-sync live ERP grades and timetable in background (< 1s)
+                // Pre-sync live ERP timetable and grades; await timetable so it is saved to persistent storage immediately
+                try {
+                    await Promise.race([
+                        fetchLiveErpTimetable(cleanId),
+                        new Promise(resolve => setTimeout(resolve, 3500))
+                    ]);
+                } catch { /* proceed */ }
                 fetchLiveErpGrades(cleanId).catch(() => {});
-                fetchLiveErpTimetable(cleanId).catch(() => {});
 
-                navigate('/attendance-register');
+                // If redirected from a specific page (e.g. /timetable), return there
+                const searchParams = new URLSearchParams(window.location.search);
+                const redirectTarget = searchParams.get('redirect');
+                if (redirectTarget && redirectTarget.startsWith('/')) {
+                    navigate(redirectTarget);
+                } else {
+                    navigate('/attendance-register');
+                }
             } else {
                 throw new Error("Incorrect Captcha, Student ID, or Password. Please try again.");
             }

@@ -20,10 +20,18 @@ let inMemoryErpCookies = '';
 let inMemoryCsrfToken = '';
 
 export const hasActiveErpSession = (studentId = null) => {
-    if (studentId && typeof window !== 'undefined' && localStorage.getItem(`erp_cookie_${studentId}`)) {
+    if (typeof window === 'undefined') return Boolean(inMemoryErpCookies);
+    if (studentId && localStorage.getItem(`erp_cookie_${studentId}`)) {
         return true;
     }
-    return Boolean(inMemoryErpCookies || (typeof window !== 'undefined' && (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId'))));
+    if (inMemoryErpCookies) return true;
+    const activeUser = localStorage.getItem('activeErpUser');
+    if (activeUser) {
+        if (localStorage.getItem(`erp_cookie_${activeUser}`)) return true;
+        const dashHtml = localStorage.getItem('erpDashboardHtml');
+        if (dashHtml && !dashHtml.includes('site-error') && !dashHtml.includes('id="login-form"')) return true;
+    }
+    return false;
 };
 
 export const getStoredErpCookies = (studentId = null) => {

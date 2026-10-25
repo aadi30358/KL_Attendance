@@ -150,17 +150,17 @@ export default function Timetable() {
                                     <Users className="w-7 h-7" />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">Login Required</h3>
+                                    <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">Initial ERP Authentication Required</h3>
                                     <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                                        Please sign in to your ERP account to view your live weekly timetable, room numbers, and lecture timings.
+                                        Please sign in with your ERP credentials to fetch and save your official weekly timetable. Once saved, it will remain accessible directly from this device even after logout.
                                     </p>
                                 </div>
                                 <div className="pt-2">
                                     <Link
-                                        to="/login"
+                                        to="/login?redirect=/timetable"
                                         className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
                                     >
-                                        <span>Login to ERP</span>
+                                        <span>Sign In with ERP & Sync Timetable</span>
                                         <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
                                     </Link>
                                 </div>

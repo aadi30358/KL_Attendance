@@ -62,8 +62,8 @@ export default function ClassTimetable({
 }) {
     const myProfile = useMemo(() => getMyProfile(), []);
     const effectiveSaved = useMemo(() => getEffectiveSavedProfile(), []);
-    const primaryMyId = myProfile?.studentId || (typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : '') || '';
-    const primaryMyName = myProfile?.nickname || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : '') || 'Account';
+    const primaryMyId = myProfile?.studentId || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || effectiveSaved?.studentId || '';
+    const primaryMyName = myProfile?.nickname || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedName') || localStorage.getItem('activeErpUser')) : '') || effectiveSaved?.nickname || 'Account';
 
     // Combine saved friends with TimeTablekl 'maddys' reactively
     const [allFriends, setAllFriends] = useState(() => {
@@ -317,6 +317,20 @@ export default function ClassTimetable({
 
     // Handle Timetable Reload
     const handleReloadTimetable = async () => {
+        if (!hasActiveErpSession(effectiveId)) {
+            // Need ERP authentication / Captcha
+            const targetProfile = effectiveId === primaryMyId
+                ? (myProfile || { id: 'main', studentId: effectiveId, nickname: effectiveName, label: effectiveName })
+                : (allFriends.find(f => (f.studentId === effectiveId || f.username === effectiveId || f.id === effectiveId)) || {
+                    id: effectiveId,
+                    studentId: effectiveId,
+                    nickname: effectiveName,
+                    label: effectiveName
+                });
+            setCaptchaModalTarget(targetProfile);
+            return;
+        }
+
         setIsRefreshing(true);
         try {
             if (onRefreshErp) {
@@ -641,25 +655,27 @@ export default function ClassTimetable({
 
                     {/* Buddy / Friend Switcher Bar */}
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setActiveProfileId('main');
-                                setActiveTargetId(primaryMyId);
-                                if (onSelectFriend) onSelectFriend(primaryMyId);
-                                if (onSelectProfile) onSelectProfile(myProfile);
-                                const fresh = getStudentTimetable(primaryMyId, primaryMyId === studentId ? erpCourses : [], currentYear, currentSem);
-                                setTimetable(fresh);
-                            }}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
-                                effectiveId === primaryMyId
-                                    ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
-                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                            }`}
-                        >
-                            <span className={`w-2 h-2 rounded-full ${effectiveId === primaryMyId ? 'bg-emerald-300' : 'bg-emerald-500'}`} />
-                            <span>{primaryMyName} ({primaryMyId})</span>
-                        </button>
+                        {Boolean(primaryMyId) && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setActiveProfileId('main');
+                                    setActiveTargetId(primaryMyId);
+                                    if (onSelectFriend) onSelectFriend(primaryMyId);
+                                    if (onSelectProfile) onSelectProfile(myProfile);
+                                    const fresh = getStudentTimetable(primaryMyId, primaryMyId === studentId ? erpCourses : [], currentYear, currentSem);
+                                    setTimetable(fresh);
+                                }}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border ${
+                                    effectiveId === primaryMyId
+                                        ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                                }`}
+                            >
+                                <span className={`w-2 h-2 rounded-full ${effectiveId === primaryMyId ? 'bg-emerald-300' : 'bg-emerald-500'}`} />
+                                <span>{primaryMyName} ({primaryMyId})</span>
+                            </button>
+                        )}
 
                         {filteredFriends.map((friend) => {
                             const fId = friend.studentId || friend.username || friend.id;
@@ -854,7 +870,7 @@ export default function ClassTimetable({
             </div>
 
             {/* Buddy Banner when viewing friend's schedule */}
-            {effectiveId !== primaryMyId && (
+            {Boolean(primaryMyId && effectiveId !== primaryMyId && allFriends.some(f => (f.studentId === effectiveId || f.id === effectiveId) && f.id !== 'main')) ? (
                 <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-3.5 px-5 flex flex-wrap items-center justify-between gap-3 text-indigo-950">
                     <div className="flex items-center gap-2.5">
                         <Users className="w-4 h-4 text-indigo-600 shrink-0" />
@@ -878,19 +894,7 @@ export default function ClassTimetable({
                         {safeTimetable?._source !== 'erp_live' && (
                             <button
                                 type="button"
-                                onClick={() => {
-                                    if (hasActiveErpSession(effectiveId)) {
-                                        handleReloadTimetable();
-                                    } else {
-                                        const targetProfile = allFriends.find(f => (f.studentId === effectiveId || f.username === effectiveId || f.id === effectiveId));
-                                        setCaptchaModalTarget(targetProfile || {
-                                            id: effectiveId,
-                                            studentId: effectiveId,
-                                            nickname: effectiveName,
-                                            label: effectiveName
-                                        });
-                                    }
-                                }}
+                                onClick={handleReloadTimetable}
                                 className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
                             >
                                 <ShieldCheck className="w-3.5 h-3.5 text-white" />
@@ -914,6 +918,26 @@ export default function ClassTimetable({
                         </button>
                     </div>
                 </div>
+            ) : (
+                safeTimetable?._source !== 'erp_live' && (
+                    <div className="bg-amber-50 border border-amber-200/90 rounded-2xl p-3.5 px-5 flex flex-wrap items-center justify-between gap-3 text-amber-950">
+                        <div className="flex items-center gap-2.5">
+                            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                            <div className="text-xs">
+                                <span className="font-bold">Official ERP Timetable Not Synced:</span>{' '}
+                                <span className="text-amber-800">Showing standard curriculum. Sync with ERP to view your live classroom sections and lab venues.</span>
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleReloadTimetable}
+                            className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                        >
+                            <ShieldCheck className="w-3.5 h-3.5 text-white" />
+                            <span>Sync Official ERP Timetable</span>
+                        </button>
+                    </div>
+                )
             )}
 
             {/* ── Present (Current) & Next Class Row ── */}
