@@ -53,18 +53,33 @@ export const decodePassword = (encoded) => {
 export const getSavedFriends = () => {
     if (typeof window === 'undefined') return [];
     try {
+        // Read explicitly deleted profiles to never resurrect them
+        let deletedList = [];
+        try {
+            const rawDel = localStorage.getItem('kl_deleted_friends');
+            if (rawDel) {
+                const parsed = JSON.parse(rawDel);
+                if (Array.isArray(parsed)) deletedList = parsed;
+            }
+        } catch { /* ignore */ }
+
         const raw = localStorage.getItem(FRIENDS_STORAGE_KEY);
         let list = [];
         if (raw) {
             try {
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed)) {
-                    list = parsed.map(f => ({
-                        ...f,
-                        nickname: stripEmojis(f.nickname || f.name) || 'Buddy',
-                        label: stripEmojis(f.nickname || f.name) || 'Buddy',
-                        emoji: ''
-                    }));
+                    list = parsed
+                        .filter(f => {
+                            const sid = f.studentId || f.username || f.id;
+                            return !deletedList.includes(f.id) && !deletedList.includes(sid);
+                        })
+                        .map(f => ({
+                            ...f,
+                            nickname: stripEmojis(f.nickname || f.name) || 'Buddy',
+                            label: stripEmojis(f.nickname || f.name) || 'Buddy',
+                            emoji: ''
+                        }));
                 }
             } catch { /* ignore */ }
         }
@@ -77,7 +92,12 @@ export const getSavedFriends = () => {
                 if (Array.isArray(parsedMaddys)) {
                     parsedMaddys.forEach(m => {
                         const sid = m.username || m.studentId || String(m.id || '');
-                        if (sid && !list.some(f => (f.studentId === sid || f.username === sid || f.id === sid))) {
+                        if (
+                            sid && 
+                            !deletedList.includes(sid) && 
+                            !deletedList.includes(String(m.id || '')) &&
+                            !list.some(f => (f.studentId === sid || f.username === sid || f.id === sid))
+                        ) {
                             const pass = m.password || '';
                             list.push({
                                 id: m.id ? String(m.id) : `maddy_${sid}`,
@@ -120,7 +140,12 @@ export const getSavedFriends = () => {
                 }
 
                 if (foundSid && /^\d{5,}$/.test(foundSid)) {
-                    if (foundSid !== primaryId && !list.some(f => f.studentId === foundSid || f.username === foundSid || f.id === foundSid)) {
+                    if (
+                        foundSid !== primaryId && 
+                        !deletedList.includes(foundSid) && 
+                        !deletedList.includes(`friend_${foundSid}`) &&
+                        !list.some(f => f.studentId === foundSid || f.username === foundSid || f.id === foundSid)
+                    ) {
                         list.push({
                             id: `friend_${foundSid}`,
                             nickname: foundName || `Friend (${foundSid.slice(-4)})`,
@@ -302,6 +327,18 @@ export const saveFriend = ({ id, nickname, studentId, password }) => {
 
         localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friends));
 
+        // Remove from deleted list if previously deleted
+        try {
+            const rawDel = localStorage.getItem('kl_deleted_friends');
+            if (rawDel) {
+                let delList = JSON.parse(rawDel);
+                if (Array.isArray(delList)) {
+                    delList = delList.filter(d => d !== cleanId && d !== id && d !== `friend_${cleanId}`);
+                    localStorage.setItem('kl_deleted_friends', JSON.stringify(delList));
+                }
+            }
+        } catch { /* ignore */ }
+
         // Sync to TimeTablekl 'maddys' format as well
         try {
             const rawM = localStorage.getItem('maddys');
@@ -337,7 +374,19 @@ export const deleteFriend = (friendId) => {
     try {
         const friends = getSavedFriends();
         const toDelete = friends.find(f => f.id === friendId || f.studentId === friendId || f.username === friendId);
-        const filtered = friends.filter(f => f.id !== friendId && (toDelete ? f.studentId !== toDelete.studentId : true));
+        const sid = toDelete?.studentId || toDelete?.username || (String(friendId).startsWith('friend_') ? String(friendId).replace('friend_', '') : friendId);
+
+        // Permanently record in deleted blacklist so self-healing discovery NEVER resurrects this profile
+        try {
+            const rawDel = localStorage.getItem('kl_deleted_friends');
+            const delList = rawDel ? JSON.parse(rawDel) : [];
+            if (sid && !delList.includes(sid)) delList.push(sid);
+            if (friendId && !delList.includes(friendId)) delList.push(friendId);
+            if (sid && !delList.includes(`friend_${sid}`)) delList.push(`friend_${sid}`);
+            localStorage.setItem('kl_deleted_friends', JSON.stringify(delList));
+        } catch { /* ignore */ }
+
+        const filtered = friends.filter(f => f.id !== friendId && (sid ? (f.studentId !== sid && f.username !== sid) : true));
         localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(filtered));
 
         // Also remove from maddys
@@ -346,19 +395,41 @@ export const deleteFriend = (friendId) => {
             if (rawM) {
                 let mList = JSON.parse(rawM);
                 if (Array.isArray(mList)) {
-                    mList = mList.filter(m => m.id !== friendId && (toDelete ? (m.username !== toDelete.studentId && m.studentId !== toDelete.studentId) : true));
+                    mList = mList.filter(m => m.id !== friendId && (sid ? (m.username !== sid && m.studentId !== sid) : true));
                     localStorage.setItem('maddys', JSON.stringify(mList));
                 }
             }
         } catch { /* ignore */ }
 
+        // Remove cached student credentials and attendance data so nothing lingers
+        if (sid) {
+            try {
+                localStorage.removeItem(`erp_cookie_${sid}`);
+                localStorage.removeItem(`erp_token_${sid}`);
+                localStorage.removeItem(`kleData_${sid}`);
+                localStorage.removeItem(`kl_grades_${sid}`);
+                localStorage.removeItem(`cgpa_${sid}`);
+                localStorage.removeItem(`activeYear_${sid}`);
+                localStorage.removeItem(`activeSem_${sid}`);
+                localStorage.removeItem(`manualYear_${sid}`);
+                localStorage.removeItem(`manualSem_${sid}`);
+                for (let i = localStorage.length - 1; i >= 0; i--) {
+                    const k = localStorage.key(i);
+                    if (k && (k.startsWith(`kl_timetable_${sid}`) || k.startsWith(`kleData_${sid}`) || k.startsWith(`kl_scorecard_${sid}`))) {
+                        localStorage.removeItem(k);
+                    }
+                }
+            } catch { /* ignore */ }
+        }
+
         // If the active profile was deleted, reset to main
         const activeId = getActiveProfileId();
-        if (activeId === friendId || (toDelete && activeId === toDelete.id)) {
+        if (activeId === friendId || (toDelete && activeId === toDelete.id) || activeId === sid) {
             setActiveProfileId('main');
         }
 
         window.dispatchEvent(new CustomEvent('kl_friends_updated', { detail: filtered }));
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: 'main' }));
         window.dispatchEvent(new Event('storage'));
     } catch (err) {
         console.warn('[FriendsService] Failed to delete friend:', err);

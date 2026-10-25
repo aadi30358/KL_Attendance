@@ -227,11 +227,11 @@ export default function Grades() {
     // Auto-sync ERP grades on mount and active session in < 1 second
     useEffect(() => {
         const isSelf = selectedStudentId === myId || selectedStudentId === 'main';
-        const hasSession = hasActiveErpSession();
+        const hasSession = hasActiveErpSession(selectedStudentId);
         const friendCookie = !isSelf && typeof window !== 'undefined' ? localStorage.getItem(`erp_cookie_${selectedStudentId}`) : null;
         const activeErp = typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null;
         
-        if (isSelf ? hasSession : (Boolean(friendCookie) || activeErp === selectedStudentId)) {
+        if (hasSession || Boolean(friendCookie) || activeErp === selectedStudentId) {
             handleSyncLiveErpGrades();
         }
     }, [selectedStudentId, handleSyncLiveErpGrades, myId]);

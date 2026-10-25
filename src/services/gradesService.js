@@ -44,8 +44,11 @@ export const calculateGPA = (courses) => {
     let totalCredits = 0;
 
     courses.forEach((course) => {
-        const credits = parseFloat(course.credits);
-        const gradePoint = parseFloat(course.grade_point);
+        const credits = parseFloat(String(course.credits || '').replace(',', '.'));
+        let gradePoint = parseFloat(course.grade_point);
+        if (!Number.isFinite(gradePoint) && course.grade) {
+            gradePoint = KLU_GRADE_POINTS[String(course.grade).toUpperCase().trim()] ?? 0;
+        }
         if (!Number.isFinite(credits) || credits <= 0) return;
         if (!Number.isFinite(gradePoint)) return;
         totalPoints += gradePoint * credits;
@@ -207,6 +210,16 @@ export const getStoredGrades = (studentId) => {
         } catch {
             // continue
         }
+    }
+
+    // 3. Fallback: If no historical grades are found yet, auto-populate from enrolled courses in kleData!
+    try {
+        const templates = getEnrolledCoursesTemplate(targetId);
+        if (Array.isArray(templates) && templates.length > 0) {
+            return templates;
+        }
+    } catch {
+        // continue
     }
 
     // Never return main user's data for a friend!
@@ -517,15 +530,21 @@ export const fetchLiveErpGrades = async (studentId) => {
     const activeErp = typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null;
     const isCurrentlyActiveUser = targetId === activeErp;
     const friendCookie = isFriend ? (localStorage.getItem(`erp_cookie_${targetId}`) || '') : '';
-    const cookie = isCurrentlyActiveUser ? getStoredErpCookies() : (friendCookie || getStoredErpCookies());
+    const cookie = isCurrentlyActiveUser ? (getStoredErpCookies() || friendCookie) : (friendCookie || getStoredErpCookies());
     const csrfToken = getStoredCsrfToken();
 
     // Guard: Only fetch live ERP grades if active session or cookie exists
-    if (!cookie && !hasActiveErpSession()) {
+    if (!cookie && !hasActiveErpSession(targetId)) {
+        // If enrolled courses exist in cache, return them as ready scorecard
+        const fallbackTemplates = getEnrolledCoursesTemplate(targetId);
+        if (fallbackTemplates.length > 0) {
+            saveGradesAndMappings(targetId, fallbackTemplates);
+            return { success: true, source: 'cache_enrolled', courses: fallbackTemplates };
+        }
         return { success: false, message: 'No active ERP session.' };
     }
 
-    // Direct fetch to authentic ERP CGPA endpoint via reverse proxy
+    // 1. Direct fetch to authentic ERP CGPA endpoint via reverse proxy
     try {
         const directResp = await fetch(`${apiBase || ''}/index.php?r=studentinfo%2Fstudentendexamresult%2Fsearchgetmycgpa`, {
             method: 'GET',
@@ -548,7 +567,43 @@ export const fetchLiveErpGrades = async (studentId) => {
             }
         }
     } catch {
-        // silent fallback
+        // continue to server API endpoint fallback
+    }
+
+    // 2. Fetch via server-side scraper endpoint (/api/fetch-cgpa)
+    try {
+        const cgpaResp = await fetch(`${apiBase || ''}/api/fetch-cgpa`, {
+            method: 'POST',
+            headers: buildErpHeaders({
+                'Content-Type': 'application/json',
+                ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
+                ...(cookie ? { 'x-erp-cookie': cookie } : {})
+            }),
+            body: JSON.stringify({ studentId: targetId, username: targetId }),
+            credentials: 'include'
+        });
+
+        if (cgpaResp.ok) {
+            const data = await cgpaResp.json();
+            const list = data.courses || data.data || [];
+            if (Array.isArray(list) && list.length > 0) {
+                saveGradesAndMappings(targetId, list);
+                return { success: true, source: 'erp_live', courses: list };
+            }
+        }
+    } catch {
+        // continue to enrolled courses template fallback
+    }
+
+    // 3. Fallback: If live end-exam results are not published yet, populate genuine enrolled courses
+    try {
+        const templates = getEnrolledCoursesTemplate(targetId);
+        if (templates.length > 0) {
+            saveGradesAndMappings(targetId, templates);
+            return { success: true, source: 'cache_enrolled', courses: templates };
+        }
+    } catch {
+        // silent
     }
 
     return { success: false, message: 'Could not fetch live grades from ERP. Results may be unpublished or session expired.' };

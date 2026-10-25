@@ -11,6 +11,7 @@ import {
 } from '../services/attendanceAlerts';
 import { getActiveProfileDetails } from '../services/friendsService';
 import { fetchLiveErpTimetable, normalizeAcademicYear, normalizeSemester, getPresentAcademicYearAndSem } from '../services/timetableService';
+import { fetchLiveErpGrades } from '../services/gradesService';
 import FriendsManagerModal from '../components/FriendsManagerModal';
 import ErpSidebar from '../components/ErpSidebar';
 
@@ -384,7 +385,7 @@ const AttendanceRegister = () => {
                 setLastUpdated(Date.now());
                 setSessionStatus('active');
 
-                // Trigger live ERP timetable sync in background
+                // Trigger live ERP timetable & grades sync in background
                 if (targetId) {
                     fetchLiveErpTimetable(targetId, finalYear, finalSem).then((res) => {
                         if (res?.timetable) {
@@ -393,6 +394,8 @@ const AttendanceRegister = () => {
                             }));
                         }
                     }).catch(() => null);
+
+                    fetchLiveErpGrades(targetId).catch(() => null);
                 }
 
                 const keyToUse = targetId ? `kleData_${targetId}` : 'kleData';
