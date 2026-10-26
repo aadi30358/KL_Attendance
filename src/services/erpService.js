@@ -706,7 +706,7 @@ export const erpService = {
             });
 
             let html = resp.ok ? await resp.text() : '';
-            if (!resp.ok || resp.status === 404 || html.includes('<div id="root">') || html.includes('/vite.svg')) {
+            if (!resp.ok || resp.status === 404 || html.includes('<div id="root">') || html.includes('/vite.svg') || html.includes('/timetable-logo.svg')) {
                 const target = apiBase || FALLBACK_ERP_BASE;
                 resp = await fetch(`${target}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
                     method: 'GET',
@@ -944,7 +944,7 @@ export const erpService = {
                 }
 
                 let html = await response.text();
-                if ((html.includes('<div id="root">') || html.includes('/vite.svg')) && apiBase !== FALLBACK_ERP_BASE) {
+                if ((html.includes('<div id="root">') || html.includes('/vite.svg') || html.includes('/timetable-logo.svg')) && apiBase !== FALLBACK_ERP_BASE) {
                     const fbHeaders = { ...headers };
                     const cookie = getStoredErpCookies(targetStudent);
                     if (cookie) fbHeaders['x-erp-cookie'] = cookie;

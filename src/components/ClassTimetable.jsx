@@ -222,9 +222,9 @@ export default function ClassTimetable({
         return today === 'Sunday' ? 'Monday' : today;
     });
 
-    // View & Display Modes
-    const [viewMode, setViewMode] = useState('day'); // 'day' | 'week'
-    const [displayMode, setDisplayMode] = useState('codes'); // 'codes' | 'aliases'
+    // View & Display Modes (Defaults: Week Matrix view & Aliases)
+    const [viewMode, setViewMode] = useState('week'); // 'week' | 'day'
+    const [displayMode, setDisplayMode] = useState('aliases'); // 'aliases' | 'codes'
     const [currentTimeStr, setCurrentTimeStr] = useState('');
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [captchaModalTarget, setCaptchaModalTarget] = useState(null);
@@ -1284,19 +1284,8 @@ export default function ClassTimetable({
 
                     {/* View Controls: Codes vs Names vs Aliases & Day vs Week Toggle */}
                     <div className="flex flex-wrap items-center gap-2.5">
-                        {/* Course Display Mode: Codes vs Aliases */}
+                        {/* Course Display Mode: Aliases vs Codes (Aliases first) */}
                         <div className="inline-flex bg-slate-100 p-1 rounded-2xl border border-slate-200/80">
-                            <button
-                                type="button"
-                                onClick={() => setDisplayMode('codes')}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                                    displayMode === 'codes'
-                                        ? 'bg-white text-indigo-900 shadow-xs'
-                                        : 'text-slate-600 hover:text-slate-900'
-                                }`}
-                            >
-                                Codes
-                            </button>
                             <button
                                 type="button"
                                 onClick={() => setDisplayMode('aliases')}
@@ -1308,21 +1297,21 @@ export default function ClassTimetable({
                             >
                                 Aliases 🏷️
                             </button>
-                        </div>
-
-                        {/* Day Schedule vs Week Matrix */}
-                        <div className="inline-flex bg-slate-100 p-1 rounded-2xl border border-slate-200/80">
                             <button
                                 type="button"
-                                onClick={() => setViewMode('day')}
-                                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                                    viewMode === 'day'
-                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                onClick={() => setDisplayMode('codes')}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    displayMode === 'codes'
+                                        ? 'bg-white text-indigo-900 shadow-xs'
                                         : 'text-slate-600 hover:text-slate-900'
                                 }`}
                             >
-                                Day Schedule
+                                Codes
                             </button>
+                        </div>
+
+                        {/* Week Matrix vs Day Schedule (Week Matrix first) */}
+                        <div className="inline-flex bg-slate-100 p-1 rounded-2xl border border-slate-200/80">
                             <button
                                 type="button"
                                 onClick={() => setViewMode('week')}
@@ -1333,6 +1322,17 @@ export default function ClassTimetable({
                                 }`}
                             >
                                 Week Matrix
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setViewMode('day')}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    viewMode === 'day'
+                                        ? 'bg-indigo-600 text-white shadow-xs'
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                Day Schedule
                             </button>
                         </div>
                     </div>
@@ -1439,16 +1439,6 @@ export default function ClassTimetable({
                                                             <MapPin className="w-3.5 h-3.5 text-amber-600" />
                                                             <span>Room {cleanRoomNumber(slot.room)}</span>
                                                         </div>
-                                                    )}
-                                                    {onViewCourseAttendance && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => onViewCourseAttendance()}
-                                                            className="text-xs font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 cursor-pointer"
-                                                        >
-                                                            <span>Attendance</span>
-                                                            <ArrowRight className="w-3 h-3" />
-                                                        </button>
                                                     )}
                                                 </div>
                                             </div>

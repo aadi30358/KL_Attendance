@@ -70,6 +70,8 @@ export default function Timetable() {
             <Helmet>
                 <title>Class Timetable | KLERP</title>
                 <meta name="description" content="Official KL University live class timetable and schedule." />
+                <link rel="icon" type="image/svg+xml" href="/timetable-logo.svg" />
+                <link rel="apple-touch-icon" href="/timetable-logo.svg" />
             </Helmet>
 
             {/* KLERP Top Header */}

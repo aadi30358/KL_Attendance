@@ -727,7 +727,7 @@ export default function Home() {
         return baseName || raw || slot.code;
     };
 
-    const [displayMode, setDisplayMode] = useState('codes'); // 'codes' | 'aliases'
+    const [displayMode, setDisplayMode] = useState('aliases'); // 'aliases' | 'codes'
     const [editingFriend, setEditingFriend] = useState(null);
 
     const { scrollY } = useScroll();
@@ -1378,19 +1378,8 @@ export default function Home() {
                                     {/* View Controls: Codes vs Aliases & View Full Timetable Link */}
                                     <div className="flex flex-wrap items-center gap-2">
 
-                                        {/* Codes vs Aliases Toggle */}
+                                        {/* Aliases vs Codes Toggle (Aliases first) */}
                                         <div className="inline-flex bg-slate-100 dark:bg-slate-800/90 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700/80">
-                                            <button
-                                                type="button"
-                                                onClick={() => setDisplayMode('codes')}
-                                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                                    displayMode === 'codes'
-                                                        ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
-                                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                                                }`}
-                                            >
-                                                Codes
-                                            </button>
                                             <button
                                                 type="button"
                                                 onClick={() => setDisplayMode('aliases')}
@@ -1401,6 +1390,17 @@ export default function Home() {
                                                 }`}
                                             >
                                                 Aliases 🏷️
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDisplayMode('codes')}
+                                                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                    displayMode === 'codes'
+                                                        ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
+                                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                                }`}
+                                            >
+                                                Codes
                                             </button>
                                         </div>
 
