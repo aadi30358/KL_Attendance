@@ -4,6 +4,20 @@
  * Accurately calculates SGPA, CGPA, and Percentage according to official KLU regulations.
  */
 import { getErpBase, buildErpHeaders, getStoredErpCookies, getStoredCsrfToken, hasActiveErpSession } from './erpService.js';
+import { getMyProfile } from './friendsService.js';
+
+/**
+ * Defensively resolves the authentic primary student ID, preventing
+ * friend profile switches from being misidentified as the main user.
+ */
+export const getPrimaryUserId = () => {
+    if (typeof window === 'undefined') return '';
+    try {
+        const prof = getMyProfile();
+        if (prof?.studentId) return String(prof.studentId).trim();
+    } catch { /* ignore */ }
+    return (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId') || '').trim();
+};
 
 export const decodeHtml = (text) => {
     if (!text) return "";
@@ -133,10 +147,15 @@ export const filterCoursesBySemester = (courses, semesterKey) =>
  * Returns color styling for grade badges (O, A+, A, B+, B, C, P, F)
  */
 export const getGradeBadgeStyle = (grade, course) => {
-    if (!grade) return { bg: 'bg-slate-100 text-slate-600 border-slate-200', text: 'Audit Pass' };
+    const status = (course?.promotion_status ?? "").toUpperCase();
+    if (!grade || grade === '-' || grade === 'NA') {
+        if (status === 'ENROLLED' || status === 'IN PROGRESS') {
+            return { bg: 'bg-indigo-50 text-indigo-700 border-indigo-200', text: 'Enrolled' };
+        }
+        return { bg: 'bg-slate-100 text-slate-600 border-slate-200', text: 'In Progress' };
+    }
     const g = String(grade).toUpperCase().trim();
     const credits = parseFloat(course?.credits ?? "");
-    const status = (course?.promotion_status ?? "").toUpperCase();
 
     if (g === "P" && credits === 0 && status === "P") {
         return { bg: 'bg-slate-100 text-slate-500 border-slate-200', text: 'Audit Pass' };
@@ -169,12 +188,48 @@ export const getGradeBadgeStyle = (grade, course) => {
  * Returns stored grades for a student (user-entered or synced from ERP).
  * Returns empty array if no genuine grades have been entered/synced yet.
  */
+/**
+ * Returns stored grades for a student (user-entered or synced from ERP).
+ * Returns empty array if no genuine grades have been entered/synced yet.
+ * Completely isolates friend profiles from the primary user's grades.
+ */
 export const getStoredGrades = (studentId) => {
     if (typeof window === 'undefined') return [];
-    const mainUser = localStorage.getItem('activeErpUser') || localStorage.getItem('erp_username') || localStorage.getItem('rememberedId') || '';
-    const targetId = studentId || mainUser;
+    const primaryId = getPrimaryUserId();
+    const targetId = (studentId || primaryId || '').trim();
     if (!targetId) return [];
-    const isMain = targetId === mainUser || targetId === 'main';
+
+    const isMain = targetId === 'main' || (Boolean(primaryId) && targetId === primaryId);
+    const isFriend = Boolean(targetId && primaryId && targetId !== primaryId && targetId !== 'main');
+
+    // Self-healing purge: Detect and remove contaminated main-user grades from friend cache
+    if (isFriend) {
+        try {
+            const friendKey = `kl_grades_${targetId}`;
+            const rawFriend = localStorage.getItem(friendKey);
+            const rawMain = localStorage.getItem('cgpa_data') || (primaryId ? localStorage.getItem(`kl_grades_${primaryId}`) : null);
+
+            // If friend's stored string exactly matches main user's cgpa_data or grades
+            if (rawFriend && rawMain && rawFriend.trim() === rawMain.trim()) {
+                console.warn(`[GradesService] Self-healing: Purged duplicate main user grades from friend ${targetId}`);
+                localStorage.removeItem(friendKey);
+                localStorage.removeItem(`cgpa_${targetId}`);
+            } else if (rawFriend) {
+                // If friend's stored courses are explicitly stamped with primary user's ID
+                try {
+                    const parsed = JSON.parse(rawFriend);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        const hasMainUserStamp = parsed.some(c => c.student_id && c.student_id === primaryId && primaryId !== targetId);
+                        if (hasMainUserStamp) {
+                            console.warn(`[GradesService] Self-healing: Purged primary-user stamped courses from friend ${targetId}`);
+                            localStorage.removeItem(friendKey);
+                            localStorage.removeItem(`cgpa_${targetId}`);
+                        }
+                    }
+                } catch { /* ignore */ }
+            }
+        } catch { /* ignore */ }
+    }
 
     // 1. Check student-specific stored grades
     try {
@@ -198,7 +253,7 @@ export const getStoredGrades = (studentId) => {
         // continue
     }
 
-    // 2. ONLY for the main user, check generic cgpa_data or grades
+    // 2. ONLY for the primary user, check generic cgpa_data or grades
     if (isMain) {
         try {
             const rawCgpa = localStorage.getItem('cgpa_data') || localStorage.getItem('grades');
@@ -212,39 +267,31 @@ export const getStoredGrades = (studentId) => {
         }
     }
 
-    // 3. Fallback: If no historical grades are found yet, auto-populate from enrolled courses in kleData!
-    try {
-        const templates = getEnrolledCoursesTemplate(targetId);
-        if (Array.isArray(templates) && templates.length > 0) {
-            return templates;
-        }
-    } catch {
-        // continue
-    }
-
     // Never return main user's data for a friend!
     return [];
 };
 
 /**
  * Generates grade entry templates from student's genuine ERP registered courses (if available in kleData).
- * This allows students to calculate SGPA/CGPA without having to type all their course codes and titles by hand.
+ * Leaves grades and grade points empty so courses without published results do not inflate GPA.
  */
 export const getEnrolledCoursesTemplate = (studentId) => {
     if (typeof window === 'undefined') return [];
-    const targetId = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+    const primaryId = getPrimaryUserId();
+    const targetId = (studentId || primaryId || '').trim();
     if (!targetId) return [];
+    const isMain = targetId === 'main' || (Boolean(primaryId) && targetId === primaryId);
 
     try {
         const erpKey = `kleData_${targetId}`;
-        const rawErp = localStorage.getItem(erpKey) || (targetId === localStorage.getItem('activeErpUser') ? localStorage.getItem('kleData') : null);
+        const rawErp = localStorage.getItem(erpKey) || (isMain ? localStorage.getItem('kleData') : null);
         if (rawErp) {
             const parsed = JSON.parse(rawErp);
             const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
             if (Array.isArray(list) && list.length > 0) {
                 const seenCodes = new Set();
-                const activeYear = localStorage.getItem('selectedAcademicYear') || localStorage.getItem(`activeYear_${targetId}`) || '2026-2027';
-                const activeSem = localStorage.getItem('selectedSemester') || localStorage.getItem(`activeSem_${targetId}`) || 'Odd';
+                const activeYear = localStorage.getItem(`activeYear_${targetId}`) || localStorage.getItem('selectedAcademicYear') || '2026-2027';
+                const activeSem = localStorage.getItem(`activeSem_${targetId}`) || localStorage.getItem('selectedSemester') || 'Odd';
 
                 const templates = [];
                 list.forEach((subj) => {
@@ -264,9 +311,10 @@ export const getEnrolledCoursesTemplate = (studentId) => {
                         course_code: rawCode,
                         course_desc: title,
                         credits,
-                        grade: 'O',
-                        grade_point: '10',
-                        promotion_status: 'P'
+                        grade: '',
+                        grade_point: '',
+                        promotion_status: 'Enrolled',
+                        student_id: targetId
                     });
                 });
                 return templates;
@@ -282,10 +330,15 @@ export const getEnrolledCoursesTemplate = (studentId) => {
 export const saveStoredGrades = (studentId, grades) => {
     if (typeof window === 'undefined' || !Array.isArray(grades)) return;
     try {
-        const targetId = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+        const primaryId = getPrimaryUserId();
+        const targetId = (studentId || primaryId || '').trim();
         if (!targetId) return;
         const key = `kl_grades_${targetId}`;
-        localStorage.setItem(key, JSON.stringify(grades));
+        const stamped = grades.map(c => ({
+            ...c,
+            student_id: targetId
+        }));
+        localStorage.setItem(key, JSON.stringify(stamped));
     } catch {
         // ignore
     }
@@ -359,10 +412,15 @@ export const deleteCourseFromScorecard = (studentId, courseCode) => {
  * Clears all stored grades
  */
 export const resetGradesToDefault = (studentId) => {
-    const targetId = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+    const primaryId = getPrimaryUserId();
+    const targetId = (studentId || primaryId || '').trim();
     if (!targetId) return [];
     try {
         localStorage.removeItem(`kl_grades_${targetId}`);
+        localStorage.removeItem(`cgpa_${targetId}`);
+        if (targetId === 'main' || (primaryId && targetId === primaryId)) {
+            localStorage.removeItem('cgpa_data');
+        }
     } catch (err) {
         void err; // Ignore storage access error
     }
@@ -479,20 +537,26 @@ export const parseCgpaTableHtml = (html) => {
 
 /**
  * Saves genuine ERP grade list to localStorage and syncs all course codes/titles into subjectMappings.
+ * Stamps each course with student_id and protects main user cgpa_data from friend updates.
  */
 export const saveGradesAndMappings = (studentId, courses) => {
     if (!Array.isArray(courses)) return;
-    const mainUser = localStorage.getItem('activeErpUser') || localStorage.getItem('erp_username') || localStorage.getItem('rememberedId') || '';
-    const targetId = studentId || mainUser;
+    const primaryId = getPrimaryUserId();
+    const targetId = (studentId || primaryId || '').trim();
     if (!targetId) return;
-    const isMain = targetId === mainUser || targetId === 'main';
+    const isMain = targetId === 'main' || (Boolean(primaryId) && targetId === primaryId);
 
     try {
         if (typeof window !== 'undefined') {
-            localStorage.setItem(`kl_grades_${targetId}`, JSON.stringify(courses));
-            localStorage.setItem(`cgpa_${targetId}`, JSON.stringify(courses));
+            const stamped = courses.map(c => ({
+                ...c,
+                student_id: targetId
+            }));
+
+            localStorage.setItem(`kl_grades_${targetId}`, JSON.stringify(stamped));
+            localStorage.setItem(`cgpa_${targetId}`, JSON.stringify(stamped));
             if (isMain) {
-                localStorage.setItem('cgpa_data', JSON.stringify(courses));
+                localStorage.setItem('cgpa_data', JSON.stringify(stamped));
             }
 
             // Populate subjectMappings for Timetable display
@@ -512,36 +576,43 @@ export const saveGradesAndMappings = (studentId, courses) => {
                 localStorage.setItem('subjectMappings', JSON.stringify(mappings));
                 window.dispatchEvent(new CustomEvent('kl_subject_mappings_updated'));
             }
-            window.dispatchEvent(new CustomEvent('kl_grades_updated', { detail: { studentId: targetId, courses } }));
+            window.dispatchEvent(new CustomEvent('kl_grades_updated', { detail: { studentId: targetId, courses: stamped } }));
         }
     } catch { /* ignore storage quota */ }
 };
 
 /**
  * Fetches authentic historical SGPA and CGPA results directly from KLU ERP searchgetmycgpa endpoint.
+ * Strictly uses friend's own session cookie. If not active, triggers captcha authentication.
  */
 export const fetchLiveErpGrades = async (studentId) => {
-    const mainUser = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
-    const targetId = studentId || mainUser;
+    const primaryMyId = getPrimaryUserId();
+    const targetId = (studentId || primaryMyId || '').trim();
     if (!targetId) return { success: false, message: 'No student specified.' };
-    const isFriend = targetId && mainUser && targetId !== mainUser;
+
+    const isMain = targetId === 'main' || (Boolean(primaryMyId) && targetId === primaryMyId);
+    const isFriend = Boolean(targetId && primaryMyId && targetId !== primaryMyId && targetId !== 'main');
 
     const apiBase = getErpBase();
-    const activeErp = typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null;
-    const isCurrentlyActiveUser = targetId === activeErp;
-    const friendCookie = isFriend ? (localStorage.getItem(`erp_cookie_${targetId}`) || '') : '';
-    const cookie = isCurrentlyActiveUser ? (getStoredErpCookies() || friendCookie) : (friendCookie || getStoredErpCookies());
     const csrfToken = getStoredCsrfToken();
 
-    // Guard: Only fetch live ERP grades if active session or cookie exists
-    if (!cookie && !hasActiveErpSession(targetId)) {
-        // If enrolled courses exist in cache, return them as ready scorecard
-        const fallbackTemplates = getEnrolledCoursesTemplate(targetId);
-        if (fallbackTemplates.length > 0) {
-            saveGradesAndMappings(targetId, fallbackTemplates);
-            return { success: true, source: 'cache_enrolled', courses: fallbackTemplates };
+    // STRICT COOKIE RESOLUTION:
+    // If target is a friend, ONLY look for friend's scoped cookie. Never fall back to main user's cookie!
+    let cookie = '';
+    if (isFriend) {
+        cookie = (localStorage.getItem(`erp_cookie_${targetId}`) || '').trim();
+        if (!cookie) {
+            return {
+                success: false,
+                needsAuth: true,
+                message: `Authentication required for ${targetId}. Please enter captcha to sync grades.`
+            };
         }
-        return { success: false, message: 'No active ERP session.' };
+    } else {
+        cookie = getStoredErpCookies(targetId) || getStoredErpCookies();
+        if (!cookie && !hasActiveErpSession(targetId)) {
+            return { success: false, message: 'No active ERP session for primary user.' };
+        }
     }
 
     // 1. Direct fetch to authentic ERP CGPA endpoint via reverse proxy
@@ -550,24 +621,32 @@ export const fetchLiveErpGrades = async (studentId) => {
             method: 'GET',
             headers: buildErpHeaders({
                 ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
-                ...(cookie ? { 'x-erp-cookie': cookie } : {})
-            }),
+                'x-erp-cookie': cookie
+            }, targetId),
             credentials: 'include',
             cache: 'no-store'
         });
 
         if (directResp.ok) {
             const html = await directResp.text();
-            if (html && !html.includes('id="login-form"') && html.includes('<table')) {
-                const parsed = parseCgpaTableHtml(html);
-                if (parsed.length > 0) {
-                    saveGradesAndMappings(targetId, parsed);
-                    return { success: true, source: 'erp_live', courses: parsed };
+            if (html && !html.includes('id="login-form"') && !html.includes('id="loginFormID"')) {
+                // Security verification: If syncing for a friend, ensure ERP returned the friend's portal
+                if (isFriend && primaryMyId && html.includes(primaryMyId) && !html.includes(targetId)) {
+                    console.warn(`[GradesService] ERP returned session for ${primaryMyId} instead of friend ${targetId}`);
+                    return { success: false, needsAuth: true, message: 'ERP session mismatch. Friend authentication required.' };
+                }
+
+                if (html.includes('<table')) {
+                    const parsed = parseCgpaTableHtml(html);
+                    if (parsed.length > 0) {
+                        saveGradesAndMappings(targetId, parsed);
+                        return { success: true, source: 'erp_live', courses: parsed };
+                    }
                 }
             }
         }
-    } catch {
-        // continue to server API endpoint fallback
+    } catch (e) {
+        console.warn('[GradesService] Direct CGPA fetch notice:', e.message);
     }
 
     // 2. Fetch via server-side scraper endpoint (/api/fetch-cgpa)
@@ -577,8 +656,8 @@ export const fetchLiveErpGrades = async (studentId) => {
             headers: buildErpHeaders({
                 'Content-Type': 'application/json',
                 ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}),
-                ...(cookie ? { 'x-erp-cookie': cookie } : {})
-            }),
+                'x-erp-cookie': cookie
+            }, targetId),
             body: JSON.stringify({ studentId: targetId, username: targetId }),
             credentials: 'include'
         });
@@ -591,31 +670,26 @@ export const fetchLiveErpGrades = async (studentId) => {
                 return { success: true, source: 'erp_live', courses: list };
             }
         }
-    } catch {
-        // continue to enrolled courses template fallback
+    } catch (e) {
+        console.warn('[GradesService] Proxy CGPA fetch notice:', e.message);
     }
 
-    // 3. Fallback: If live end-exam results are not published yet, populate genuine enrolled courses
-    try {
-        const templates = getEnrolledCoursesTemplate(targetId);
-        if (templates.length > 0) {
-            saveGradesAndMappings(targetId, templates);
-            return { success: true, source: 'cache_enrolled', courses: templates };
-        }
-    } catch {
-        // silent
-    }
-
-    return { success: false, message: 'Could not fetch live grades from ERP. Results may be unpublished or session expired.' };
+    return {
+        success: false,
+        needsAuth: isFriend,
+        message: 'Could not fetch live grades from ERP. Results may be unpublished or session expired.'
+    };
 };
 
 /**
  * Fetches detailed component marks (internals, externals, lab, assignments) for a specific course scorecard.
  */
 export const fetchLiveMarksDetail = async (targetHref, studentId, courseCode) => {
-    const targetId = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+    const primaryId = getPrimaryUserId();
+    const targetId = (studentId || primaryId || '').trim();
     if (!targetId) return { success: false, message: 'No student specified.' };
     const cleanCode = (courseCode || '').toUpperCase().trim();
+    const isFriend = Boolean(primaryId && targetId !== primaryId && targetId !== 'main');
 
     // 1. Check local cache first
     if (typeof window !== 'undefined' && cleanCode) {
@@ -638,10 +712,10 @@ export const fetchLiveMarksDetail = async (targetHref, studentId, courseCode) =>
 
     const apiBase = getErpBase();
     const csrfToken = getStoredCsrfToken();
-    const cookie = getStoredErpCookies();
+    const cookie = isFriend ? (localStorage.getItem(`erp_cookie_${targetId}`) || '') : (getStoredErpCookies(targetId) || getStoredErpCookies());
 
     // Guard: Only fetch marks detail if active session or cookie exists
-    if (!cookie && !hasActiveErpSession()) {
+    if (!cookie) {
         return { success: false, message: 'No active ERP session.' };
     }
 

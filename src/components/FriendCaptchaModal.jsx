@@ -7,11 +7,12 @@ import { fetchLiveErpGrades } from '../services/gradesService';
 import { fetchLiveErpTimetable } from '../services/timetableService';
 import { useMaintenance } from '../services/useMaintenance';
 import { useAuth } from '../context/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess }) {
     const { setErpUser } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
     const { isMaintenance, maintenanceConfig } = useMaintenance();
 
     const [captcha, setCaptcha] = useState('');
@@ -249,8 +250,11 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     onSuccess(friend);
                 }
                 onClose();
-                // Always navigate to Attendance Register (odd sem and year)
-                navigate('/attendance-register');
+                // Navigate to Attendance Register if on general pages, but preserve /grades, /cgpa, and /timetable in-place
+                const currentPath = location?.pathname || '';
+                if (currentPath !== '/grades' && currentPath !== '/cgpa' && currentPath !== '/timetable') {
+                    navigate('/attendance-register');
+                }
             } else {
                 throw new Error('Incorrect Captcha or ERP session error. Please try again.');
             }

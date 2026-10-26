@@ -41,7 +41,7 @@ import FriendCaptchaModal from '../components/FriendCaptchaModal';
 export default function Grades() {
     const navigate = useNavigate();
     const myProfile = useMemo(() => getMyProfile(), []);
-    const myId = myProfile?.studentId || myProfile?.username || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null) || '';
+    const myId = myProfile?.studentId || myProfile?.username || (typeof window !== 'undefined' ? (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId')) : '') || '';
 
     // Unified deduplicated profiles with persistent custom names
     const [allProfiles, setAllProfiles] = useState(() => getAllProfiles());
@@ -189,15 +189,18 @@ export default function Grades() {
         }
     }, [selectedStudentId]);
 
-    // Auto-sync ERP grades on mount and active session in < 1 second
+    // Auto-sync ERP grades on mount only if verified session exists
     useEffect(() => {
         const isSelf = selectedStudentId === myId || selectedStudentId === 'main';
-        const hasSession = hasActiveErpSession(selectedStudentId);
-        const friendCookie = !isSelf && typeof window !== 'undefined' ? localStorage.getItem(`erp_cookie_${selectedStudentId}`) : null;
-        const activeErp = typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : null;
-        
-        if (hasSession || Boolean(friendCookie) || activeErp === selectedStudentId) {
-            handleSyncLiveErpGrades();
+        if (isSelf) {
+            if (hasActiveErpSession(selectedStudentId) || hasActiveErpSession(myId)) {
+                handleSyncLiveErpGrades();
+            }
+        } else {
+            const friendCookie = typeof window !== 'undefined' ? (localStorage.getItem(`erp_cookie_${selectedStudentId}`) || '').trim() : '';
+            if (friendCookie) {
+                handleSyncLiveErpGrades();
+            }
         }
     }, [selectedStudentId, handleSyncLiveErpGrades, myId]);
 
@@ -544,7 +547,9 @@ export default function Grades() {
                                             setSelectedCourseForDetail(null);
                                             const fresh = getStoredGrades(targetSid);
                                             setCourses(fresh);
-                                            if (hasActiveErpSession(targetSid)) {
+                                            const isTargetSelf = targetSid === myId || targetSid === 'main';
+                                            const hasTargetCookie = isTargetSelf ? Boolean(hasActiveErpSession(targetSid)) : Boolean(typeof window !== 'undefined' && localStorage.getItem(`erp_cookie_${targetSid}`));
+                                            if (hasTargetCookie) {
                                                 fetchLiveErpGrades(targetSid).then(res => {
                                                     if (res?.courses?.length > 0) setCourses(res.courses);
                                                 }).catch(() => null);
@@ -1007,7 +1012,6 @@ export default function Grades() {
                 onSuccess={() => {
                     setFriendCaptchaTarget(null);
                     handleSyncLiveErpGrades();
-                    navigate('/attendance-register');
                 }}
             />
         </div>
