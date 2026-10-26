@@ -447,7 +447,8 @@ export const erpService = {
                     password,
                     captcha: captcha.trim(),
                     csrfToken: token
-                })
+                }),
+                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(3500) : undefined
             });
 
             saveErpCookiesFromResponse(resp, { studentId: cleanUsername });

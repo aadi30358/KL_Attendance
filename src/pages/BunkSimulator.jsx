@@ -483,11 +483,11 @@ const BunkSimulator = () => {
     return (
         <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
             <SEO
-                title="Bunk Simulator | KLERP"
+                title="Bunk Simulator | KL Attendance Calculator"
                 description="Simulate bunking classes using official KL University LTPS weights. Calculate how much your attendance drops before you bunk."
             />
 
-            {/* KLERP Top Header */}
+            {/* Top Header */}
             <header className="bg-[#0088cc] text-white px-4 sm:px-6 py-2.5 shadow-md z-40 sticky top-0 shrink-0 w-full select-none border-b border-black/10">
                 <div className="w-full relative flex items-center justify-between min-h-[46px]">
                     {/* Left: Mobile Drawer Toggle */}
@@ -503,10 +503,10 @@ const BunkSimulator = () => {
                         </button>
                     </div>
 
-                    {/* Center: Logo + KLERP */}
+                    {/* Center: Logo + KL Attendance Calculator */}
                     <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center text-center pointer-events-auto">
                         <div className="flex items-center gap-2 sm:gap-2.5">
-                            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white flex items-center justify-center p-0.5 shadow-sm ring-1 ring-white/30 shrink-0">
+                            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-white flex items-center justify-center p-0.5 shadow-sm ring-1 ring-white/30 shrink-0">
                                 <img
                                     src="/Koneru Lakshmaiah University Logo Banner.png"
                                     alt="KLU"
@@ -514,8 +514,8 @@ const BunkSimulator = () => {
                                     onError={(e) => { e.currentTarget.style.display = 'none'; }}
                                 />
                             </div>
-                            <span className="font-serif italic font-extrabold text-xl sm:text-2xl text-white tracking-wider drop-shadow-xs">
-                                KLERP
+                            <span className="font-sans font-extrabold text-sm sm:text-lg text-white tracking-wide drop-shadow-xs whitespace-nowrap">
+                                KL Attendance Calculator
                             </span>
                         </div>
                         <span className="text-[10px] sm:text-[11px] font-semibold text-white/95 tracking-wide leading-none mt-1 whitespace-nowrap">

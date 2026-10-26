@@ -1,118 +1,63 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Black Background with rounded squircle -->
+  <rect width="512" height="512" rx="108" fill="#0A0A0A"/>
+  
   <defs>
-    <!-- Background Gradient -->
-    <linearGradient id="timetableBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#4F46E5" />
-      <stop offset="50%" stop-color="#2563EB" />
-      <stop offset="100%" stop-color="#0284C7" />
+    <!-- Neon Lime Gradients -->
+    <linearGradient id="neonFront" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#CEFF00"/>
+      <stop offset="100%" stop-color="#A6E600"/>
     </linearGradient>
-
-    <!-- Calendar Board Gradient -->
-    <linearGradient id="boardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#FFFFFF" />
-      <stop offset="100%" stop-color="#F1F5F9" />
+    <linearGradient id="neonShadow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6F9900"/>
+      <stop offset="100%" stop-color="#446100"/>
     </linearGradient>
-
-    <!-- Top Banner Gradient -->
-    <linearGradient id="bannerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#EC4899" />
-      <stop offset="100%" stop-color="#F43F5E" />
-    </linearGradient>
-
-    <!-- Clock Badge Gradient -->
-    <linearGradient id="clockGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#10B981" />
-      <stop offset="100%" stop-color="#059669" />
-    </linearGradient>
-
-    <!-- Drop Shadow Filter -->
-    <filter id="cardShadow" x="-10%" y="-10%" width="125%" height="125%" filterUnits="userSpaceOnUse">
-      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#0f172a" flood-opacity="0.35" />
-    </filter>
-    <filter id="badgeShadow" x="-20%" y="-20%" width="140%" height="140%" filterUnits="userSpaceOnUse">
-      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#064e3b" flood-opacity="0.4" />
-    </filter>
   </defs>
 
-  <!-- Squircle App Icon Base -->
-  <rect width="512" height="512" rx="118" fill="url(#timetableBg)" />
+  <!-- 3D Extrusion Shadows for KL -->
+  <g fill="url(#neonShadow)">
+    <!-- Shadow for K vertical bar -->
+    <polygon points="138,162 188,162 204,178 154,178" />
+    <polygon points="188,162 188,342 204,358 204,178" />
+    <polygon points="138,342 188,342 204,358 154,358" />
 
-  <!-- Subtle Ambient Glow -->
-  <circle cx="120" cy="110" r="160" fill="#FFFFFF" opacity="0.12" />
-  <circle cx="430" cy="420" r="140" fill="#38BDF8" opacity="0.18" />
+    <!-- Shadow for K diagonal arms -->
+    <polygon points="188,252 278,162 294,178 204,268" />
+    <polygon points="204,268 288,342 272,358 188,284" />
 
-  <!-- Binder Rings at the Top -->
-  <rect x="156" y="60" width="28" height="54" rx="14" fill="#E2E8F0" />
-  <rect x="328" y="60" width="28" height="54" rx="14" fill="#E2E8F0" />
+    <!-- Shadow for L vertical & base -->
+    <polygon points="274,162 324,162 340,178 290,178" />
+    <polygon points="324,162 324,302 340,318 340,178" />
+    <polygon points="324,302 378,302 394,318 340,318" />
+    <polygon points="274,342 378,342 394,358 290,358" />
+    <polygon points="378,302 378,342 394,358 394,318" />
+  </g>
 
-  <!-- Main Timetable Board -->
-  <rect x="76" y="86" width="360" height="346" rx="42" fill="url(#boardGrad)" filter="url(#cardShadow)" />
+  <!-- Front Faces of KL (Isometric 3D Neon Lime) -->
+  <g fill="url(#neonFront)" stroke="#0A0A0A" stroke-width="2">
+    <!-- K Vertical Stem -->
+    <rect x="138" y="162" width="50" height="180" rx="4"/>
+    
+    <!-- K Top Diagonal -->
+    <polygon points="188,258 248,162 284,162 214,268"/>
 
-  <!-- Top Red/Rose Calendar Header -->
-  <path d="M76 128 C76 104.8 94.8 86 118 86 L394 86 C417.2 86 436 104.8 436 128 L436 160 L76 160 Z" fill="url(#bannerGrad)" />
+    <!-- K Bottom Diagonal -->
+    <polygon points="204,258 288,342 250,342 180,270"/>
 
-  <!-- Binder Ring Holes -->
-  <circle cx="170" cy="120" r="11" fill="#991B1B" opacity="0.45" />
-  <circle cx="170" cy="120" r="8" fill="#FFFFFF" opacity="0.85" />
-  <circle cx="342" cy="120" r="11" fill="#991B1B" opacity="0.45" />
-  <circle cx="342" cy="120" r="8" fill="#FFFFFF" opacity="0.85" />
+    <!-- L Vertical & Horizontal Bar -->
+    <polygon points="274,162 324,162 324,302 378,302 378,342 274,342"/>
+  </g>
 
-  <!-- Week Column Header Dots / Indicators -->
-  <rect x="110" y="184" width="60" height="14" rx="7" fill="#CBD5E1" />
-  <rect x="188" y="184" width="60" height="14" rx="7" fill="#CBD5E1" />
-  <rect x="266" y="184" width="60" height="14" rx="7" fill="#CBD5E1" />
-  <rect x="344" y="184" width="58" height="14" rx="7" fill="#CBD5E1" />
-
-  <!-- Timetable Grid Slots (Simulating Class Schedule Matrix) -->
-  <!-- Row 1: Mon -->
-  <rect x="110" y="214" width="80" height="42" rx="12" fill="#6366F1" />
-  <rect x="120" y="226" width="40" height="7" rx="3.5" fill="#FFFFFF" opacity="0.9" />
-  <rect x="120" y="238" width="58" height="6" rx="3" fill="#C7D2FE" />
-
-  <rect x="202" y="214" width="128" height="42" rx="12" fill="#3B82F6" />
-  <rect x="214" y="226" width="64" height="7" rx="3.5" fill="#FFFFFF" opacity="0.9" />
-  <rect x="214" y="238" width="96" height="6" rx="3" fill="#BAE6FD" />
-
-  <rect x="342" y="214" width="60" height="42" rx="12" fill="#F1F5F9" stroke="#E2E8F0" stroke-width="2" />
-  <rect x="354" y="231" width="36" height="7" rx="3.5" fill="#94A3B8" />
-
-  <!-- Row 2: Tue / Wed (with Highlighted Lab / Theory Slot) -->
-  <rect x="110" y="268" width="134" height="42" rx="12" fill="#10B981" />
-  <rect x="122" y="280" width="72" height="7" rx="3.5" fill="#FFFFFF" opacity="0.9" />
-  <rect x="122" y="292" width="102" height="6" rx="3" fill="#A7F3D0" />
-
-  <rect x="256" y="268" width="74" height="42" rx="12" fill="#8B5CF6" />
-  <rect x="268" y="280" width="42" height="7" rx="3.5" fill="#FFFFFF" opacity="0.9" />
-  <rect x="268" y="292" width="50" height="6" rx="3" fill="#DDD6FE" />
-
-  <rect x="342" y="268" width="60" height="42" rx="12" fill="#F59E0B" />
-  <rect x="354" y="280" width="36" height="7" rx="3.5" fill="#FFFFFF" opacity="0.9" />
-  <rect x="354" y="292" width="28" height="6" rx="3" fill="#FDE68A" />
-
-  <!-- Row 3: Thu / Fri (Regular Class Blocks) -->
-  <rect x="110" y="322" width="70" height="42" rx="12" fill="#0284C7" />
-  <rect x="122" y="334" width="36" height="7" rx="3.5" fill="#FFFFFF" opacity="0.9" />
-  <rect x="122" y="346" width="46" height="6" rx="3" fill="#BAE6FD" />
-
-  <rect x="192" y="322" width="92" height="42" rx="12" fill="#EC4899" />
-  <rect x="204" y="334" width="52" height="7" rx="3.5" fill="#FFFFFF" opacity="0.9" />
-  <rect x="204" y="346" width="68" height="6" rx="3" fill="#FBCFE8" />
-
-  <rect x="296" y="322" width="106" height="42" rx="12" fill="#059669" />
-  <rect x="308" y="334" width="58" height="7" rx="3.5" fill="#FFFFFF" opacity="0.9" />
-  <rect x="308" y="346" width="78" height="6" rx="3" fill="#A7F3D0" />
-
-  <!-- Active Live Schedule Indicator Badge (Clock on Bottom Right) -->
-  <g filter="url(#badgeShadow)">
-    <circle cx="390" cy="384" r="54" fill="url(#clockGrad)" stroke="#FFFFFF" stroke-width="8" />
-    <!-- Clock Face Markers -->
-    <circle cx="390" cy="344" r="3" fill="#FFFFFF" />
-    <circle cx="430" cy="384" r="3" fill="#FFFFFF" />
-    <circle cx="390" cy="424" r="3" fill="#FFFFFF" />
-    <circle cx="350" cy="384" r="3" fill="#FFFFFF" />
-    <!-- Clock Hands (Indicating 09:40 / Active Lecture) -->
-    <path d="M390 384 L390 358" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round" />
-    <path d="M390 384 L412 374" stroke="#FFFFFF" stroke-width="4.5" stroke-linecap="round" />
-    <circle cx="390" cy="384" r="4.5" fill="#FFFFFF" />
+  <!-- Timetable Grid in the Center -->
+  <g transform="translate(222, 230)">
+    <!-- Small Timetable Grid Background -->
+    <rect x="0" y="0" width="46" height="46" rx="4" fill="#0A0A0A" stroke="#CEFF00" stroke-width="2"/>
+    <!-- Grid Header -->
+    <rect x="0" y="0" width="46" height="12" rx="3" fill="#CEFF00"/>
+    <!-- Grid Lines -->
+    <line x1="0" y1="23" x2="46" y2="23" stroke="#CEFF00" stroke-width="2"/>
+    <line x1="0" y1="34" x2="46" y2="34" stroke="#CEFF00" stroke-width="2"/>
+    <line x1="15" y1="12" x2="15" y2="46" stroke="#CEFF00" stroke-width="2"/>
+    <line x1="30" y1="12" x2="30" y2="46" stroke="#CEFF00" stroke-width="2"/>
   </g>
 </svg>

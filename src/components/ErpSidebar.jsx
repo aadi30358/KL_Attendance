@@ -191,12 +191,12 @@ export default function ErpSidebar({
                             onError={(e) => { e.currentTarget.style.display = 'none'; }}
                         />
                     </div>
-                    <div className="flex items-center gap-1.5">
-                        <span className="font-serif italic font-extrabold text-lg text-white tracking-wider">
-                            KLERP
+                    <div className="flex flex-col">
+                        <span className="font-sans font-extrabold text-sm text-white tracking-wide leading-tight">
+                            KL Attendance
                         </span>
-                        <span className="text-[10px] bg-white/20 text-white font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
-                            PORTAL
+                        <span className="text-[10px] text-white/80 font-bold tracking-wider uppercase leading-none mt-0.5">
+                            Calculator
                         </span>
                     </div>
                 </div>

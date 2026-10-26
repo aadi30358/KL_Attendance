@@ -199,45 +199,6 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 const targetYear = localStorage.getItem(`activeYear_${studentId}`) || localStorage.getItem('selectedAcademicYear') || '2026-2027';
                 const targetSem = localStorage.getItem(`activeSem_${studentId}`) || localStorage.getItem('selectedSemester') || 'Odd';
 
-                // Pre-sync and await live timetable so it is guaranteed saved to persistent storage
-                try {
-                    const res = await Promise.race([
-                        fetchLiveErpTimetable(studentId, targetYear, targetSem),
-                        new Promise(resolve => setTimeout(resolve, 3500))
-                    ]);
-                    if (res?.timetable) {
-                        window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                            detail: { studentId, year: targetYear, sem: targetSem }
-                        }));
-                    }
-                } catch { /* proceed */ }
-
-                try {
-                    const data = await Promise.race([
-                        erpService.fetchAttendance(targetYear, targetSem, studentId),
-                        new Promise(resolve => setTimeout(() => resolve([]), 6000))
-                    ]);
-                    if (Array.isArray(data) && data.length > 0) {
-                        const payload = JSON.stringify({
-                            attendance_data: data,
-                            year: targetYear,
-                            semester: targetSem,
-                            timestamp: Date.now()
-                        });
-                        localStorage.setItem(`kleData_${studentId}`, payload);
-                        localStorage.setItem(`kleData_${studentId}_${targetYear}_${targetSem}`, payload);
-                        localStorage.setItem(`activeYear_${studentId}`, targetYear);
-                        localStorage.setItem(`activeSem_${studentId}`, targetSem);
-                        localStorage.setItem(`attendanceLastUpdated_${studentId}`, String(Date.now()));
-                        window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
-                            detail: { studentId, data }
-                        }));
-                    }
-                } catch { /* proceed */ }
-
-                // Pre-sync live ERP grades in background (< 1s)
-                fetchLiveErpGrades(studentId).catch(() => {});
-
                 // Notify all listeners that a profile has successfully authenticated
                 window.dispatchEvent(new CustomEvent('kl_profile_switched', {
                     detail: {
@@ -246,15 +207,47 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     }
                 }));
 
+                // Instant UI feedback: Close modal immediately, don't keep user waiting!
                 if (onSuccess) {
                     onSuccess(friend);
                 }
                 onClose();
+
                 // Navigate to Attendance Register if on general pages, but preserve /grades, /cgpa, and /timetable in-place
                 const currentPath = location?.pathname || '';
                 if (currentPath !== '/grades' && currentPath !== '/cgpa' && currentPath !== '/timetable') {
                     navigate('/attendance-register');
                 }
+
+                // High-speed parallel background sync: fetches attendance, timetable, and grades concurrently
+                Promise.allSettled([
+                    fetchLiveErpTimetable(studentId, targetYear, targetSem).then(res => {
+                        if (res?.timetable) {
+                            window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                                detail: { studentId, year: targetYear, sem: targetSem }
+                            }));
+                        }
+                    }),
+                    erpService.fetchAttendance(targetYear, targetSem, studentId).then(data => {
+                        if (Array.isArray(data) && data.length > 0) {
+                            const payload = JSON.stringify({
+                                attendance_data: data,
+                                year: targetYear,
+                                semester: targetSem,
+                                timestamp: Date.now()
+                            });
+                            localStorage.setItem(`kleData_${studentId}`, payload);
+                            localStorage.setItem(`kleData_${studentId}_${targetYear}_${targetSem}`, payload);
+                            localStorage.setItem(`activeYear_${studentId}`, targetYear);
+                            localStorage.setItem(`activeSem_${studentId}`, targetSem);
+                            localStorage.setItem(`attendanceLastUpdated_${studentId}`, String(Date.now()));
+                            window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
+                                detail: { studentId, data }
+                            }));
+                        }
+                    }),
+                    fetchLiveErpGrades(studentId)
+                ]).catch(() => {});
             } else {
                 throw new Error('Incorrect Captcha or ERP session error. Please try again.');
             }
