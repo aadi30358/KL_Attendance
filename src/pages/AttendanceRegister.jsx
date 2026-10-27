@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, SlidersHorizontal, ShieldCheck } from 'lucide-react';
+import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck } from 'lucide-react';
 import { erpService, hasActiveErpSession } from '../services/erpService';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -535,7 +535,7 @@ const AttendanceRegister = () => {
         } finally { 
             setLoading(false); 
         }
-    }, [activeId, year, semester]);
+    }, [activeId, year, semester, navigate]);
 
     // Listen for profile switches (via quick Captcha modal or sidebar)
     useEffect(() => {
@@ -585,9 +585,8 @@ const AttendanceRegister = () => {
             // If the switched profile does not have an active ERP session, prompt Captcha immediately
             if (!hasActiveErpSession(newId)) {
                 setLoading(false);
-                setShowDashboard(false);
                 const profToVerify = newProfile || (getSavedFriends() || []).find(f => f.studentId === newId || f.id === newId) || (getMyProfile()?.studentId === newId ? getMyProfile() : null);
-                if (profToVerify?.password || profToVerify?.hasSavedPassword) {
+                if (profToVerify?.password || profToVerify?.hasSavedPassword || profToVerify?.studentId) {
                     setTargetFriendForCaptcha(profToVerify);
                     return;
                 }
@@ -652,6 +651,10 @@ const AttendanceRegister = () => {
         const scopedKey = activeId ? `kleData_${activeId}_${initY}_${initS}` : null;
         const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
         const cachedRaw = scopedRaw || localStorage.getItem(storageKey);
+
+        setYear(initY);
+        setSemester(initS);
+
         if (cachedRaw) {
             try {
                 const parsed = JSON.parse(cachedRaw);
@@ -664,18 +667,15 @@ const AttendanceRegister = () => {
             } catch {
                 // ignore
             }
+        } else if (hasActiveErpSession(activeId)) {
+            handleSearch(initY, initS, activeId);
         } else {
-            setYear(initY);
-            setSemester(initS);
-            if (hasActiveErpSession(activeId)) {
-                handleSearch(initY, initS, activeId);
-            } else {
-                setLoading(false);
-                setShowDashboard(false);
-                const prof = (getSavedFriends() || []).find(f => f.studentId === activeId || f.id === activeId) || (getMyProfile()?.studentId === activeId ? getMyProfile() : null);
-                if (prof?.password || prof?.hasSavedPassword) {
-                    setTargetFriendForCaptcha(prof);
-                }
+            setLoading(false);
+            setShowDashboard(false);
+            setSubjects([]);
+            const prof = (getSavedFriends() || []).find(f => f.studentId === activeId || f.id === activeId) || (getMyProfile()?.studentId === activeId ? getMyProfile() : null);
+            if (prof?.password || prof?.hasSavedPassword || prof?.studentId) {
+                setTargetFriendForCaptcha(prof);
             }
         }
 

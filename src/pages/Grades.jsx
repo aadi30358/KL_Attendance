@@ -15,7 +15,6 @@ import {
     Calculator,
     ShieldCheck,
     RefreshCw,
-    AlertCircle,
     Check,
     ArrowLeft
 } from 'lucide-react';
@@ -26,15 +25,13 @@ import {
     buildSemesterOptions,
     getGradeBadgeStyle,
     getStoredGrades,
-    saveStoredGrades,
-    getEnrolledCoursesTemplate,
     fetchLiveErpGrades,
     fetchLiveMarksDetail,
     cleanSemesterLabel,
     KLU_GRADE_POINTS
 } from '../services/gradesService';
 import { normalizeAcademicYear, normalizeSemester } from '../services/timetableService';
-import { getAllProfiles, setActiveProfileId, getSavedFriends, getMyProfile } from '../services/friendsService';
+import { getAllProfiles, setActiveProfileId, getMyProfile } from '../services/friendsService';
 import { hasActiveErpSession } from '../services/erpService';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';
 
@@ -171,23 +168,6 @@ export default function Grades() {
             setTimeout(() => setSyncMessage(null), 5000);
         }
     }, [selectedStudentId, allProfiles]);
-
-    const handleImportFromErp = useCallback(() => {
-        try {
-            const templates = getEnrolledCoursesTemplate(selectedStudentId);
-            if (templates && templates.length > 0) {
-                saveStoredGrades(selectedStudentId, templates);
-                setCourses(templates);
-                setSyncMessage({ type: 'success', text: `Imported ${templates.length} enrolled courses from offline ERP cache.` });
-            } else {
-                setSyncMessage({ type: 'error', text: 'No enrolled courses found in local ERP cache. Please sync Attendance or ERP first.' });
-            }
-        } catch (err) {
-            setSyncMessage({ type: 'error', text: err.message || 'Error importing courses.' });
-        } finally {
-            setTimeout(() => setSyncMessage(null), 5000);
-        }
-    }, [selectedStudentId]);
 
     // Auto-sync ERP grades on mount only if verified session exists
     useEffect(() => {

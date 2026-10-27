@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, useMotionValue, useSpring, useTransform, useScroll, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Calculator, Calendar, Clock, Sparkles, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, User, Users, UserPlus, Key, BarChart3, ShieldCheck } from 'lucide-react';
-import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, getPresentAcademicYearAndSem, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS } from '../services/timetableService';
-import { getActiveProfileDetails, getAllProfiles, setActiveProfileId, getSavedFriends, getSavedProfilesWithCredentials, profileHasCredentials, getEffectiveSavedProfile } from '../services/friendsService';
+import { ArrowRight, Calculator, Calendar, Clock, Sparkles, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, User, Users, UserPlus, Key, BarChart3 } from 'lucide-react';
+import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS } from '../services/timetableService';
+import { getActiveProfileDetails, getAllProfiles, setActiveProfileId } from '../services/friendsService';
 import { hasActiveErpSession } from '../services/erpService';
 import AddFriendModal from '../components/AddFriendModal';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';

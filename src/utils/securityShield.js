@@ -19,26 +19,13 @@
  *    - Defends against clickjacking, prototype tampering, and unauthorized DOM/context inspection.
  */
 
-// In-Memory Virtual Storage Stores
-const _memoryVault = new Map(); 
-const _sessionMemoryVault = new Map();
-
 // Obscure storage key for device-encrypted persistent bundle
 const VAULT_KEY = '__sec_v1';
-
-// Ephemeral keys that should not be persisted across browser sessions
-const NON_PERSISTENT_KEYS = new Set([
-    'manual_sem_reset',
-    VAULT_KEY
-]);
 
 // Safely preserve native Storage methods before any monkey-patching
 const _nativeStorageProto = (typeof window !== 'undefined' && window.Storage) ? window.Storage.prototype : null;
 const _nativeGetItem = _nativeStorageProto ? _nativeStorageProto.getItem : null;
-const _nativeSetItem = _nativeStorageProto ? _nativeStorageProto.setItem : null;
 const _nativeRemoveItem = _nativeStorageProto ? _nativeStorageProto.removeItem : null;
-const _nativeClear = _nativeStorageProto ? _nativeStorageProto.clear : null;
-const _nativeKey = _nativeStorageProto ? _nativeStorageProto.key : null;
 
 // Hardware/Session Device Fingerprint
 export function getDeviceFingerprint() {

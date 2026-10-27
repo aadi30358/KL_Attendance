@@ -1048,9 +1048,13 @@ function isVerifiedErpDashboard(html, username = '') {
     const hasLogout = html.includes('logout') || html.includes('site%2Flogout') || html.includes('site/logout');
     const hasStudentModule = html.includes('student') || html.includes('indexindi') || html.includes('attendance') || html.includes('academicyear') || html.includes('courselist');
     const cleanUser = username ? String(username).trim() : '';
-    const hasUsername = cleanUser ? html.includes(cleanUser) : false;
+    const hasUsername = cleanUser ? html.toLowerCase().includes(cleanUser.toLowerCase()) : false;
 
-    return Boolean(hasLogout || hasStudentModule || hasUsername);
+    if (cleanUser) {
+        return Boolean(hasUsername && (hasLogout || hasStudentModule));
+    }
+
+    return Boolean(hasLogout || hasStudentModule);
 }
 
 // Ultra-fast Login Endpoint (Sub-second login without lag, protected by authLimiter)
@@ -1409,7 +1413,7 @@ app.post('/api/ai/gemini', aiLimiter, async (req, res) => {
             return res.status(400).json({ error: "Prompt contents exceed maximum permissible size (50KB)." });
         }
 
-        const allowedModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+        const allowedModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
         const targetModel = allowedModels.includes(modelName) ? modelName : "gemini-2.0-flash";
 
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);

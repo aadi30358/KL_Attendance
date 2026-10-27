@@ -170,30 +170,11 @@ export default {
                 let freshCsrf = '';
                 let targetImg = '';
 
-                // If client provided cookies, try refreshing within existing session
+                // If client provided cookies, try refreshing within existing unauthenticated session
                 if (cookieMap.size > 0 && cookieMap.has('PHPSESSID')) {
-                    const refResp = await fetch(`${ERP_BASE}/index.php?r=site%2Fcaptcha&refresh=1`, {
-                        headers: {
-                            'Cookie': currentCookies,
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                            'X-Requested-With': 'XMLHttpRequest',
-                            'Referer': `${ERP_BASE}/index.php`
-                        },
-                        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                    });
-
-                    const scList = refResp.headers.getSetCookie ? refResp.headers.getSetCookie() : [refResp.headers.get('set-cookie')].filter(Boolean);
-                    parseCookieHeader(scList).forEach((v, k) => cookieMap.set(k, v));
-                    currentCookies = serializeCookieMap(cookieMap);
-
-                    const data = await refResp.json().catch(() => null);
-                    if (data && data.url) {
-                        targetImg = data.url;
-                    }
-
-                    // Scrape fresh CSRF token from index.php with the updated session cookie
+                    // Check if current session is already logged in; if so, do not use it for login captcha
                     try {
-                        const pageResp = await fetch(`${ERP_BASE}/index.php`, {
+                        const checkResp = await fetch(`${ERP_BASE}/index.php`, {
                             headers: {
                                 'Cookie': currentCookies,
                                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -201,24 +182,65 @@ export default {
                             },
                             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
                         });
-                        const pageScList = pageResp.headers.getSetCookie ? pageResp.headers.getSetCookie() : [pageResp.headers.get('set-cookie')].filter(Boolean);
-                        parseCookieHeader(pageScList).forEach((v, k) => cookieMap.set(k, v));
+                        const checkHtml = await checkResp.text();
+                        if (checkHtml.includes('logout') || checkHtml.includes('site%2Flogout') || checkHtml.includes('site/logout')) {
+                            // Current session is already authenticated - invalidate for login captcha
+                            cookieMap.clear();
+                            currentCookies = '';
+                        }
+                    } catch {
+                        // ignore check error
+                    }
+
+                    if (cookieMap.size > 0) {
+                        const refResp = await fetch(`${ERP_BASE}/index.php?r=site%2Fcaptcha&refresh=1`, {
+                            headers: {
+                                'Cookie': currentCookies,
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'Referer': `${ERP_BASE}/index.php`
+                            },
+                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                        });
+
+                        const scList = refResp.headers.getSetCookie ? refResp.headers.getSetCookie() : [refResp.headers.get('set-cookie')].filter(Boolean);
+                        parseCookieHeader(scList).forEach((v, k) => cookieMap.set(k, v));
                         currentCookies = serializeCookieMap(cookieMap);
 
-                        const pageHtml = await pageResp.text();
-                        const cm = pageHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
-                                   pageHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
-                                   pageHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
-                                   pageHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
-                        if (cm) freshCsrf = cm[1];
-
-                        if (!targetImg) {
-                            const im = pageHtml.match(/id="loginFormCaptcha-image"\s+src="([^"]+)"/i) ||
-                                       pageHtml.match(/src="([^"]+)"\s+id="loginFormCaptcha-image"/i);
-                            if (im) targetImg = im[1].replace(/&amp;/g, '&');
+                        const data = await refResp.json().catch(() => null);
+                        if (data && data.url) {
+                            targetImg = data.url;
                         }
-                    } catch (e) {
-                        console.warn("[Worker] Captcha page scrape notice:", e.message);
+
+                        // Scrape fresh CSRF token from index.php with the updated session cookie
+                        try {
+                            const pageResp = await fetch(`${ERP_BASE}/index.php`, {
+                                headers: {
+                                    'Cookie': currentCookies,
+                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                    'Referer': `${ERP_BASE}/index.php`
+                                },
+                                signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                            });
+                            const pageScList = pageResp.headers.getSetCookie ? pageResp.headers.getSetCookie() : [pageResp.headers.get('set-cookie')].filter(Boolean);
+                            parseCookieHeader(pageScList).forEach((v, k) => cookieMap.set(k, v));
+                            currentCookies = serializeCookieMap(cookieMap);
+
+                            const pageHtml = await pageResp.text();
+                            const cm = pageHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
+                                       pageHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                                       pageHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                                       pageHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+                            if (cm) freshCsrf = cm[1];
+
+                            if (!targetImg) {
+                                const im = pageHtml.match(/id="loginFormCaptcha-image"\s+src="([^"]+)"/i) ||
+                                           pageHtml.match(/src="([^"]+)"\s+id="loginFormCaptcha-image"/i);
+                                if (im) targetImg = im[1].replace(/&amp;/g, '&');
+                            }
+                        } catch (e) {
+                            console.warn("[Worker] Captcha page scrape notice:", e.message);
+                        }
                     }
                 }
 
@@ -494,7 +516,12 @@ export default {
                                           dashHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i);
                     const postLoginCsrf = postCsrfMatch ? postCsrfMatch[1] : (effectiveCsrf || '');
 
-                    // Strictly verify that dashHtml represents an active authenticated student session
+                    // Strictly verify that dashHtml represents an active authenticated student session for THIS SPECIFIC student
+                    const cleanUser = String(username).trim();
+                    const hasUser = cleanUser ? dashHtml.toLowerCase().includes(cleanUser.toLowerCase()) : false;
+                    const hasLogout = dashHtml.includes('logout') || dashHtml.includes('site%2Flogout') || dashHtml.includes('site/logout');
+                    const hasModule = dashHtml.includes('student') || dashHtml.includes('indexindi') || dashHtml.includes('attendance') || dashHtml.includes('academicyear');
+
                     const isVerifiedAuth = Boolean(
                         dashHtml &&
                         !dashHtml.includes('id="login-form"') &&
@@ -506,16 +533,8 @@ export default {
                         !dashHtml.includes('LoginForm[') &&
                         !dashHtml.includes('Incorrect username or password') &&
                         !dashHtml.includes('The verification code is incorrect') &&
-                        (
-                            dashHtml.includes('logout') ||
-                            dashHtml.includes('site%2Flogout') ||
-                            dashHtml.includes('site/logout') ||
-                            dashHtml.includes('student') ||
-                            dashHtml.includes('indexindi') ||
-                            dashHtml.includes('attendance') ||
-                            dashHtml.includes('academicyear') ||
-                            dashHtml.includes(String(username).trim())
-                        )
+                        hasUser &&
+                        (hasLogout || hasModule)
                     );
 
                     if (!isVerifiedAuth) {
@@ -1429,7 +1448,7 @@ export default {
                     formattedContents = [contents];
                 }
 
-                const allowedModels = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+                const allowedModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
                 const targetModel = allowedModels.includes(modelName) ? modelName : 'gemini-2.0-flash';
 
                 const geminiPayload = {

@@ -20,7 +20,7 @@ import {
     ShieldAlert,
     X
 } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
     DAYS_OF_WEEK,
     KLU_SESSIONS,
@@ -946,7 +946,7 @@ export default function ClassTimetable({
             </div>
 
             {/* Buddy Banner when viewing friend's schedule */}
-            {Boolean(primaryMyId && effectiveId !== primaryMyId && allFriends.some(f => (f.studentId === effectiveId || f.id === effectiveId) && f.id !== 'main')) ? (
+            {primaryMyId && effectiveId !== primaryMyId && allFriends.some(f => (f.studentId === effectiveId || f.id === effectiveId) && f.id !== 'main') ? (
                 <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-3.5 px-5 flex flex-wrap items-center justify-between gap-3 text-indigo-950">
                     <div className="flex items-center gap-2.5">
                         <Users className="w-4 h-4 text-indigo-600 shrink-0" />

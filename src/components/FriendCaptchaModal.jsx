@@ -50,7 +50,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         setError('');
         setCaptcha('');
         try {
-            const res = await erpService.refreshCaptcha();
+            const res = await erpService.refreshCaptcha(studentId);
             if (res?.dataUrl) {
                 if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
                     URL.revokeObjectURL(captchaUrlRef.current);
@@ -74,8 +74,11 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             setError('Could not load Captcha. Tap refresh.');
         } finally {
             setLoadingCaptcha(false);
+            setTimeout(() => {
+                inputRef.current?.focus();
+            }, 100);
         }
-    }, []);
+    }, [studentId]);
 
     useEffect(() => {
         if (!isOpen || !friend) return;
@@ -199,6 +202,11 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 const targetYear = localStorage.getItem(`activeYear_${studentId}`) || localStorage.getItem('selectedAcademicYear') || '2026-2027';
                 const targetSem = localStorage.getItem(`activeSem_${studentId}`) || localStorage.getItem('selectedSemester') || 'Odd';
 
+                try {
+                    sessionStorage.setItem(`erp_verified_${studentId}`, 'true');
+                    sessionStorage.setItem('erp_verified_active', studentId);
+                } catch { /* ignore */ }
+
                 // Notify all listeners that a profile has successfully authenticated
                 window.dispatchEvent(new CustomEvent('kl_profile_switched', {
                     detail: {
@@ -249,11 +257,12 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     fetchLiveErpGrades(studentId)
                 ]).catch(() => {});
             } else {
-                throw new Error('Incorrect Captcha or ERP session error. Please try again.');
+                throw new Error('The verification code is incorrect. Please check the captcha.');
             }
         } catch (err) {
             console.error('Friend login failed:', err);
-            setError(err.message || 'Verification failed. Please check the captcha.');
+            setError(err.message || 'The verification code is incorrect. Please check the captcha.');
+            setCaptcha('');
             refreshCaptcha();
         } finally {
             setIsSubmitting(false);

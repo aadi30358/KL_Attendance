@@ -18,8 +18,6 @@ import {
     Trash2
 } from 'lucide-react';
 import { 
-    getMyProfile, 
-    getSavedFriends, 
     getAllProfiles,
     getActiveProfileDetails,
     deleteFriend,
@@ -133,7 +131,7 @@ export default function ErpSidebar({
         }
     ];
 
-    const handleSwitchProfile = (profile) => {
+    const handleSwitchProfile = (profile, skipAttendanceCaptcha = false) => {
         const sid = profile?.studentId || profile?.username || (profile?.id !== 'main' ? profile?.id : '');
         const pid = profile?.id || 'main';
         if (sid) {
@@ -152,20 +150,25 @@ export default function ErpSidebar({
         window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: pid, studentId: sid } }));
         window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile, studentId: sid } }));
         if (onSelectProfile) onSelectProfile(profile);
+
+        // If on attendance register and not explicitly skipping, prompt captcha for attendance
+        if (!skipAttendanceCaptcha && (location.pathname === '/attendance-register' || activePage === 'attendance-register')) {
+            setCaptchaTarget(profile);
+        }
     };
 
     const handleQuickTimetable = (profile) => {
-        handleSwitchProfile(profile);
+        handleSwitchProfile(profile, true);
         handleNavigation('/timetable');
     };
 
     const handleQuickGrades = (profile) => {
-        handleSwitchProfile(profile);
+        handleSwitchProfile(profile, true);
         handleNavigation('/grades');
     };
 
     const handleQuickAttendance = (profile) => {
-        handleSwitchProfile(profile);
+        handleSwitchProfile(profile, true);
         setCaptchaTarget(profile);
     };
 

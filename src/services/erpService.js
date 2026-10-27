@@ -19,46 +19,26 @@ export const getErpBase = () => {
 let inMemoryErpUser = '';
 let inMemoryErpCookies = '';
 let inMemoryCsrfToken = '';
+let inMemoryCaptchaCookies = '';
 
 export const hasActiveErpSession = (studentId = null) => {
     if (typeof window === 'undefined') return false;
     const cleanId = (studentId || '').trim();
     if (cleanId) {
-        // 1. Check if this specific student has a dedicated saved ERP cookie
+        // Must be verified in the current browser session
+        const sessionVerified = sessionStorage.getItem(`erp_verified_${cleanId}`) === 'true';
+        if (!sessionVerified) return false;
+
+        // And have active session cookie
         const cookie = localStorage.getItem(`erp_cookie_${cleanId}`);
         if (cookie && cookie.trim().length > 0) return true;
-
-        // 2. Check if in-memory cookies belong to this specific student
         if (inMemoryErpCookies && inMemoryErpUser === cleanId) return true;
 
-        // 3. Check if this student has verified stored attendance data strictly scoped to them
-        const cachedData = localStorage.getItem(`kleData_${cleanId}`);
-        if (cachedData) {
-            try {
-                const parsed = JSON.parse(cachedData);
-                const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
-                if (Array.isArray(list) && list.length > 0) {
-                    if (!parsed.studentId || parsed.studentId === cleanId) {
-                        return true;
-                    }
-                }
-            } catch { /* ignore */ }
-        }
-
-        // 4. Primary user check
         const rememberedId = localStorage.getItem('rememberedId');
         if (cleanId === rememberedId) {
             const myCookie = localStorage.getItem(`erp_cookie_${rememberedId}`) || localStorage.getItem('erp_cookie_main');
             if (myCookie && myCookie.trim().length > 0) return true;
             if (inMemoryErpCookies && (!inMemoryErpUser || inMemoryErpUser === rememberedId)) return true;
-            const myData = localStorage.getItem('kleData');
-            if (myData) {
-                try {
-                    const parsed = JSON.parse(myData);
-                    const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
-                    if (Array.isArray(list) && list.length > 0) return true;
-                } catch { /* ignore */ }
-            }
         }
 
         return false;
@@ -156,9 +136,13 @@ export function isVerifiedErpDashboard(html, username = '') {
     const hasLogout = html.includes('logout') || html.includes('site%2Flogout') || html.includes('site/logout');
     const hasStudentModule = html.includes('student') || html.includes('indexindi') || html.includes('attendance') || html.includes('academicyear') || html.includes('courselist');
     const cleanUser = username ? String(username).trim() : '';
-    const hasUsername = cleanUser ? html.includes(cleanUser) : false;
+    const hasUsername = cleanUser ? html.toLowerCase().includes(cleanUser.toLowerCase()) : false;
 
-    return Boolean(hasLogout || hasStudentModule || hasUsername);
+    if (cleanUser) {
+        return Boolean(hasUsername && (hasLogout || hasStudentModule));
+    }
+
+    return Boolean(hasLogout || hasStudentModule);
 }
 
 const IGNORED_COOKIE_ATTRS = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned']);
@@ -219,9 +203,11 @@ export const clearStoredErpCookies = (studentId = null) => {
 
 export const buildErpHeaders = (extraHeaders = {}, studentId = null) => {
     const headers = { ...extraHeaders };
-    const cookie = getStoredErpCookies(studentId);
-    if (cookie) {
-        headers['x-erp-cookie'] = cookie;
+    if (!headers['x-erp-cookie']) {
+        const cookie = getStoredErpCookies(studentId);
+        if (cookie) {
+            headers['x-erp-cookie'] = cookie;
+        }
     }
     return headers;
 };
@@ -233,11 +219,13 @@ export const erpService = {
     clearStoredErpCookies,
 
     // Fetch the login page to scrape CSRF token and initial captcha atomically
+    // Fetch the login page to scrape CSRF token and initial captcha atomically
     async getInitialState() {
         const apiBase = getErpBase();
 
-        // Clear any stale session cookies before initializing fresh session
-        clearStoredErpCookies();
+        // Clear any stale captcha cookies before initializing fresh session
+        inMemoryCaptchaCookies = '';
+        inMemoryCsrfToken = '';
 
         // 1. Fast single-trip session initialization via /api/session-init
         try {
@@ -248,9 +236,8 @@ export const erpService = {
             if (resp.ok) {
                 const data = await resp.json().catch(() => null);
                 if (data && data.success && data.csrfToken) {
-                    saveErpCookiesFromResponse(resp, { forceAuthUpdate: true });
                     if (data.cookies) {
-                        setStoredErpCookies(data.cookies);
+                        inMemoryCaptchaCookies = data.cookies;
                     }
                     if (data.csrfToken) {
                         setStoredCsrfToken(data.csrfToken);
@@ -276,7 +263,7 @@ export const erpService = {
                     const data = await resp.json().catch(() => null);
                     if (data && data.success && data.csrfToken) {
                         if (data.cookies) {
-                            setStoredErpCookies(data.cookies);
+                            inMemoryCaptchaCookies = data.cookies;
                         }
                         if (data.csrfToken) {
                             setStoredCsrfToken(data.csrfToken);
@@ -297,14 +284,16 @@ export const erpService = {
         let response = await fetch(`${apiBase || ''}/index.php?_t=${timestamp}`, { 
             credentials: 'include',
             cache: 'no-store',
-            headers: buildErpHeaders({
+            headers: {
                 'Pragma': 'no-cache',
                 'Cache-Control': 'no-cache'
-            })
+            }
         });
 
         let html = await response.text();
-        saveErpCookiesFromResponse(response);
+        const sc = response.headers?.get?.('x-set-erp-cookie') || response.headers?.get?.('set-cookie');
+        if (sc) inMemoryCaptchaCookies = sc;
+
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
         const csrfToken = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
@@ -321,10 +310,11 @@ export const erpService = {
                 const imgResp = await fetch(imgUrl, {
                     credentials: 'include',
                     cache: 'no-store',
-                    headers: buildErpHeaders()
+                    headers: inMemoryCaptchaCookies ? { 'x-erp-cookie': inMemoryCaptchaCookies } : {}
                 });
                 if (imgResp.ok) {
-                    saveErpCookiesFromResponse(imgResp);
+                    const imgSc = imgResp.headers?.get?.('x-set-erp-cookie') || imgResp.headers?.get?.('set-cookie');
+                    if (imgSc) inMemoryCaptchaCookies = imgSc;
                     captchaBlob = await imgResp.blob();
                 }
             } catch (e) {
@@ -336,20 +326,24 @@ export const erpService = {
     },
 
     // Refresh captcha directly via ERP endpoint
-    async refreshCaptcha() {
+    async refreshCaptcha(_studentId = null) {
+        void _studentId;
         const apiBase = getErpBase();
+        const reqHeaders = { 'Cache-Control': 'no-cache' };
+        if (inMemoryCaptchaCookies) {
+            reqHeaders['x-erp-cookie'] = inMemoryCaptchaCookies;
+        }
 
         // 1. Fast captcha refresh via /api/refresh-captcha
         try {
             const resp = await fetch(`${apiBase || ''}/api/refresh-captcha`, {
-                headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
+                headers: reqHeaders
             });
             if (resp.ok) {
                 const data = await resp.json().catch(() => null);
                 if (data && data.success && data.captchaUrl) {
-                    saveErpCookiesFromResponse(resp, { forceAuthUpdate: true });
                     if (data.cookies) {
-                        setStoredErpCookies(data.cookies);
+                        inMemoryCaptchaCookies = data.cookies;
                     }
                     if (data.csrfToken) {
                         setStoredCsrfToken(data.csrfToken);
@@ -365,14 +359,13 @@ export const erpService = {
         if (apiBase !== FALLBACK_ERP_BASE && typeof window !== 'undefined' && (window.location.hostname.includes('.web.app') || window.location.hostname.includes('firebaseapp.com'))) {
             try {
                 const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
-                    headers: buildErpHeaders({ 'Cache-Control': 'no-cache' })
+                    headers: reqHeaders
                 });
                 if (resp.ok) {
                     const data = await resp.json().catch(() => null);
                     if (data && data.success && data.captchaUrl) {
-                        saveErpCookiesFromResponse(resp, { forceAuthUpdate: true });
                         if (data.cookies) {
-                            setStoredErpCookies(data.cookies);
+                            inMemoryCaptchaCookies = data.cookies;
                         }
                         if (data.csrfToken) {
                             setStoredCsrfToken(data.csrfToken);
@@ -390,12 +383,15 @@ export const erpService = {
             const refreshResp = await fetch(`${apiBase || ''}/index.php?r=site%2Fcaptcha&refresh=1`, {
                 credentials: 'include',
                 cache: 'no-store',
-                headers: buildErpHeaders({
+                headers: {
                     'Pragma': 'no-cache',
-                    'Cache-Control': 'no-cache'
-                })
+                    'Cache-Control': 'no-cache',
+                    ...(inMemoryCaptchaCookies ? { 'x-erp-cookie': inMemoryCaptchaCookies } : {})
+                }
             });
-            saveErpCookiesFromResponse(refreshResp);
+            const sc = refreshResp.headers?.get?.('x-set-erp-cookie') || refreshResp.headers?.get?.('set-cookie');
+            if (sc) inMemoryCaptchaCookies = sc;
+
             const refreshData = await refreshResp.json().catch(() => null);
             let imgUrl = refreshData?.url || `/index.php?r=site%2Fcaptcha&v=${Math.random()}`;
             if (!imgUrl.startsWith('http') && apiBase) {
@@ -405,12 +401,14 @@ export const erpService = {
             const imgResp = await fetch(imgUrl, {
                 credentials: 'include',
                 cache: 'no-store',
-                headers: buildErpHeaders({
+                headers: {
                     'Pragma': 'no-cache',
-                    'Cache-Control': 'no-cache'
-                })
+                    'Cache-Control': 'no-cache',
+                    ...(inMemoryCaptchaCookies ? { 'x-erp-cookie': inMemoryCaptchaCookies } : {})
+                }
             });
-            saveErpCookiesFromResponse(imgResp);
+            const imgSc = imgResp.headers?.get?.('x-set-erp-cookie') || imgResp.headers?.get?.('set-cookie');
+            if (imgSc) inMemoryCaptchaCookies = imgSc;
             const blob = await imgResp.blob();
             return { blob, url: imgUrl };
         } catch (e) {
@@ -430,39 +428,42 @@ export const erpService = {
         }
 
         const cleanUsername = username.trim();
-
-        const activeCaptchaCookie = inMemoryErpCookies || getStoredErpCookies(cleanUsername);
+        const activeCaptchaCookie = inMemoryCaptchaCookies || inMemoryErpCookies;
 
         // 1. Try high-performance /api/fast-login endpoint first
         try {
             const resp = await fetch(`${apiBase || ''}/api/fast-login`, {
                 method: 'POST',
-                headers: buildErpHeaders({
+                headers: {
                     'Content-Type': 'application/json',
                     ...(token ? { 'x-csrf-token': token } : {}),
                     ...(activeCaptchaCookie ? { 'x-erp-cookie': activeCaptchaCookie } : {})
-                }, cleanUsername),
+                },
                 body: JSON.stringify({
                     username: cleanUsername,
                     password,
                     captcha: captcha.trim(),
                     csrfToken: token
                 }),
-                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(3500) : undefined
+                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined
             });
 
-            saveErpCookiesFromResponse(resp, { studentId: cleanUsername });
             const data = await resp.json().catch(() => null);
 
             if (data) {
                 if (data.cookies) {
-                    setStoredErpCookies(data.cookies, cleanUsername);
+                    inMemoryCaptchaCookies = data.cookies;
                 }
                 if (data.csrfToken) {
                     setStoredCsrfToken(data.csrfToken);
                 }
                 if (data.success) {
                     if (isVerifiedErpDashboard(data.html, cleanUsername)) {
+                        setStoredErpCookies(data.cookies, cleanUsername);
+                        try {
+                            sessionStorage.setItem(`erp_verified_${cleanUsername}`, 'true');
+                        } catch { /* ignore */ }
+                        inMemoryCaptchaCookies = '';
                         return { success: true, verified: true, html: data.html || '' };
                     } else {
                         throw new Error(data.error || "Incorrect Student ID, Password, or Captcha.");
@@ -506,7 +507,6 @@ export const erpService = {
         });
 
         let html = await response.text();
-        saveErpCookiesFromResponse(response, { forceAuthUpdate: true, studentId: cleanUsername });
 
         // HTTP error check
         if (!response.ok || response.status >= 400) {
@@ -556,7 +556,11 @@ export const erpService = {
         }
 
         // Success detection: strictly require confirmed authenticated ERP session
-        if (isVerifiedErpDashboard(html, username)) {
+        if (isVerifiedErpDashboard(html, cleanUsername)) {
+            saveErpCookiesFromResponse(response, { forceAuthUpdate: true, studentId: cleanUsername });
+            try {
+                sessionStorage.setItem(`erp_verified_${cleanUsername}`, 'true');
+            } catch { /* ignore */ }
             const newCsrf = doc.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
                             doc.querySelector('input[name="_csrf"]')?.getAttribute('value');
             if (newCsrf) {

@@ -4,9 +4,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Users, ArrowLeft } from 'lucide-react';
 import ClassTimetable from '../components/ClassTimetable';
 import ErpSidebar from '../components/ErpSidebar';
-import { getActiveProfileDetails, getMyProfile, getEffectiveSavedProfile, getAllProfiles, setActiveProfileId } from '../services/friendsService';
+import { getActiveProfileDetails, getMyProfile, getAllProfiles, setActiveProfileId } from '../services/friendsService';
 import { normalizeAcademicYear, normalizeSemester } from '../services/timetableService';
-import { hasActiveErpSession } from '../services/erpService';
 
 export default function Timetable() {
     const navigate = useNavigate();

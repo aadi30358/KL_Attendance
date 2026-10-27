@@ -590,7 +590,6 @@ export const fetchLiveErpGrades = async (studentId) => {
     const targetId = (studentId || primaryMyId || '').trim();
     if (!targetId) return { success: false, message: 'No student specified.' };
 
-    const isMain = targetId === 'main' || (Boolean(primaryMyId) && targetId === primaryMyId);
     const isFriend = Boolean(targetId && primaryMyId && targetId !== primaryMyId && targetId !== 'main');
 
     const apiBase = getErpBase();

@@ -1,6 +1,5 @@
 import { doc, setDoc, increment } from 'firebase/firestore';
 import { db } from '../firebase';
-import { APP_CONFIG } from '../config';
 import { publishCrossDomainEvent } from './crossDomainSync';
 
 const SYNC_CHANNEL = typeof window !== 'undefined' && 'BroadcastChannel' in window
