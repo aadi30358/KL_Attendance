@@ -153,6 +153,7 @@ const Navbar = () => {
                         location.pathname === '/timetable' || 
                         location.pathname === '/grades' || 
                         location.pathname === '/cgpa' || 
+                        location.pathname === '/profile' || 
                         location.pathname === '/bunk-simulator' || 
                         location.pathname === '/bunk';
     const showLogout = isErpLoggedIn && !isErpPortal;

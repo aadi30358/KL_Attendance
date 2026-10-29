@@ -2009,6 +2009,159 @@ app.post('/api/fetch-marks-detail', timetableLimiter, handleMarksDetailFetch);
 app.post('/api/fetch_marks_detail', timetableLimiter, handleMarksDetailFetch);
 app.post('/fetch-marks-detail', timetableLimiter, handleMarksDetailFetch);
 
+// Student Profile Fetch & Photo Proxy Endpoint (Authentic KLU ERP studentprofile / indexindi)
+const handleStudentProfileFetch = async (req, res) => {
+    try {
+        const { username, studentId } = req.body || {};
+        let clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
+        const targetStudentId = studentId || username || '';
+
+        console.log(`[Fetch-Profile] Request for: ${targetStudentId || 'unknown'}`);
+
+        let currentCookieStr = '';
+        if (clientCookie) {
+            const cookieMap = new Map();
+            clientCookie.split(';').forEach(p => {
+                const [k, ...v] = p.split('=');
+                if (k && k.trim()) cookieMap.set(k.trim(), v.join('=').trim());
+            });
+            currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+        }
+
+        const candidateUrls = [
+            'https://newerp.kluniversity.in/index.php?r=studentinfo%2Fstudentprofile%2Fview',
+            'https://newerp.kluniversity.in/index.php?r=student%2Fstudentprofile',
+            'https://newerp.kluniversity.in/index.php?r=student%2Fview',
+            'https://newerp.kluniversity.in/index.php?r=student%2Findexindi'
+        ];
+
+        let profileData = {
+            studentId: targetStudentId,
+            name: '',
+            photoBase64: null,
+            photoUrl: null,
+            program: '',
+            department: '',
+            batch: '',
+            section: '',
+            fatherName: '',
+            motherName: '',
+            email: '',
+            phone: '',
+            gender: '',
+            bloodGroup: '',
+            dob: '',
+            address: ''
+        };
+
+        if (currentCookieStr) {
+            for (const url of candidateUrls) {
+                try {
+                    const resp = await fetch(url, {
+                        method: 'GET',
+                        headers: {
+                            'cookie': currentCookieStr,
+                            'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                            'host': 'newerp.kluniversity.in',
+                            'referer': 'https://newerp.kluniversity.in/index.php',
+                            'cache-control': 'no-cache'
+                        },
+                        redirect: 'manual'
+                    });
+
+                    if (resp.ok) {
+                        const html = await resp.text();
+                        if (html && !html.includes('id="login-form"')) {
+                            // 1. Photo parsing
+                            const imgMatch = html.match(/<div class="[^"]*profile_pic[^"]*"[^>]*>[\s\S]*?<img[^>]+src="([^">]+)"/i) ||
+                                             html.match(/<img[^>]+class="[^"]*img-circle[^"]*"[^>]+src="([^">]+)"/i) ||
+                                             html.match(/<img[^>]+src="([^">]+)"[^>]+class="[^"]*img-circle[^"]*"/i) ||
+                                             html.match(/<img[^>]+src="([^">]*student[^">]*\.(?:jpg|jpeg|png))"/i) ||
+                                             html.match(/<img[^>]+src="([^">]*photo[^">]*\.(?:jpg|jpeg|png))"/i);
+
+                            if (imgMatch && imgMatch[1]) {
+                                let rawImgSrc = imgMatch[1].replace(/&amp;/g, '&');
+                                if (!rawImgSrc.includes('user.png') && !rawImgSrc.includes('default')) {
+                                    const fullImgUrl = rawImgSrc.startsWith('http')
+                                        ? rawImgSrc
+                                        : `https://newerp.kluniversity.in${rawImgSrc.startsWith('/') ? '' : '/'}${rawImgSrc}`;
+                                    profileData.photoUrl = fullImgUrl;
+
+                                    // Fetch binary image and convert to base64
+                                    try {
+                                        const imgResp = await fetch(fullImgUrl, {
+                                            headers: {
+                                                'cookie': currentCookieStr,
+                                                'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                                'referer': url
+                                            }
+                                        });
+                                        if (imgResp.ok) {
+                                            const contentType = imgResp.headers.get('content-type') || 'image/jpeg';
+                                            const buffer = await imgResp.arrayBuffer();
+                                            if (buffer.byteLength > 200) {
+                                                const base64 = Buffer.from(buffer).toString('base64');
+                                                profileData.photoBase64 = `data:${contentType};base64,${base64}`;
+                                            }
+                                        }
+                                    } catch (imgErr) {
+                                        console.warn('[Profile Photo Proxy] Warning:', imgErr.message);
+                                    }
+                                }
+                            }
+
+                            // 2. Name parsing
+                            const nameMatch = html.match(/class="[^"]*profile_info[^"]*"[\s\S]*?<h2>([^<]+)<\/h2>/i) ||
+                                             html.match(/class="[^"]*user-profile[^"]*"[^>]*>[\s\S]*?<img[^>]*>([^\n<]+)/i) ||
+                                             html.match(/<th>Name<\/th>\s*<td>([^<]+)<\/td>/i);
+                            if (nameMatch && nameMatch[1]) {
+                                profileData.name = nameMatch[1].trim();
+                            }
+
+                            // 3. Table fields
+                            const extractField = (labelRegex) => {
+                                const m = html.match(new RegExp('(?:th|td)[^>]*>' + labelRegex + '</(?:th|td)>\\s*<td[^>]*>([\\s\\S]*?)</td>', 'i'));
+                                return m ? m[1].replace(/<[^>]+>/g, '').trim() : '';
+                            };
+
+                            profileData.program = extractField('Program|Course|Degree') || profileData.program;
+                            profileData.department = extractField('Department|Branch') || profileData.department;
+                            profileData.batch = extractField('Batch|Academic Year') || profileData.batch;
+                            profileData.section = extractField('Section') || profileData.section;
+                            profileData.fatherName = extractField('Father Name|Father\'s Name') || profileData.fatherName;
+                            profileData.motherName = extractField('Mother Name|Mother\'s Name') || profileData.motherName;
+                            profileData.email = extractField('Email|University Email') || profileData.email;
+                            profileData.phone = extractField('Mobile|Phone|Contact') || profileData.phone;
+                            profileData.bloodGroup = extractField('Blood Group') || profileData.bloodGroup;
+                            profileData.gender = extractField('Gender') || profileData.gender;
+                            profileData.dob = extractField('Date of Birth|DOB') || profileData.dob;
+
+                            if (profileData.name || profileData.photoBase64) {
+                                break;
+                            }
+                        }
+                    }
+                } catch {
+                    // Try next candidate URL
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            source: profileData.photoBase64 ? 'erp_live' : 'cached_or_decoded',
+            profile: profileData
+        });
+    } catch (error) {
+        console.error("Fetch Student Profile Error:", error.message);
+        res.status(500).json({ success: false, message: "Server error during profile fetch", error: error.message });
+    }
+};
+
+app.post('/api/fetch-student-profile', timetableLimiter, handleStudentProfileFetch);
+app.post('/api/fetch_student_profile', timetableLimiter, handleStudentProfileFetch);
+app.post('/fetch-student-profile', timetableLimiter, handleStudentProfileFetch);
+
 // ==========================================
 // PERSISTENT DATABASE USER-DATA ENDPOINTS
 // ==========================================
