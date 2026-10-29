@@ -112,15 +112,6 @@ export default function ErpSidebar({
             onClick: () => handleNavigation('/grades')
         },
         {
-            id: 'profile',
-            label: 'Student Profile',
-            badge: 'ERP ID',
-            badgeClass: 'bg-blue-100 text-blue-700',
-            icon: User,
-            isActive: currentPath === '/profile' || activePage === 'profile',
-            onClick: () => handleNavigation('/profile')
-        },
-        {
             id: 'bunk',
             label: 'Bunk Simulator',
             badge: 'What-If',

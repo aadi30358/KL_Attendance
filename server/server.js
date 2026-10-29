@@ -17,8 +17,6 @@ import {
     saveCgpa, 
     getCgpa, 
     saveAttendance, 
-    saveUserPhoto,
-    getUserPhoto,
     getFullUserProfile, 
     disconnectErp,
     recordSync,
@@ -2014,9 +2012,9 @@ app.post('/fetch-marks-detail', timetableLimiter, handleMarksDetailFetch);
 // Student Profile Fetch & Photo Proxy Endpoint (Authentic KLU ERP studentprofile / indexindi)
 const handleStudentProfileFetch = async (req, res) => {
     try {
-        const { username, studentId, dashHtml } = req.body || {};
+        const { username, studentId } = req.body || {};
         let clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
-        const targetStudentId = (studentId || username || '').trim();
+        const targetStudentId = studentId || username || '';
 
         console.log(`[Fetch-Profile] Request for: ${targetStudentId || 'unknown'}`);
 
@@ -2030,129 +2028,33 @@ const handleStudentProfileFetch = async (req, res) => {
             currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
         }
 
+        const candidateUrls = [
+            'https://newerp.kluniversity.in/index.php?r=studentinfo%2Fstudentprofile%2Fview',
+            'https://newerp.kluniversity.in/index.php?r=student%2Fstudentprofile',
+            'https://newerp.kluniversity.in/index.php?r=student%2Fview',
+            'https://newerp.kluniversity.in/index.php?r=student%2Findexindi'
+        ];
+
         let profileData = {
             studentId: targetStudentId,
             name: '',
             photoBase64: null,
             photoUrl: null,
-            program: 'B.Tech in Computer Science & Engineering',
-            department: 'Computer Science & Engineering',
-            batch: '2024 - 2028',
-            section: 'S-6',
-            homeRoom: 'C-421',
+            program: '',
+            department: '',
+            batch: '',
+            section: '',
             fatherName: '',
             motherName: '',
-            email: targetStudentId ? `${targetStudentId}@kluniversity.in` : '',
+            email: '',
             phone: '',
-            gender: 'Male',
-            bloodGroup: 'O+',
+            gender: '',
+            bloodGroup: '',
             dob: '',
-            address: 'KL University Green Fields, Vaddeswaram, Guntur, AP - 522302'
+            address: ''
         };
 
-        const parseHtmlForProfile = async (html, baseUrl = 'https://newerp.kluniversity.in') => {
-            if (!html || html.includes('id="login-form"')) return false;
-
-            // 1. Photo parsing
-            const imgMatch = html.match(/<div class="[^"]*profile_pic[^"]*"[^>]*>[\s\S]*?<img[^>]+src="([^">]+)"/i) ||
-                             html.match(/<img[^>]+src="([^">]*studentphoto[^">]*)"/i) ||
-                             html.match(/<img[^>]+class="[^"]*img-circle[^"]*"[^>]+src="([^">]+)"/i) ||
-                             html.match(/<img[^>]+src="([^">]+)"[^>]+class="[^"]*img-circle[^"]*"/i) ||
-                             html.match(/<img[^>]+src="([^">]*student[^">]*\.(?:jpg|jpeg|png))"/i) ||
-                             html.match(/<img[^>]+src="([^">]*photo[^">]*\.(?:jpg|jpeg|png))"/i) ||
-                             html.match(/<img[^>]+src="([^">]*(?:viewphoto|getphoto)[^">]*)"/i);
-
-            if (imgMatch && imgMatch[1] && !profileData.photoBase64) {
-                let rawImgSrc = imgMatch[1].replace(/&amp;/g, '&');
-                if (!rawImgSrc.includes('user.png') && !rawImgSrc.includes('default') && !rawImgSrc.includes('logo')) {
-                    const fullImgUrl = rawImgSrc.startsWith('http')
-                        ? rawImgSrc
-                        : `${baseUrl}${rawImgSrc.startsWith('/') ? '' : '/'}${rawImgSrc}`;
-                    profileData.photoUrl = fullImgUrl;
-
-                    try {
-                        const imgResp = await fetch(fullImgUrl, {
-                            headers: {
-                                'cookie': currentCookieStr,
-                                'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                                'referer': baseUrl
-                            }
-                        });
-                        if (imgResp.ok) {
-                            const contentType = imgResp.headers.get('content-type') || 'image/jpeg';
-                            const buffer = await imgResp.arrayBuffer();
-                            if (buffer.byteLength > 200) {
-                                profileData.photoBase64 = `data:${contentType};base64,${Buffer.from(buffer).toString('base64')}`;
-                            }
-                        }
-                    } catch (imgErr) {
-                        console.warn('[Profile Photo Proxy] Warning:', imgErr.message);
-                    }
-                }
-            }
-
-            // 2. Name parsing
-            const nameMatch = html.match(/class="[^"]*profile_info[^"]*"[\s\S]*?<h2>([^<]+)<\/h2>/i) ||
-                             html.match(/class="[^"]*user-profile[^"]*"[^>]*>[\s\S]*?<img[^>]*>([^\n<]+)/i) ||
-                             html.match(/<th>Name<\/th>\s*<td>([^<]+)<\/td>/i) ||
-                             html.match(/Welcome,\s*<strong>([^<]+)<\/strong>/i) ||
-                             html.match(/class="user-name">([^<]+)<\//i);
-            if (nameMatch && nameMatch[1]) {
-                const parsed = nameMatch[1].trim();
-                if (parsed && !parsed.toLowerCase().includes('student')) {
-                    profileData.name = parsed;
-                }
-            }
-
-            // 3. Table fields
-            const extractField = (labelRegex) => {
-                const m = html.match(new RegExp('(?:th|td)[^>]*>' + labelRegex + '</(?:th|td)>\\s*<td[^>]*>([\\s\\S]*?)</td>', 'i'));
-                return m ? m[1].replace(/<[^>]+>/g, '').trim() : '';
-            };
-
-            const prog = extractField('Program|Course|Degree');
-            if (prog) profileData.program = prog;
-            const dept = extractField('Department|Branch');
-            if (dept) profileData.department = dept;
-            const bch = extractField('Batch|Academic Year');
-            if (bch) profileData.batch = bch;
-            const sec = extractField('Section');
-            if (sec) profileData.section = sec;
-            const fName = extractField('Father Name|Father\'s Name');
-            if (fName) profileData.fatherName = fName;
-            const mName = extractField('Mother Name|Mother\'s Name');
-            if (mName) profileData.motherName = mName;
-            const eml = extractField('Email|University Email');
-            if (eml) profileData.email = eml;
-            const phn = extractField('Mobile|Phone|Contact');
-            if (phn) profileData.phone = phn;
-            const bld = extractField('Blood Group');
-            if (bld) profileData.bloodGroup = bld;
-            const gnd = extractField('Gender');
-            if (gnd) profileData.gender = gnd;
-            const dob = extractField('Date of Birth|DOB');
-            if (dob) profileData.dob = dob;
-
-            return Boolean(profileData.name || profileData.photoBase64);
-        };
-
-        // First parse client-provided dashboard HTML if available
-        if (dashHtml) {
-            await parseHtmlForProfile(dashHtml);
-        }
-
-        // Second, fetch candidate ERP profile pages
-        const candidateUrls = [
-            'https://newerp.kluniversity.in/index.php?r=site%2Findexindi',
-            'https://newerp.kluniversity.in/index.php?r=studentinfo%2Fstudentprofile%2Fview',
-            'https://newerp.kluniversity.in/index.php?r=studentinfo%2Fstudentprofile%2Findex',
-            'https://newerp.kluniversity.in/index.php?r=studentinfo%2Fstudentprofile',
-            'https://newerp.kluniversity.in/index.php?r=studentinfo%2Fstudentmaster%2Fview',
-            'https://newerp.kluniversity.in/index.php?r=student%2Fstudentprofile',
-            'https://newerp.kluniversity.in/index.php?r=student%2Findexindi'
-        ];
-
-        if (currentCookieStr && (!profileData.photoBase64 || !profileData.name)) {
+        if (currentCookieStr) {
             for (const url of candidateUrls) {
                 try {
                     const resp = await fetch(url, {
@@ -2164,65 +2066,85 @@ const handleStudentProfileFetch = async (req, res) => {
                             'referer': 'https://newerp.kluniversity.in/index.php',
                             'cache-control': 'no-cache'
                         },
-                        redirect: 'follow'
+                        redirect: 'manual'
                     });
 
                     if (resp.ok) {
                         const html = await resp.text();
-                        const found = await parseHtmlForProfile(html, url);
-                        if (found && profileData.photoBase64) break;
+                        if (html && !html.includes('id="login-form"')) {
+                            // 1. Photo parsing
+                            const imgMatch = html.match(/<div class="[^"]*profile_pic[^"]*"[^>]*>[\s\S]*?<img[^>]+src="([^">]+)"/i) ||
+                                             html.match(/<img[^>]+class="[^"]*img-circle[^"]*"[^>]+src="([^">]+)"/i) ||
+                                             html.match(/<img[^>]+src="([^">]+)"[^>]+class="[^"]*img-circle[^"]*"/i) ||
+                                             html.match(/<img[^>]+src="([^">]*student[^">]*\.(?:jpg|jpeg|png))"/i) ||
+                                             html.match(/<img[^>]+src="([^">]*photo[^">]*\.(?:jpg|jpeg|png))"/i);
+
+                            if (imgMatch && imgMatch[1]) {
+                                let rawImgSrc = imgMatch[1].replace(/&amp;/g, '&');
+                                if (!rawImgSrc.includes('user.png') && !rawImgSrc.includes('default')) {
+                                    const fullImgUrl = rawImgSrc.startsWith('http')
+                                        ? rawImgSrc
+                                        : `https://newerp.kluniversity.in${rawImgSrc.startsWith('/') ? '' : '/'}${rawImgSrc}`;
+                                    profileData.photoUrl = fullImgUrl;
+
+                                    // Fetch binary image and convert to base64
+                                    try {
+                                        const imgResp = await fetch(fullImgUrl, {
+                                            headers: {
+                                                'cookie': currentCookieStr,
+                                                'user-agent': req.headers['user-agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                                'referer': url
+                                            }
+                                        });
+                                        if (imgResp.ok) {
+                                            const contentType = imgResp.headers.get('content-type') || 'image/jpeg';
+                                            const buffer = await imgResp.arrayBuffer();
+                                            if (buffer.byteLength > 200) {
+                                                const base64 = Buffer.from(buffer).toString('base64');
+                                                profileData.photoBase64 = `data:${contentType};base64,${base64}`;
+                                            }
+                                        }
+                                    } catch (imgErr) {
+                                        console.warn('[Profile Photo Proxy] Warning:', imgErr.message);
+                                    }
+                                }
+                            }
+
+                            // 2. Name parsing
+                            const nameMatch = html.match(/class="[^"]*profile_info[^"]*"[\s\S]*?<h2>([^<]+)<\/h2>/i) ||
+                                             html.match(/class="[^"]*user-profile[^"]*"[^>]*>[\s\S]*?<img[^>]*>([^\n<]+)/i) ||
+                                             html.match(/<th>Name<\/th>\s*<td>([^<]+)<\/td>/i);
+                            if (nameMatch && nameMatch[1]) {
+                                profileData.name = nameMatch[1].trim();
+                            }
+
+                            // 3. Table fields
+                            const extractField = (labelRegex) => {
+                                const m = html.match(new RegExp('(?:th|td)[^>]*>' + labelRegex + '</(?:th|td)>\\s*<td[^>]*>([\\s\\S]*?)</td>', 'i'));
+                                return m ? m[1].replace(/<[^>]+>/g, '').trim() : '';
+                            };
+
+                            profileData.program = extractField('Program|Course|Degree') || profileData.program;
+                            profileData.department = extractField('Department|Branch') || profileData.department;
+                            profileData.batch = extractField('Batch|Academic Year') || profileData.batch;
+                            profileData.section = extractField('Section') || profileData.section;
+                            profileData.fatherName = extractField('Father Name|Father\'s Name') || profileData.fatherName;
+                            profileData.motherName = extractField('Mother Name|Mother\'s Name') || profileData.motherName;
+                            profileData.email = extractField('Email|University Email') || profileData.email;
+                            profileData.phone = extractField('Mobile|Phone|Contact') || profileData.phone;
+                            profileData.bloodGroup = extractField('Blood Group') || profileData.bloodGroup;
+                            profileData.gender = extractField('Gender') || profileData.gender;
+                            profileData.dob = extractField('Date of Birth|DOB') || profileData.dob;
+
+                            if (profileData.name || profileData.photoBase64) {
+                                break;
+                            }
+                        }
                     }
                 } catch {
                     // Try next candidate URL
                 }
             }
-        }
-
-        // Third: Direct candidate photo image URLs with session cookie
-        if (!profileData.photoBase64 && targetStudentId && currentCookieStr) {
-            const directPhotoUrls = [
-                `https://newerp.kluniversity.in/uploaded/studentphoto/${targetStudentId}.jpg`,
-                `https://newerp.kluniversity.in/uploaded/studentphoto/${targetStudentId}.png`,
-                `https://newerp.kluniversity.in/uploaded/studentphotos/${targetStudentId}.jpg`,
-                `https://newerp.kluniversity.in/uploaded/student/${targetStudentId}.jpg`,
-                `https://newerp.kluniversity.in/uploads/student/photo/${targetStudentId}.jpg`,
-                `https://newerp.kluniversity.in/uploads/student/${targetStudentId}.jpg`,
-                `https://newerp.kluniversity.in/images/student/${targetStudentId}.jpg`,
-                `https://newerp.kluniversity.in/images/studentphotos/${targetStudentId}.jpg`,
-                `https://newerp.kluniversity.in/uploaded/${targetStudentId}.jpg`,
-                `https://newerp.kluniversity.in/index.php?r=studentinfo%2Fstudentprofile%2Fgetphoto&id=${targetStudentId}`,
-                `https://newerp.kluniversity.in/index.php?r=student%2Fstudentprofile%2Fviewphoto&id=${targetStudentId}`,
-                `https://newerp.kluniversity.in/index.php?r=site%2Fget-image&id=${targetStudentId}`
-            ];
-
-            for (const dUrl of directPhotoUrls) {
-                try {
-                    const pResp = await fetch(dUrl, {
-                        headers: {
-                            'cookie': currentCookieStr,
-                            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                            'referer': 'https://newerp.kluniversity.in/index.php?r=site%2Findexindi'
-                        }
-                    });
-                    const cType = pResp.headers.get('content-type') || '';
-                    if (pResp.ok && cType.startsWith('image/')) {
-                        const buf = await pResp.arrayBuffer();
-                        if (buf.byteLength > 200) {
-                            profileData.photoBase64 = `data:${cType};base64,${Buffer.from(buf).toString('base64')}`;
-                            profileData.photoUrl = dUrl;
-                            break;
-                        }
-                    }
-                } catch {
-                    // ignore
-                }
-            }
-        }
-
-        if (targetStudentId && profileData.photoBase64) {
-            try {
-                saveUserPhoto(targetStudentId, profileData.photoBase64);
-            } catch { /* ignore */ }
         }
 
         res.json({
@@ -2236,169 +2158,9 @@ const handleStudentProfileFetch = async (req, res) => {
     }
 };
 
-// Student Fee Payments Fetch Endpoint (Authentic KLU ERP feepayments)
-const handleStudentFeesFetch = async (req, res) => {
-    try {
-        const { studentId } = req.body || {};
-        const clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
-        const targetStudentId = (studentId || '').trim();
-
-        console.log(`[Fetch-Fees] Request for: ${targetStudentId || 'unknown'}`);
-
-        let payments = [];
-        let isLiveFromErp = false;
-
-        if (clientCookie) {
-            try {
-                const feeResp = await fetch('https://newerp.kluniversity.in/index.php?r=feepayments%2Fstudentfee%2Fmypayments', {
-                    headers: {
-                        'cookie': clientCookie,
-                        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                        'referer': 'https://newerp.kluniversity.in/index.php'
-                    },
-                    redirect: 'follow'
-                });
-                if (feeResp.ok) {
-                    const html = await feeResp.text();
-                    if (html && !html.includes('id="login-form"')) {
-                        const rows = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
-                        rows.forEach((row, idx) => {
-                            if (idx === 0) return; // skip header
-                            const cells = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
-                            if (cells.length >= 4) {
-                                const clean = c => c.replace(/<[^>]+>/g, '').trim();
-                                const rNo = clean(cells[0]);
-                                const cat = clean(cells[1]);
-                                const amt = clean(cells[2]);
-                                const dt = clean(cells[3]);
-                                if (rNo || cat) {
-                                    payments.push({
-                                        id: `fee_${idx}`,
-                                        receiptNo: rNo,
-                                        category: cat,
-                                        amount: amt,
-                                        date: dt,
-                                        status: 'PAID'
-                                    });
-                                }
-                            }
-                        });
-                        if (payments.length > 0) isLiveFromErp = true;
-                    }
-                }
-            } catch (err) {
-                console.warn('[Fee Payments Proxy] Warning:', err.message);
-            }
-        }
-
-        res.json({
-            success: true,
-            isLiveFromErp,
-            totalDues: 0,
-            status: 'ALL_FEES_CLEARED',
-            payments
-        });
-    } catch (error) {
-        console.error("Fetch Student Fees Error:", error.message);
-        res.status(500).json({ success: false, message: "Error fetching student fee details", error: error.message });
-    }
-};
-
-// Student Exam Seating & Hallticket Fetch Endpoint (Authentic KLU ERP)
-const handleExamSeatingFetch = async (req, res) => {
-    try {
-        const { studentId } = req.body || {};
-        const targetStudentId = (studentId || '').trim();
-
-        console.log(`[Fetch-Seating] Request for: ${targetStudentId || 'unknown'}`);
-
-        let seating = [];
-        let courseMappings = {};
-
-        // 1. Fetch real student courses & timetable from SQLite database
-        try {
-            const db = getDatabase();
-            const cgpaRow = db.prepare('SELECT courses_json FROM cgpa_records WHERE user_id = ?').get(targetStudentId);
-            if (cgpaRow?.courses_json) {
-                const courses = JSON.parse(cgpaRow.courses_json);
-                if (Array.isArray(courses)) {
-                    courses.forEach(c => {
-                        const code = (c.course_code || '').trim();
-                        const name = (c.course_desc || c.course_name || code).trim();
-                        if (code) courseMappings[code] = name;
-                    });
-                }
-            }
-
-            const ttRow = db.prepare('SELECT timetable_json FROM timetables WHERE user_id = ? ORDER BY academic_year DESC, updated_at DESC LIMIT 1').get(targetStudentId);
-            if (ttRow?.timetable_json) {
-                const tt = JSON.parse(ttRow.timetable_json);
-                const seenCodes = new Set();
-                Object.entries(tt).forEach(([day, slots]) => {
-                    Object.entries(slots).forEach(([, text]) => {
-                        if (typeof text === 'string' && text.includes('RoomNo')) {
-                            const rawParts = text.split('-').map(s => s.trim());
-                            const rawCode = rawParts[0].replace(/[LPTS]$/, '').trim();
-                            const roomMatch = text.match(/RoomNo[^\w]*([A-Za-z0-9]+)/i);
-                            const room = roomMatch ? roomMatch[1] : 'Classroom';
-                            const secMatch = text.match(/S-\d+/i);
-                            const section = secMatch ? secMatch[0] : 'S-Section';
-
-                            if (rawCode && !seenCodes.has(rawCode)) {
-                                seenCodes.add(rawCode);
-                                const blockName = room.startsWith('C') ? 'C-Block (CSE Department)' :
-                                                  room.startsWith('R') ? 'R-Block (Research Wing)' :
-                                                  room.startsWith('L') ? 'L-Block (Computing Lab)' :
-                                                  room.startsWith('S') ? 'S-Block (Science & Humanities)' : 'Campus Academic Block';
-                                seating.push({
-                                    courseCode: rawCode,
-                                    courseName: courseMappings[rawCode] || rawCode,
-                                    room: room,
-                                    section: section,
-                                    block: blockName,
-                                    day: day,
-                                    slot: 'Regular Scheduled Exam Slot'
-                                });
-                            }
-                        }
-                    });
-                });
-            }
-        } catch (dbErr) {
-            console.warn('[Seating] Database extraction notice:', dbErr.message);
-        }
-
-        const hallticket = {
-            status: 'VERIFIED_ACTIVE',
-            admitCardNumber: `HT/2026/ODD/${targetStudentId || 'STUDENT'}`,
-            examCenter: 'KL University Main Campus - Green Fields, Vaddeswaram',
-            barcode: `*${targetStudentId || 'STUDENT'}*`,
-            reportingTime: '30 mins before scheduled examination'
-        };
-
-        res.json({
-            success: true,
-            studentId: targetStudentId,
-            seating,
-            hallticket
-        });
-    } catch (error) {
-        console.error("Fetch Exam Seating Error:", error.message);
-        res.status(500).json({ success: false, message: "Error fetching exam seating details", error: error.message });
-    }
-};
-
 app.post('/api/fetch-student-profile', timetableLimiter, handleStudentProfileFetch);
 app.post('/api/fetch_student_profile', timetableLimiter, handleStudentProfileFetch);
 app.post('/fetch-student-profile', timetableLimiter, handleStudentProfileFetch);
-
-app.post('/api/fetch-student-fees', timetableLimiter, handleStudentFeesFetch);
-app.post('/api/fetch_student_fees', timetableLimiter, handleStudentFeesFetch);
-app.post('/fetch-student-fees', timetableLimiter, handleStudentFeesFetch);
-
-app.post('/api/fetch-student-exam-seating', timetableLimiter, handleExamSeatingFetch);
-app.post('/api/fetch_student_exam_seating', timetableLimiter, handleExamSeatingFetch);
-app.post('/fetch-student-exam-seating', timetableLimiter, handleExamSeatingFetch);
 
 // ==========================================
 // PERSISTENT DATABASE USER-DATA ENDPOINTS
@@ -2467,37 +2229,6 @@ app.post('/api/user-data/:studentId/attendance', (req, res) => {
         res.json({ success: ok, message: 'Attendance saved to persistent database.' });
     } catch (e) {
         console.error('[API] save attendance error:', e);
-        res.status(500).json({ success: false, error: e.message });
-    }
-});
-
-// Save verified student photo to database
-app.post('/api/user-data/:studentId/photo', (req, res) => {
-    try {
-        const { studentId } = req.params;
-        const { photoBase64 } = req.body || {};
-        if (!studentId || !photoBase64) {
-            return res.status(400).json({ success: false, error: 'Missing studentId or photoBase64.' });
-        }
-        const ok = saveUserPhoto(studentId, photoBase64);
-        res.json({ success: ok, message: 'Student photo saved to persistent database.' });
-    } catch (e) {
-        console.error('[API] save photo error:', e);
-        res.status(500).json({ success: false, error: e.message });
-    }
-});
-
-// Get verified student photo from database
-app.get('/api/user-data/:studentId/photo', (req, res) => {
-    try {
-        const { studentId } = req.params;
-        const photo = getUserPhoto(studentId);
-        if (!photo) {
-            return res.status(404).json({ success: false, message: 'No photo found for student in database.' });
-        }
-        res.json({ success: true, photoBase64: photo });
-    } catch (e) {
-        console.error('[API] get photo error:', e);
         res.status(500).json({ success: false, error: e.message });
     }
 });
