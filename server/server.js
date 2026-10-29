@@ -9,10 +9,36 @@ import session from 'express-session';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import { 
+    getDatabase,
+    upsertUser, 
+    saveTimetable, 
+    getTimetable, 
+    getAllTimetablesForUser,
+    saveCgpa, 
+    getCgpa, 
+    saveAttendance, 
+    getAttendance, 
+    getFullUserProfile, 
+    disconnectErp,
+    recordSync,
+    backupDatabase 
+} from './database.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.join(__dirname, '.env') });
+
+// Initialize persistent SQLite database
+try {
+    getDatabase();
+    // Schedule periodic database backup every 24 hours
+    setInterval(() => {
+        backupDatabase();
+    }, 24 * 60 * 60 * 1000);
+} catch (dbErr) {
+    console.warn('[Database] Initial startup warning:', dbErr.message);
+}
 
 const app = express();
 app.set('trust proxy', 1);
@@ -1312,6 +1338,11 @@ app.post('/api/fast-login', authLimiter, async (req, res) => {
 
             console.log(`[Fast Login] Login successful & verified for student: ${username.trim()}`);
             try {
+                upsertUser(username.trim(), username.trim());
+            } catch (dbErr) {
+                console.warn('[Database] User login registration notice:', dbErr.message);
+            }
+            try {
                 const sRoll = String(username).trim().toUpperCase();
                 if (/^\d{8,12}$/.test(sRoll)) {
                     const nowTs = new Date().toISOString();
@@ -1536,6 +1567,16 @@ const handleTimetableFetch = async (req, res) => {
                                 }
                             }
 
+                            // Persist live timetable to database
+                            const targetStudentId = studentId || username;
+                            if (timetableData && targetStudentId) {
+                                try {
+                                    saveTimetable(targetStudentId, reqYear, reqSem, timetableData, 'erp_live');
+                                } catch (dbSaveErr) {
+                                    console.warn('[Database] Timetable save warning:', dbSaveErr.message);
+                                }
+                            }
+
                             return res.json({
                                 success: true,
                                 source: 'erp_live',
@@ -1548,6 +1589,23 @@ const handleTimetableFetch = async (req, res) => {
                 } catch {
                     // Try next candidate
                 }
+            }
+        }
+
+        // Check persistent database before falling back
+        const targetStudentId = studentId || username;
+        if (targetStudentId) {
+            const savedTt = getTimetable(targetStudentId, reqYear, reqSem);
+            if (savedTt && savedTt.timetable) {
+                return res.json({
+                    success: true,
+                    source: 'database_cached',
+                    timetable: savedTt.timetable,
+                    academic_year: savedTt.academic_year,
+                    semester: savedTt.semester,
+                    last_synced_at: savedTt.last_synced_at,
+                    message: "Showing saved timetable from persistent database"
+                });
             }
         }
 
@@ -1573,9 +1631,25 @@ const handleCgpaFetch = async (req, res) => {
         const { username, studentId } = req.body || {};
         let clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
 
-        console.log(`[Fetch-CGPA] Request for: ${studentId || username || 'unknown'}`);
+        const targetStudentId = studentId || username;
+        console.log(`[Fetch-CGPA] Request for: ${targetStudentId || 'unknown'}`);
 
         if (!clientCookie) {
+            if (targetStudentId) {
+                const savedCgpa = getCgpa(targetStudentId);
+                if (savedCgpa && savedCgpa.courses) {
+                    return res.json({
+                        success: true,
+                        source: 'database_cached',
+                        data: savedCgpa.courses,
+                        courses: savedCgpa.courses,
+                        cgpa: savedCgpa.cgpa,
+                        total_credits: savedCgpa.total_credits,
+                        last_synced_at: savedCgpa.last_synced_at,
+                        message: "Showing saved CGPA from persistent database (no active ERP session)"
+                    });
+                }
+            }
             return res.status(401).json({ success: false, message: "No active ERP session. Please log in with your credentials." });
         }
 
@@ -1601,12 +1675,42 @@ const handleCgpaFetch = async (req, res) => {
         });
 
         if (!erpResponse.ok) {
+            if (targetStudentId) {
+                const savedCgpa = getCgpa(targetStudentId);
+                if (savedCgpa && savedCgpa.courses) {
+                    return res.json({
+                        success: true,
+                        source: 'database_cached',
+                        data: savedCgpa.courses,
+                        courses: savedCgpa.courses,
+                        cgpa: savedCgpa.cgpa,
+                        total_credits: savedCgpa.total_credits,
+                        last_synced_at: savedCgpa.last_synced_at,
+                        message: "Showing saved CGPA from persistent database (ERP unavailable)"
+                    });
+                }
+            }
             return res.status(erpResponse.status).json({ success: false, message: `ERP returned status ${erpResponse.status}` });
         }
 
         const html = await erpResponse.text();
 
         if (html.includes('id="login-form"') || html.includes('loginFormUserNameID')) {
+            if (targetStudentId) {
+                const savedCgpa = getCgpa(targetStudentId);
+                if (savedCgpa && savedCgpa.courses) {
+                    return res.json({
+                        success: true,
+                        source: 'database_cached',
+                        data: savedCgpa.courses,
+                        courses: savedCgpa.courses,
+                        cgpa: savedCgpa.cgpa,
+                        total_credits: savedCgpa.total_credits,
+                        last_synced_at: savedCgpa.last_synced_at,
+                        message: "Showing saved CGPA from persistent database (ERP session expired)"
+                    });
+                }
+            }
             return res.status(401).json({ success: false, message: "ERP session expired. Please log in again." });
         }
 
@@ -1709,10 +1813,43 @@ const handleCgpaFetch = async (req, res) => {
             }
         }
 
+        let calculatedCgpa = null;
+        let calculatedCredits = 0;
+        if (coursesHistoryList.length > 0) {
+            let totalPts = 0;
+            let totalCrs = 0;
+            const pointsMap = { 'O': 10, 'A+': 9, 'A': 8, 'B+': 7, 'B': 6, 'C': 5, 'P': 4, 'F': 0 };
+            coursesHistoryList.forEach(c => {
+                const cr = parseFloat(String(c.credits || '').replace(',', '.')) || 0;
+                let gp = parseFloat(c.grade_point);
+                if ((isNaN(gp) || !Number.isFinite(gp)) && c.grade) {
+                    gp = pointsMap[String(c.grade).toUpperCase().trim()] ?? 0;
+                }
+                if (cr > 0 && Number.isFinite(gp)) {
+                    totalPts += gp * cr;
+                    totalCrs += cr;
+                }
+            });
+            if (totalCrs > 0) {
+                calculatedCgpa = (totalPts / totalCrs).toFixed(2);
+                calculatedCredits = totalCrs;
+            }
+
+            if (targetStudentId) {
+                try {
+                    saveCgpa(targetStudentId, calculatedCgpa, calculatedCredits, coursesHistoryList, 'erp_live');
+                } catch (saveErr) {
+                    console.warn('[Database] Error saving CGPA:', saveErr.message);
+                }
+            }
+        }
+
         res.json({
             success: true,
             data: coursesHistoryList,
             courses: coursesHistoryList,
+            cgpa: calculatedCgpa,
+            total_credits: calculatedCredits,
             count: coursesHistoryList.length,
             message: "Successfully fetched grades from ERP"
         });
@@ -1801,9 +1938,111 @@ app.post('/api/fetch-marks-detail', timetableLimiter, handleMarksDetailFetch);
 app.post('/api/fetch_marks_detail', timetableLimiter, handleMarksDetailFetch);
 app.post('/fetch-marks-detail', timetableLimiter, handleMarksDetailFetch);
 
+// ==========================================
+// PERSISTENT DATABASE USER-DATA ENDPOINTS
+// ==========================================
+
+// Get user's complete persistent academic profile (Timetable, CGPA, Attendance, Meta)
+app.get('/api/user-data/:studentId', (req, res) => {
+    try {
+        const { studentId } = req.params;
+        const { year, sem } = req.query;
+        if (!studentId || !/^[A-Za-z0-9_.-]{4,35}$/.test(studentId.trim())) {
+            return res.status(400).json({ success: false, error: 'Invalid Student ID format.' });
+        }
+        const profile = getFullUserProfile(studentId, year, sem);
+        if (!profile) {
+            return res.status(404).json({ success: false, message: 'No academic records found in database.' });
+        }
+        res.json({ success: true, profile });
+    } catch (e) {
+        console.error('[API] get user-data error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Save verified timetable to database
+app.post('/api/user-data/:studentId/timetable', (req, res) => {
+    try {
+        const { studentId } = req.params;
+        const { academic_year, semester, timetable, source } = req.body || {};
+        if (!studentId || !academic_year || !semester || !timetable) {
+            return res.status(400).json({ success: false, error: 'Missing required timetable parameters.' });
+        }
+        const ok = saveTimetable(studentId, academic_year, semester, timetable, source || 'erp_live');
+        res.json({ success: ok, message: 'Timetable saved to persistent database.' });
+    } catch (e) {
+        console.error('[API] save timetable error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Save verified CGPA and courses to database
+app.post('/api/user-data/:studentId/cgpa', (req, res) => {
+    try {
+        const { studentId } = req.params;
+        const { cgpa, total_credits, courses, source } = req.body || {};
+        if (!studentId || !courses) {
+            return res.status(400).json({ success: false, error: 'Missing required CGPA parameters.' });
+        }
+        const ok = saveCgpa(studentId, cgpa, total_credits, courses, source || 'erp_live');
+        res.json({ success: ok, message: 'CGPA saved to persistent database.' });
+    } catch (e) {
+        console.error('[API] save cgpa error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Save verified attendance to database
+app.post('/api/user-data/:studentId/attendance', (req, res) => {
+    try {
+        const { studentId } = req.params;
+        const { academic_year, semester, attendance, summary } = req.body || {};
+        if (!studentId || !academic_year || !semester || !attendance) {
+            return res.status(400).json({ success: false, error: 'Missing required attendance parameters.' });
+        }
+        const ok = saveAttendance(studentId, academic_year, semester, attendance, summary);
+        res.json({ success: ok, message: 'Attendance saved to persistent database.' });
+    } catch (e) {
+        console.error('[API] save attendance error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Application Logout: Ends current session, preserves saved data in database
+app.post('/api/user-data/:studentId/logout', (req, res) => {
+    try {
+        const { studentId } = req.params;
+        recordSync(studentId, 'session', 'logged_out', 'Application session ended cleanly. Saved data preserved.');
+        res.json({ 
+            success: true, 
+            message: 'Application logout successful. Your saved timetable and CGPA remain safely preserved in the database.' 
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// ERP Account Disconnect: Separate explicit option to disconnect ERP and optionally delete saved data
+app.post('/api/user-data/:studentId/disconnect', (req, res) => {
+    try {
+        const { studentId } = req.params;
+        const { deleteData } = req.body || {};
+        const ok = disconnectErp(studentId, Boolean(deleteData));
+        res.json({ 
+            success: ok, 
+            message: deleteData 
+                ? 'ERP account disconnected and all saved academic data permanently erased from database.' 
+                : 'ERP account disconnected. Saved academic records retained for quick offline viewing.' 
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Simple health check
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok' });
+    res.json({ status: 'ok', database: 'connected' });
 });
 
 // Root health path so it doesn't show "Cannot GET /"

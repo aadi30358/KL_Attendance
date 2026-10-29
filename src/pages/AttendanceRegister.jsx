@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck } from 'lucide-react';
+import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck, CalendarDays, ArrowRight } from 'lucide-react';
 import { erpService, hasActiveErpSession } from '../services/erpService';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -10,11 +10,24 @@ import {
     playAttendanceChime
 } from '../services/attendanceAlerts';
 import { getActiveProfileDetails, getSavedFriends, getMyProfile } from '../services/friendsService';
-import { fetchLiveErpTimetable, normalizeAcademicYear, normalizeSemester, getPresentAcademicYearAndSem } from '../services/timetableService';
+import {
+    fetchLiveErpTimetable,
+    normalizeAcademicYear,
+    normalizeSemester,
+    getPresentAcademicYearAndSem,
+    getStudentTimetable,
+    getLiveClassStatus,
+    cleanRoomNumber,
+    getSubjectName,
+    syncTimetableWithServer,
+    DAYS_OF_WEEK,
+    KLU_SESSIONS
+} from '../services/timetableService';
 import { fetchLiveErpGrades } from '../services/gradesService';
 import FriendsManagerModal from '../components/FriendsManagerModal';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';
 import ErpSidebar from '../components/ErpSidebar';
+import { broadcastAttendanceUpdate } from '../services/crossDomainSync';
 
 function formatTimeAgo(timestamp) {
     if (!timestamp) return null;
@@ -284,6 +297,63 @@ const AttendanceRegister = () => {
     const [showFriendsModal, setShowFriendsModal] = useState(false);
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [targetFriendForCaptcha, setTargetFriendForCaptcha] = useState(null);
+    const [timetableDisplayMode, setTimetableDisplayMode] = useState('aliases');
+    const [timetableTick, setTimetableTick] = useState(0);
+
+    // Reactively refresh timetable when updated from background ERP sync or profile changes
+    useEffect(() => {
+        const handleTimetableUpdate = () => setTimetableTick(t => t + 1);
+        window.addEventListener('kl_timetable_updated', handleTimetableUpdate);
+        window.addEventListener('storage', handleTimetableUpdate);
+        return () => {
+            window.removeEventListener('kl_timetable_updated', handleTimetableUpdate);
+            window.removeEventListener('storage', handleTimetableUpdate);
+        };
+    }, []);
+
+    const studentTimetable = useMemo(() => {
+        void timetableTick;
+        if (!activeId) return {};
+        const cleanYear = normalizeAcademicYear(year);
+        const cleanSem = normalizeSemester(semester);
+        return getStudentTimetable(activeId, subjects || [], cleanYear, cleanSem) || {};
+    }, [activeId, subjects, year, semester, timetableTick]);
+
+    const hasTimetableSlots = useMemo(() => {
+        return Boolean(studentTimetable && Object.values(studentTimetable).some(slots => Array.isArray(slots) && slots.length > 0));
+    }, [studentTimetable]);
+
+    // Determine active sessions dynamically (defaulting to S1-S8, expanding only if later periods exist)
+    const activeSessions = useMemo(() => {
+        let maxSlot = 8;
+        if (studentTimetable) {
+            Object.values(studentTimetable).forEach(slots => {
+                if (Array.isArray(slots)) {
+                    slots.forEach(s => {
+                        const p = s.periodEnd || (s.period && s.span ? s.period + s.span - 1 : s.period) || s.period || 0;
+                        if (p > maxSlot) maxSlot = Math.min(p, 14);
+                    });
+                }
+            });
+        }
+        return KLU_SESSIONS.slice(0, Math.max(maxSlot, 8));
+    }, [studentTimetable]);
+
+    const liveClassStatus = useMemo(() => {
+        if (!activeId || !hasTimetableSlots) return null;
+        return getLiveClassStatus(studentTimetable, activeId);
+    }, [studentTimetable, activeId, hasTimetableSlots]);
+
+    useEffect(() => {
+        if (!activeId || hasTimetableSlots) return;
+        const cleanYear = normalizeAcademicYear(year);
+        const cleanSem = normalizeSemester(semester);
+        syncTimetableWithServer(activeId, cleanYear, cleanSem).then((dbSlots) => {
+            if (dbSlots && Object.keys(dbSlots).length > 0) {
+                setTimetableTick(t => t + 1);
+            }
+        }).catch(() => null);
+    }, [activeId, year, semester, hasTimetableSlots]);
 
     // Listen for switch view event from ErpSidebar or external triggers
 
@@ -357,10 +427,6 @@ const AttendanceRegister = () => {
             setFetchError('Please select both Year and Semester'); 
             return; 
         }
-        setLoading(true); 
-        setDebugHtml(null);
-        setFetchError(null);
-        setJustCheckedNotice(null);
 
         // Resolve clean query year string (e.g. '2025-2026' or '2026-2027')
         const normYear = normalizeAcademicYear(fetchYear);
@@ -368,7 +434,60 @@ const AttendanceRegister = () => {
         const queryYear = normYear;
         const targetId = customId || activeId || localStorage.getItem('activeErpUser') || '';
 
-        // Cannot fetch live courses from ERP without an authenticated session
+        // 1. FAST CACHE-FIRST RELOAD (< 10ms): Check if cached data exists for this specific student, year & sem
+        const scopedKey = targetId ? `kleData_${targetId}_${normYear}_${normSem}` : null;
+        const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
+        if (scopedRaw) {
+            try {
+                const parsed = JSON.parse(scopedRaw);
+                if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
+                    setSubjects(parsed.attendance_data);
+                    setShowDashboard(true);
+                    setYear(normYear);
+                    setSemester(normSem);
+                    setLoading(false);
+                    setFetchError(null);
+                    setDebugHtml(null);
+                    setLastUpdated(parsed.timestamp || Date.now());
+                    setSessionStatus('active');
+
+                    if (targetId) {
+                        try {
+                            localStorage.setItem(`activeYear_${targetId}`, normYear);
+                            localStorage.setItem(`activeSem_${targetId}`, normSem);
+                            localStorage.setItem(`manualYear_${targetId}`, normYear);
+                            localStorage.setItem(`manualSem_${targetId}`, normSem);
+                            localStorage.setItem(`kleData_${targetId}`, scopedRaw);
+                        } catch { /* ignore */ }
+                    }
+
+                    // Background silent revalidation if active ERP session exists
+                    if (hasActiveErpSession(targetId)) {
+                        erpService.fetchAttendance(queryYear, fetchSemester, targetId)
+                            .then(freshCourses => {
+                                if (Array.isArray(freshCourses) && freshCourses.length > 0) {
+                                    setSubjects(freshCourses);
+                                    setLastUpdated(Date.now());
+                                    const payload = JSON.stringify({
+                                        attendance_data: freshCourses,
+                                        year: normYear,
+                                        semester: normSem,
+                                        timestamp: Date.now()
+                                    });
+                                    try {
+                                        if (scopedKey) localStorage.setItem(scopedKey, payload);
+                                        if (targetId) localStorage.setItem(`kleData_${targetId}`, payload);
+                                    } catch { /* ignore */ }
+                                }
+                            })
+                            .catch(() => {});
+                    }
+                    return;
+                }
+            } catch { /* ignore and proceed to network */ }
+        }
+
+        // 2. If no cache exists, check active ERP session before network query
         if (!hasActiveErpSession(targetId)) {
             setLoading(false);
             setShowDashboard(false);
@@ -388,48 +507,25 @@ const AttendanceRegister = () => {
             }
         }
 
+        setLoading(true); 
+        setDebugHtml(null);
+        setFetchError(null);
+        setJustCheckedNotice(null);
+
         try {
             const data = await erpService.fetchAttendance(queryYear, fetchSemester, targetId);
-            let finalCourses = Array.isArray(data) ? data : [];
-            let finalYear = normYear;
-            let finalSem = normSem;
+            const finalCourses = Array.isArray(data) ? data : [];
+            const finalYear = normYear;
+            const finalSem = normSem;
 
-            // If 0 courses found for initial query, try candidate year fallbacks based on student ID batch
-            if (finalCourses.length === 0 && targetId) {
-                const matchBatch = targetId.match(/^(\d{2})/);
-                if (matchBatch) {
-                    const startBatch = 2000 + parseInt(matchBatch[1], 10);
-                    const candidateYears = [];
-                    for (let y = Math.min(new Date().getFullYear(), startBatch + 4); y >= startBatch; y--) {
-                        const cand = `${y}-${y + 1}`;
-                        if (cand !== normYear) candidateYears.push(cand);
-                    }
-                    const candSems = ['Even', 'Odd', 'Summer'];
-                    for (const candY of candidateYears) {
-                        for (const candS of candSems) {
-                            try {
-                                const altData = await erpService.fetchAttendance(candY, candS, targetId);
-                                if (Array.isArray(altData) && altData.length > 0) {
-                                    finalCourses = altData;
-                                    finalYear = candY;
-                                    finalSem = candS;
-                                    break;
-                                }
-                            } catch { /* continue */ }
-                        }
-                        if (finalCourses.length > 0) break;
-                    }
-                }
-            }
+            setSubjects(finalCourses);
+            setShowDashboard(true);
+            setYear(finalYear);
+            setSemester(finalSem);
+            setLastUpdated(Date.now());
+            setSessionStatus('active');
 
             if (finalCourses.length > 0) {
-                setSubjects(finalCourses);
-                setShowDashboard(true);
-                setYear(finalYear);
-                setSemester(finalSem);
-                setLastUpdated(Date.now());
-                setSessionStatus('active');
-
                 // Trigger live ERP timetable & grades sync in background
                 if (targetId) {
                     fetchLiveErpTimetable(targetId, finalYear, finalSem).then((res) => {
@@ -459,37 +555,68 @@ const AttendanceRegister = () => {
                         localStorage.setItem(`manualSem_${targetId}`, finalSem);
                         localStorage.setItem(`kleData_${targetId}_${finalYear}_${finalSem}`, payload);
                         localStorage.setItem(`attendanceLastUpdated_${targetId}`, String(Date.now()));
+
+                        // Persist attendance to server SQLite database
+                        let totalCond = 0;
+                        let totalAtt = 0;
+                        finalCourses.forEach(c => {
+                            totalCond += Number(c.total_conducted || c.conducted || 0);
+                            totalAtt += Number(c.total_attended || c.attended || 0);
+                        });
+                        const overallPct = totalCond > 0 ? parseFloat(((totalAtt / totalCond) * 100).toFixed(2)) : null;
+
+                        fetch(`/api/user-data/${encodeURIComponent(targetId)}/attendance`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                academicYear: finalYear,
+                                semester: finalSem,
+                                attendanceData: finalCourses,
+                                overallPercentage: overallPct
+                            })
+                        }).catch(() => null);
                     }
+
+                    // Instant Sub-Second Synchronization across all tabs, components & devices (< 1 second)
+                    window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
+                        detail: { studentId: targetId, year: finalYear, sem: finalSem, data: finalCourses }
+                    }));
+                    window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                        detail: { studentId: targetId, year: finalYear, sem: finalSem }
+                    }));
+                    window.dispatchEvent(new CustomEvent('kl_active_profile_updated', {
+                        detail: { studentId: targetId }
+                    }));
+                    broadcastAttendanceUpdate({
+                        studentId: targetId,
+                        year: finalYear,
+                        semester: finalSem,
+                        coursesCount: finalCourses.length,
+                        timestamp: Date.now()
+                    }).catch(() => {});
                 } catch (storageErr) {
                     console.warn('[Storage] Quota exceeded or private browsing:', storageErr);
                 }
             } else {
-                // If live fetch returned 0 courses, check if cached attendance exists for this person
+                // If 0 courses found for selected year & semester, check if scoped cache exists
                 const scopedKey = targetId ? `kleData_${targetId}_${finalYear}_${finalSem}` : null;
                 const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
-                const generalKey = targetId ? `kleData_${targetId}` : 'kleData';
-                const generalRaw = localStorage.getItem(generalKey);
-                const dataToUse = scopedRaw || generalRaw;
-                let cachedCourses = [];
-                if (dataToUse) {
+                if (scopedRaw) {
                     try {
-                        const parsed = JSON.parse(dataToUse);
-                        const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
-                        if (Array.isArray(list) && list.length > 0) {
-                            cachedCourses = list;
+                        const parsed = JSON.parse(scopedRaw);
+                        if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
+                            setSubjects(parsed.attendance_data);
+                            setShowDashboard(true);
+                            setYear(finalYear);
+                            setSemester(finalSem);
+                            return;
                         }
                     } catch { /* ignore */ }
                 }
 
-                if (cachedCourses.length > 0) {
-                    setSubjects(cachedCourses);
-                    setShowDashboard(true);
-                    setYear(finalYear);
-                    setSemester(finalSem);
-                } else {
-                    setSubjects([]);
-                    setShowDashboard(false);
-                }
+                // Show clean empty state without crashing or looping into other semesters
+                setSubjects([]);
+                setShowDashboard(true);
             }
         } catch (error) {
             console.warn('[ERP] Attendance query notice:', error.message);
@@ -503,23 +630,6 @@ const AttendanceRegister = () => {
                         setSubjects(parsed.attendance_data);
                         setYear(normYear);
                         setSemester(normSem);
-                        setShowDashboard(true);
-                        return;
-                    }
-                } catch { /* ignore */ }
-            }
-
-            // 2. Restore from student's general cached attendance (kleData_id or kleData)
-            const fallbackKey = targetId ? `kleData_${targetId}` : 'kleData';
-            const fallbackRaw = localStorage.getItem(fallbackKey) || ((targetId && targetId === localStorage.getItem('rememberedId')) ? localStorage.getItem('kleData') : null);
-            if (fallbackRaw) {
-                try {
-                    const parsed = JSON.parse(fallbackRaw);
-                    const list = parsed?.attendance_data || parsed?.data || (Array.isArray(parsed) ? parsed : []);
-                    if (Array.isArray(list) && list.length > 0) {
-                        setSubjects(list);
-                        setYear(parsed.year || normYear);
-                        setSemester(parsed.semester || normSem);
                         setShowDashboard(true);
                         return;
                     }
@@ -1141,6 +1251,7 @@ const AttendanceRegister = () => {
                                     </p>
                                 </div>
                             ) : subjects.length > 0 ? (
+                    <>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-7xl mx-auto">
                         {subjects.map((subject, index) => {
                             const pct = subject.percent;
@@ -1226,6 +1337,207 @@ const AttendanceRegister = () => {
                             );
                         })}
                     </div>
+
+                    {/* Weekly Timetable Matrix Section */}
+                    <div className="mt-6 max-w-7xl mx-auto w-full bg-white dark:bg-[#1e293b] rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-slate-200/90 dark:border-slate-700/80 shadow-md shadow-indigo-100/30 dark:shadow-none space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <CalendarDays className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                    <h4 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                                        <span>Weekly Timetable</span>
+                                        <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200/80 dark:border-indigo-800 px-2 py-0.5 rounded-md">
+                                            {activeProfile?.nickname || 'Account'} · {displayYearText} · {displaySemesterText}
+                                        </span>
+                                    </h4>
+                                </div>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                                    Class schedules, classrooms, and timing breakdown for ID: {activeId}
+                                </p>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                                {/* Aliases vs Codes Toggle */}
+                                <div className="inline-flex bg-slate-100 dark:bg-slate-800/90 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700/80">
+                                    <button
+                                        type="button"
+                                        onClick={() => setTimetableDisplayMode('aliases')}
+                                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            timetableDisplayMode === 'aliases'
+                                                ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
+                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        Aliases 🏷️
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTimetableDisplayMode('codes')}
+                                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                            timetableDisplayMode === 'codes'
+                                                ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
+                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                                        }`}
+                                    >
+                                        Codes
+                                    </button>
+                                </div>
+
+                                <Link
+                                    to="/timetable"
+                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold transition-all border border-indigo-200/90 dark:border-indigo-700/60 shadow-2xs group"
+                                    title="Open full timetable page"
+                                >
+                                    <span>View Full Timetable</span>
+                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                                </Link>
+                            </div>
+                        </div>
+
+                        {hasTimetableSlots ? (
+                            /* Compact Week Matrix Table */
+                            <div className="rounded-2xl border border-slate-200/90 dark:border-slate-700/70 overflow-hidden bg-white dark:bg-slate-900/60 shadow-2xs">
+                                <div className="overflow-x-auto scrollbar-thin">
+                                    <table className="w-full text-xs border-collapse text-center">
+                                        <thead>
+                                            <tr className="border-b border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-800/80">
+                                                <th className="sticky left-0 bg-slate-100 dark:bg-slate-800 text-center p-1.5 sm:p-2 border-r border-slate-200 dark:border-slate-700 z-20 w-12 sm:w-14 min-w-[48px] sm:min-w-[56px]">
+                                                    <span className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                                                        Day
+                                                    </span>
+                                                </th>
+                                                {activeSessions.map((sess) => (
+                                                    <th
+                                                        key={sess.id}
+                                                        className="p-1 sm:p-1.5 min-w-[85px] w-[85px] sm:min-w-[105px] sm:w-[105px] border-r border-slate-200 dark:border-slate-700/80 text-center font-bold text-slate-700 dark:text-slate-300 align-middle"
+                                                    >
+                                                        <div className="inline-block px-1.5 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold text-[9px] mb-0.5">
+                                                            {sess.id}
+                                                        </div>
+                                                        <div className="text-[8px] sm:text-[8.5px] text-slate-500 dark:text-slate-400 font-normal font-mono whitespace-nowrap">
+                                                            {sess.start}–{sess.end}
+                                                        </div>
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+
+                                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700/70">
+                                            {DAYS_OF_WEEK.map((day) => {
+                                                const slots = studentTimetable[day] || [];
+                                                const isToday = liveClassStatus?.dayName === day;
+
+                                                return (
+                                                    <tr
+                                                        key={day}
+                                                        className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors ${
+                                                            isToday ? 'bg-indigo-50/30 dark:bg-indigo-950/20' : ''
+                                                        }`}
+                                                    >
+                                                        <td
+                                                            className={`sticky left-0 p-1.5 sm:p-2 border-r border-slate-200 dark:border-slate-700 font-bold z-10 ${
+                                                                isToday
+                                                                    ? 'bg-indigo-100 dark:bg-indigo-950 text-indigo-900 dark:text-indigo-200'
+                                                                    : 'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
+                                                            }`}
+                                                        >
+                                                            <span className="block text-[10px] font-black uppercase">{day.slice(0, 3)}</span>
+                                                            {isToday && (
+                                                                <span className="text-[7.5px] font-black text-indigo-600 dark:text-sky-400 block mt-0.5">
+                                                                    TODAY
+                                                                </span>
+                                                            )}
+                                                        </td>
+
+                                                        {activeSessions.map((sess) => {
+                                                            const classItem = slots.find(
+                                                                (s) => s.period === sess.slot || s.slotId === sess.id || (s.period <= sess.slot && sess.slot <= (s.periodEnd || (s.period + (s.span || 1) - 1)))
+                                                            );
+                                                            if (!classItem) {
+                                                                return (
+                                                                    <td
+                                                                        key={sess.id}
+                                                                        className="p-1 sm:p-1.5 border-r border-slate-200 dark:border-slate-700/70 text-slate-300 dark:text-slate-600 font-mono text-center text-[10px]"
+                                                                    >
+                                                                        —
+                                                                    </td>
+                                                                );
+                                                            }
+
+                                                            const isLab =
+                                                                (classItem.component || classItem.type || '').toLowerCase().includes('pract') ||
+                                                                classItem.code.endsWith('-P');
+                                                            const isSkill =
+                                                                (classItem.component || classItem.type || '').toLowerCase().includes('skill') ||
+                                                                classItem.code.endsWith('-S');
+                                                            const isTut =
+                                                                (classItem.component || classItem.type || '').toLowerCase().includes('tut') ||
+                                                                classItem.code.endsWith('-T');
+
+                                                            const displayTitle =
+                                                                timetableDisplayMode === 'codes'
+                                                                    ? classItem.code
+                                                                    : getSubjectName(classItem.rawCode || classItem.code) || classItem.code;
+
+                                                            return (
+                                                                <td
+                                                                    key={sess.id}
+                                                                    className={`p-1 sm:p-1.5 border-r border-slate-200 dark:border-slate-700/70 align-middle ${
+                                                                        isLab
+                                                                            ? 'bg-emerald-50/85 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-200'
+                                                                            : isSkill
+                                                                            ? 'bg-purple-50/85 dark:bg-purple-950/40 text-purple-950 dark:text-purple-200'
+                                                                            : isTut
+                                                                            ? 'bg-amber-50/85 dark:bg-amber-950/40 text-amber-950 dark:text-amber-200'
+                                                                            : 'bg-blue-50/85 dark:bg-blue-950/40 text-blue-950 dark:text-blue-200'
+                                                                    }`}
+                                                                >
+                                                                    <div className="space-y-0.5">
+                                                                        <div
+                                                                            className="font-bold text-[9px] sm:text-[9.5px] leading-tight text-slate-900 dark:text-slate-100 line-clamp-2 overflow-hidden"
+                                                                            style={{
+                                                                                display: '-webkit-box',
+                                                                                WebkitLineClamp: 2,
+                                                                                WebkitBoxOrient: 'vertical',
+                                                                                overflow: 'hidden'
+                                                                            }}
+                                                                            title={displayTitle}
+                                                                        >
+                                                                            {displayTitle}
+                                                                        </div>
+                                                                        <div className="text-[8px] sm:text-[8.5px] text-slate-600 dark:text-slate-400 font-medium leading-none truncate mt-0.5">
+                                                                            {classItem.section ? `${classItem.section} · ` : ''}
+                                                                            {classItem.room ? `Rm ${cleanRoomNumber(classItem.room)}` : ''}
+                                                                        </div>
+                                                                    </div>
+                                                                </td>
+                                                            );
+                                                        })}
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="py-8 px-4 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 space-y-2">
+                                <p className="text-xs font-semibold">
+                                    Timetable records for {activeProfile?.nickname || 'Account'} are being loaded...
+                                </p>
+                                <div className="pt-1">
+                                    <Link
+                                        to="/timetable"
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition-colors"
+                                    >
+                                        <span>Open Timetable Portal</span>
+                                        <ArrowRight className="w-3.5 h-3.5" />
+                                    </Link>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    </>
                 ) : (
                     <motion.div 
                         initial={{ opacity: 0, scale: 0.9 }}
@@ -1372,38 +1684,45 @@ const AttendanceRegister = () => {
                                     <label className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-widest ml-1">Academic Year</label>
                                     <div className="relative">
                                         <select
-                                            value={(() => {
-                                                const norm = normalizeAcademicYear(year);
-                                                const match = availableYears.find(y => y.value === year || y.value === norm || normalizeAcademicYear(y.text) === norm);
-                                                return match ? match.value : (year || '2025-2026');
-                                            })()}
+                                            value={normalizeAcademicYear(year)}
                                             onChange={e => {
-                                                setYear(e.target.value);
-                                                if (activeId) localStorage.setItem(`manualYear_${activeId}`, e.target.value);
+                                                const norm = normalizeAcademicYear(e.target.value);
+                                                setYear(norm);
+                                                if (activeId) {
+                                                    localStorage.setItem(`manualYear_${activeId}`, norm);
+                                                    localStorage.setItem(`activeYear_${activeId}`, norm);
+                                                }
                                             }}
                                             className="w-full appearance-none bg-slate-50/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700/80 rounded-2xl py-3.5 px-5 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/50 transition-all font-semibold cursor-pointer shadow-2xs">
                                             <option value="">Select Academic Year</option>
-                                            {availableYears.length > 0 ? (
-                                                availableYears
-                                                    .filter(y => {
-                                                        const startYr = parseInt((y.text || y.value || '').split('-')[0], 10);
-                                                        return isNaN(startYr) || startYr >= 2021;
-                                                    })
-                                                    .map(y => {
-                                                        const cleanText = (y.text || y.value || '').replace(/\s*\([^)]*\)/g, '').trim();
-                                                        return (
-                                                            <option key={y.value} value={y.value}>
-                                                                {cleanText}
-                                                            </option>
-                                                        );
-                                                    })
-                                            ) : (
-                                                DEFAULT_YEARS.map(y => (
-                                                    <option key={y.value} value={y.value}>
+                                            {(() => {
+                                                const seenYears = new Set();
+                                                const yearList = [];
+                                                const sourceYears = availableYears.length > 0 ? availableYears : DEFAULT_YEARS;
+                                                sourceYears.forEach(y => {
+                                                    const cleanText = (y.text || y.value || '').replace(/\s*\([^)]*\)/g, '').trim();
+                                                    const norm = normalizeAcademicYear(cleanText || y.value);
+                                                    const startYr = parseInt((norm || '').split('-')[0], 10);
+                                                    if (!isNaN(startYr) && startYr >= 2021 && !seenYears.has(norm)) {
+                                                        seenYears.add(norm);
+                                                        yearList.push({ val: norm, text: norm });
+                                                    }
+                                                });
+                                                if (yearList.length === 0) {
+                                                    DEFAULT_YEARS.forEach(y => {
+                                                        const norm = normalizeAcademicYear(y.text);
+                                                        if (!seenYears.has(norm)) {
+                                                            seenYears.add(norm);
+                                                            yearList.push({ val: norm, text: norm });
+                                                        }
+                                                    });
+                                                }
+                                                return yearList.map(y => (
+                                                    <option key={y.val} value={y.val}>
                                                         {y.text}
                                                     </option>
-                                                ))
-                                            )}
+                                                ));
+                                            })()}
                                         </select>
                                         <Calendar className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500 pointer-events-none" />
                                     </div>
@@ -1415,39 +1734,19 @@ const AttendanceRegister = () => {
                                         <select
                                             value={normalizeSemester(semester)}
                                             onChange={e => {
-                                                setSemester(e.target.value);
-                                                if (activeId) localStorage.setItem(`manualSem_${activeId}`, e.target.value);
+                                                const norm = normalizeSemester(e.target.value);
+                                                setSemester(norm);
+                                                if (activeId) {
+                                                    localStorage.setItem(`manualSem_${activeId}`, norm);
+                                                    localStorage.setItem(`activeSem_${activeId}`, norm);
+                                                }
                                             }}
                                             className="w-full appearance-none bg-slate-50/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700/80 rounded-2xl py-3.5 px-5 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 dark:focus:ring-indigo-950/50 transition-all font-semibold cursor-pointer shadow-2xs">
                                             <option value="">Select Semester</option>
-                                            {(() => {
-                                                const seenVals = new Set();
-                                                const list = [];
-                                                availableSemesters.forEach(s => {
-                                                    const sLow = (s.text || '').toLowerCase();
-                                                    const val = sLow.includes('summer') ? 'Summer'
-                                                        : ((sLow.includes('term') && !sLow.includes('summer')) || sLow.includes('tri')) ? 'Term3'
-                                                        : sLow.includes('even') ? 'Even'
-                                                        : 'Odd';
-                                                    if (!seenVals.has(val)) {
-                                                        seenVals.add(val);
-                                                        const label = val === 'Odd' ? 'Odd Sem'
-                                                            : val === 'Even' ? 'Even Sem'
-                                                            : val === 'Summer' ? 'Summer Term'
-                                                            : 'Tri Sem / Term 3';
-                                                        list.push({ val, text: label });
-                                                    }
-                                                });
-                                                if (!seenVals.has('Odd')) list.push({ val: 'Odd', text: 'Odd Sem' });
-                                                if (!seenVals.has('Even')) list.push({ val: 'Even', text: 'Even Sem' });
-                                                if (!seenVals.has('Summer')) list.push({ val: 'Summer', text: 'Summer Term' });
-                                                if (!seenVals.has('Term3')) list.push({ val: 'Term3', text: 'Tri Sem / Term 3' });
-                                                return list.map(s => (
-                                                    <option key={s.val} value={s.val}>
-                                                        {s.text}
-                                                    </option>
-                                                ));
-                                            })()}
+                                            <option value="Odd">Odd Sem</option>
+                                            <option value="Even">Even Sem</option>
+                                            <option value="Summer">Summer Term</option>
+                                            <option value="Term3">Tri Sem / Term 3</option>
                                         </select>
                                         <BookOpen className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500 pointer-events-none" />
                                     </div>
@@ -1485,7 +1784,11 @@ const AttendanceRegister = () => {
 
                                 <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                                     onClick={() => {
-                                        if (!hasActiveErpSession(activeId)) {
+                                        const normY = normalizeAcademicYear(year);
+                                        const normS = normalizeSemester(semester);
+                                        const scopedKey = activeId ? `kleData_${activeId}_${normY}_${normS}` : null;
+                                        const hasCache = Boolean(scopedKey && localStorage.getItem(scopedKey));
+                                        if (!hasCache && !hasActiveErpSession(activeId)) {
                                             const currentSaved = (getSavedFriends() || []).find(f => f.studentId === activeId || f.id === activeId) || (getMyProfile()?.studentId === activeId ? getMyProfile() : null);
                                             if (currentSaved?.password || currentSaved?.hasSavedPassword) {
                                                 setTargetFriendForCaptcha(currentSaved);
@@ -1503,7 +1806,15 @@ const AttendanceRegister = () => {
                                         </div>
                                     ) : (
                                         <span className="text-sm font-black tracking-wide">
-                                            {!hasActiveErpSession(activeId) ? '🛡️ Login with Captcha & Get Attendance' : 'Get Attendance'}
+                                            {(() => {
+                                                const normY = normalizeAcademicYear(year);
+                                                const normS = normalizeSemester(semester);
+                                                const scopedKey = activeId ? `kleData_${activeId}_${normY}_${normS}` : null;
+                                                const hasCache = Boolean(scopedKey && localStorage.getItem(scopedKey));
+                                                if (hasCache) return '⚡ View Attendance (Instant)';
+                                                if (!hasActiveErpSession(activeId)) return '🛡️ Login with Captcha & Get Attendance';
+                                                return 'Get Attendance';
+                                            })()}
                                         </span>
                                     )}
                                 </motion.button>

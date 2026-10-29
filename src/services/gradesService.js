@@ -577,8 +577,61 @@ export const saveGradesAndMappings = (studentId, courses) => {
                 window.dispatchEvent(new CustomEvent('kl_subject_mappings_updated'));
             }
             window.dispatchEvent(new CustomEvent('kl_grades_updated', { detail: { studentId: targetId, courses: stamped } }));
+
+            // Calculate GPA and persist to server database asynchronously
+            const calculatedGpa = calculateGPA(stamped);
+            const totalCredits = stamped.reduce((acc, c) => acc + (parseFloat(String(c.credits || '').replace(',', '.')) || 0), 0);
+            const apiBase = getErpBase();
+            fetch(`${apiBase || ''}/api/user-data/${encodeURIComponent(targetId)}/cgpa`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    cgpa: calculatedGpa,
+                    total_credits: totalCredits,
+                    courses: stamped,
+                    source: 'erp_live'
+                })
+            }).catch(() => {});
         }
     } catch { /* ignore storage quota */ }
+};
+
+/**
+ * Syncs grades from persistent server database if client cache is empty
+ */
+export const syncGradesWithServer = async (studentId) => {
+    const primaryId = getPrimaryUserId();
+    const targetId = (studentId || primaryId || '').trim();
+    if (!targetId) return null;
+
+    try {
+        const apiBase = getErpBase();
+        const res = await fetch(`${apiBase || ''}/api/user-data/${encodeURIComponent(targetId)}`);
+        if (res.ok) {
+            const data = await res.json();
+            if (data?.profile?.courses && Array.isArray(data.profile.courses) && data.profile.courses.length > 0) {
+                const courses = data.profile.courses;
+                const isMain = targetId === 'main' || (Boolean(primaryId) && targetId === primaryId);
+                try {
+                    localStorage.setItem(`kl_grades_${targetId}`, JSON.stringify(courses));
+                    localStorage.setItem(`cgpa_${targetId}`, JSON.stringify(courses));
+                    if (isMain) localStorage.setItem('cgpa_data', JSON.stringify(courses));
+                } catch { /* ignore */ }
+                window.dispatchEvent(new CustomEvent('kl_grades_updated', { detail: { studentId: targetId, courses } }));
+                return {
+                    success: true,
+                    source: 'database_cached',
+                    courses,
+                    cgpa: data.profile.cgpa,
+                    total_credits: data.profile.total_credits,
+                    last_synced_at: data.profile.cgpa_meta?.last_synced_at
+                };
+            }
+        }
+    } catch (e) {
+        console.warn('[GradesService] Server grades sync notice:', e.message);
+    }
+    return null;
 };
 
 /**
@@ -596,11 +649,13 @@ export const fetchLiveErpGrades = async (studentId) => {
     const csrfToken = getStoredCsrfToken();
 
     // STRICT COOKIE RESOLUTION:
-    // If target is a friend, ONLY look for friend's scoped cookie. Never fall back to main user's cookie!
     let cookie = '';
     if (isFriend) {
         cookie = (localStorage.getItem(`erp_cookie_${targetId}`) || '').trim();
         if (!cookie) {
+            // Check if database has saved grades before prompting
+            const saved = await syncGradesWithServer(targetId);
+            if (saved) return saved;
             return {
                 success: false,
                 needsAuth: true,
@@ -610,6 +665,9 @@ export const fetchLiveErpGrades = async (studentId) => {
     } else {
         cookie = getStoredErpCookies(targetId) || getStoredErpCookies();
         if (!cookie && !hasActiveErpSession(targetId)) {
+            // Recover from server database if available
+            const saved = await syncGradesWithServer(targetId);
+            if (saved) return saved;
             return { success: false, message: 'No active ERP session for primary user.' };
         }
     }

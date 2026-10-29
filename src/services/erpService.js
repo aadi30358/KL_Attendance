@@ -52,6 +52,42 @@ export const hasActiveErpSession = (studentId = null) => {
     return false;
 };
 
+export const isAttendanceLoggedIn = (studentId = null) => {
+    if (typeof window === 'undefined') return false;
+    const cleanId = (studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '').trim();
+    if (!cleanId) return false;
+
+    // 1. Current active verified ERP session
+    if (hasActiveErpSession(cleanId)) return true;
+
+    // 2. Verified ERP authentication in session
+    const isSessionVerified = sessionStorage.getItem(`erp_verified_${cleanId}`) === 'true' || 
+                              sessionStorage.getItem('erp_authenticated') === 'true';
+
+    // 3. Has real ERP attendance courses stored from an actual verified attendance query
+    const userKleData = localStorage.getItem(`kleData_${cleanId}`) || 
+                        (cleanId === localStorage.getItem('rememberedId') ? localStorage.getItem('kleData') : null);
+    
+    if (userKleData) {
+        try {
+            const parsed = JSON.parse(userKleData);
+            const list = parsed?.attendance_data || parsed?.data || (Array.isArray(parsed) ? parsed : []);
+            if (Array.isArray(list) && list.length > 0) {
+                const activeUser = localStorage.getItem('activeErpUser');
+                if (activeUser === cleanId || isSessionVerified || localStorage.getItem(`erp_cookie_${cleanId}`)) {
+                    return true;
+                }
+            }
+        } catch {
+            // ignore
+        }
+    }
+
+    if (isSessionVerified) return true;
+
+    return false;
+};
+
 export const getStoredErpCookies = (studentId = null) => {
     if (typeof window === 'undefined') return inMemoryErpCookies || '';
     const cleanId = (studentId || '').trim();
@@ -825,7 +861,10 @@ export const erpService = {
 
             // Target start year match (e.g. '2026')
             if (!matchedYearVal && targetYearStart) {
-                const startMatch = sessionInfo.years.find(y => y.text.includes(targetYearStart));
+                const startMatch = sessionInfo.years.find(y => {
+                    const clean = (y.text || '').toLowerCase().trim();
+                    return clean.startsWith(targetYearStart) || clean.includes(targetYearStart + '-');
+                });
                 if (startMatch) matchedYearVal = startMatch.value;
             }
 
@@ -990,7 +1029,7 @@ export const erpService = {
             }
         }
 
-        if (subjects.length > 0) {
+        if (subjects.length > 0) { 
             return subjects;
         }
 

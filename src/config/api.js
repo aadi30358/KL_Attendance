@@ -86,22 +86,26 @@ export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId
   if (extraId) candidates.push(String(extraId).trim());
 
   const strYear = String(academicYear || '').trim();
-  const cleanStr = strYear.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
 
   let firstYear = null;
-  const yearMatch = strYear.match(/\b(20\d\d)\b/);
-  if (yearMatch) {
-    firstYear = parseInt(yearMatch[1], 10);
-  } else if (/^\d+$/.test(strYear)) {
-    const num = parseInt(strYear, 10);
-    if (num >= 30) firstYear = 2026 + (num - 29);
-    else if (num === 29 || num === 18) firstYear = 2026;
-    else if (num === 28 || num === 17) firstYear = 2025;
-    else if (num === 27 || num === 16) firstYear = 2024;
-    else if (num === 26 || num === 15) firstYear = 2023;
-    else if (num === 25 || num === 14) firstYear = 2022;
-    else if (num === 24 || num === 13) firstYear = 2021;
-    else if (num === 23 || num === 10) firstYear = 2020;
+  const startMatch = strYear.match(/^(20\d\d)\b/) || strYear.match(/\b(20\d\d)-(?:20)?\d\d\b/);
+  if (startMatch) {
+    firstYear = parseInt(startMatch[1], 10);
+  } else {
+    const anyMatch = strYear.match(/\b(20\d\d)\b/);
+    if (anyMatch) {
+      firstYear = parseInt(anyMatch[1], 10);
+    } else if (/^\d+$/.test(strYear)) {
+      const num = parseInt(strYear, 10);
+      if (num >= 30) firstYear = 2026 + (num - 29);
+      else if (num === 29 || num === 18) firstYear = 2026;
+      else if (num === 28 || num === 17 || num === 19) firstYear = 2025;
+      else if (num === 27 || num === 16) firstYear = 2024;
+      else if (num === 26 || num === 15) firstYear = 2023;
+      else if (num === 25 || num === 14) firstYear = 2022;
+      else if (num === 24 || num === 13) firstYear = 2021;
+      else if (num === 23 || num === 10) firstYear = 2020;
+    }
   }
 
   // Include all valid historical & modern ERP database representations for the year
@@ -116,19 +120,19 @@ export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId
       `${firstYear}-${shortYr}`,
       `${String(firstYear).slice(-2)}-${shortYr}`
     );
-  } else if (firstYear === 2026 || strYear === '29' || strYear === '18' || cleanStr.includes('26')) {
+  } else if (firstYear === 2026 || strYear === '29' || strYear === '18') {
     candidates.push('29', '18', '2026-2027', '2026-27', '26-27');
-  } else if (firstYear === 2025 || strYear === '28' || strYear === '17' || strYear === '19' || cleanStr.includes('25')) {
+  } else if (firstYear === 2025 || strYear === '28' || strYear === '17' || strYear === '19') {
     candidates.push('28', '17', '19', '18', '2025-2026', '2025-26', '25-26');
-  } else if (firstYear === 2024 || strYear === '27' || strYear === '16' || cleanStr.includes('24')) {
+  } else if (firstYear === 2024 || strYear === '27' || strYear === '16') {
     candidates.push('27', '16', '17', '2024-2025', '2024-25', '24-25');
-  } else if (firstYear === 2023 || strYear === '26' || strYear === '15' || cleanStr.includes('23')) {
+  } else if (firstYear === 2023 || strYear === '26' || strYear === '15') {
     candidates.push('26', '15', '16', '2023-2024', '2023-24', '23-24');
-  } else if (firstYear === 2022 || strYear === '25' || strYear === '14' || cleanStr.includes('22')) {
+  } else if (firstYear === 2022 || strYear === '25' || strYear === '14') {
     candidates.push('25', '14', '15', '2022-2023', '2022-23', '22-23');
-  } else if (firstYear === 2021 || strYear === '24' || strYear === '13' || cleanStr.includes('21')) {
+  } else if (firstYear === 2021 || strYear === '24' || strYear === '13') {
     candidates.push('24', '13', '14', '2021-2022', '2021-22', '21-22');
-  } else if (firstYear === 2020 || strYear === '23' || strYear === '10' || cleanStr.includes('20')) {
+  } else if (firstYear === 2020 || strYear === '23' || strYear === '10') {
     candidates.push('23', '10', '13', '2020-2021', '2020-21', '20-21');
   }
 

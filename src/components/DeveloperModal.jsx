@@ -97,7 +97,7 @@ export const DeveloperModal = () => {
     return (
         <AnimatePresence>
             {isOpen && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6 select-none">
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 select-none">
                     {/* Backdrop */}
                     <motion.div
                         initial={{ opacity: 0 }}
@@ -109,54 +109,54 @@ export const DeveloperModal = () => {
 
                     {/* Dialog Container */}
                     <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                        initial={{ opacity: 0, scale: 0.95, y: 10 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 15 }}
-                        transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
-                        className="relative w-full max-w-lg bg-white dark:bg-[#0f172a] rounded-3xl border-2 border-slate-900/10 dark:border-slate-800 shadow-2xl overflow-hidden z-10"
+                        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                        transition={{ type: "spring", duration: 0.3, bounce: 0.1 }}
+                        className="relative w-full max-w-[420px] bg-white dark:bg-[#0f172a] rounded-2xl sm:rounded-3xl border border-slate-900/10 dark:border-slate-800 shadow-2xl overflow-hidden z-10 my-auto max-h-[92vh] flex flex-col"
                     >
                         {/* Header Gradient Strip */}
-                        <div className="h-2 w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+                        <div className="h-1.5 w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 shrink-0" />
 
                         {/* Modal Header */}
-                        <div className="p-6 pb-4 flex items-start justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25">
-                                    <Sparkles className="w-6 h-6 animate-pulse" />
+                        <div className="p-4 sm:p-4.5 pb-2 sm:pb-2.5 flex items-start justify-between shrink-0">
+                            <div className="flex items-center gap-2.5 sm:gap-3">
+                                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 shrink-0">
+                                    <Sparkles className="w-5 h-5 animate-pulse" />
                                 </div>
                                 <div>
-                                    <div className="flex items-center gap-2">
-                                        <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                                    <div className="flex items-center gap-1.5">
+                                        <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight leading-tight">
                                             Developer Info
                                         </h2>
-                                        <span className="text-[10px] bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-bold px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
+                                        <span className="text-[9px] bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-bold px-1.5 py-0.2 rounded-full border border-indigo-200 dark:border-indigo-800">
                                             F12
                                         </span>
                                     </div>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                                    <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium">
                                         Yaswanth Adithya Reddy • Connect & Explore
                                     </p>
                                 </div>
                             </div>
                             <button
                                 onClick={() => setIsOpen(false)}
-                                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                                 title="Close (Esc)"
                             >
-                                <X className="w-5 h-5" />
+                                <X className="w-4 h-4" />
                             </button>
                         </div>
 
                         {/* Notice if portfolio auto-opened */}
                         {justOpenedPortfolio && (
-                            <div className="mx-6 mb-3 px-3.5 py-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 rounded-xl text-emerald-800 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2">
+                            <div className="mx-4 sm:mx-4.5 mb-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 rounded-xl text-emerald-800 dark:text-emerald-300 text-[10.5px] sm:text-[11px] font-semibold flex items-center gap-2 shrink-0">
                                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping shrink-0" />
                                 <span>Portfolio link launched in a new tab! Choose any social handle below:</span>
                             </div>
                         )}
 
                         {/* List of Developer Destination Links */}
-                        <div className="p-6 pt-2 space-y-2.5 max-h-[60vh] overflow-y-auto">
+                        <div className="p-4 sm:p-4.5 pt-1 space-y-1.5 sm:space-y-2 max-h-[50vh] sm:max-h-[54vh] overflow-y-auto scrollbar-thin">
                             {SOCIAL_OPTIONS.map((item) => {
                                 const Icon = item.icon;
                                 const url = item.getUrl();
@@ -164,30 +164,30 @@ export const DeveloperModal = () => {
                                     <button
                                         key={item.id}
                                         onClick={() => openLink(url)}
-                                        className={`w-full p-3.5 rounded-2xl border ${item.borderColor} ${item.bgHover} bg-slate-50/60 dark:bg-slate-800/40 transition-all duration-200 flex items-center justify-between group cursor-pointer text-left`}
+                                        className={`w-full p-2.5 sm:p-3 rounded-xl border ${item.borderColor} ${item.bgHover} bg-slate-50/70 dark:bg-slate-800/40 transition-all duration-150 flex items-center justify-between group cursor-pointer text-left active:scale-[0.99]`}
                                     >
-                                        <div className="flex items-center gap-3.5 min-w-0">
-                                            <div className={`w-10 h-10 rounded-xl bg-gradient-to-tr ${item.color} flex items-center justify-center text-white shadow-md shrink-0`}>
-                                                <Icon className="w-5 h-5" />
+                                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                                            <div className={`w-8 h-8 sm:w-8.5 sm:h-8.5 rounded-lg bg-gradient-to-tr ${item.color} flex items-center justify-center text-white shadow-sm shrink-0`}>
+                                                <Icon className="w-4 h-4" />
                                             </div>
                                             <div className="min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-sm font-black text-slate-900 dark:text-white">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white truncate">
                                                         {item.name}
                                                     </span>
                                                     {item.badge && (
-                                                        <span className="text-[9px] font-black uppercase tracking-wider bg-indigo-500 text-white px-2 py-0.5 rounded-full shadow-2xs">
+                                                        <span className="text-[8px] font-black uppercase tracking-wider bg-indigo-500 text-white px-1.5 py-0.5 rounded-full shadow-2xs">
                                                             {item.badge}
                                                         </span>
                                                     )}
                                                 </div>
-                                                <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">
+                                                <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate">
                                                     {item.subtitle}
                                                 </p>
                                             </div>
                                         </div>
                                         <div className="flex items-center text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors ml-2 shrink-0">
-                                            <ExternalLink className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                                            <ExternalLink className="w-3.5 h-3.5 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
                                         </div>
                                     </button>
                                 );
@@ -195,11 +195,11 @@ export const DeveloperModal = () => {
                         </div>
 
                         {/* Modal Footer */}
-                        <div className="p-4 bg-slate-50 dark:bg-slate-900/60 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-medium px-6">
+                        <div className="p-3 sm:p-3.5 bg-slate-50 dark:bg-slate-900/60 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10.5px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-medium px-4 sm:px-4.5 shrink-0">
                             <span>Type <code className="text-indigo-600 dark:text-indigo-400 font-mono font-bold">portfolio()</code> in Console</span>
                             <button
                                 onClick={() => setIsOpen(false)}
-                                className="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                                className="px-2.5 py-1 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer text-xs"
                             >
                                 Close
                             </button>

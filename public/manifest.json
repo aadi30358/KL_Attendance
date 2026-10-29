@@ -1,6 +1,6 @@
 {
-  "name": "KL Attendance Calculator",
-  "id": "kl-attendance-pwa",
+  "name": "KL Attendance Online - Calculator & ERP",
+  "id": "kl-attendance-online-pwa",
   "short_name": "KL Attendance",
 
   "start_url": "/",

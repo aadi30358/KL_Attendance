@@ -216,6 +216,21 @@ export default function ClassTimetable({
         return res;
     }, [timetable]);
 
+    const activeSessions = useMemo(() => {
+        let maxSlot = 8;
+        if (safeTimetable) {
+            Object.values(safeTimetable).forEach(slots => {
+                if (Array.isArray(slots)) {
+                    slots.forEach(s => {
+                        const p = s.periodEnd || (s.period && s.span ? s.period + s.span - 1 : s.period) || s.period || 0;
+                        if (p > maxSlot) maxSlot = Math.min(p, 14);
+                    });
+                }
+            });
+        }
+        return KLU_SESSIONS.slice(0, Math.max(maxSlot, 8));
+    }, [safeTimetable]);
+
     const [selectedDay, setSelectedDay] = useState(() => {
         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const today = dayNames[new Date().getDay()];
@@ -1453,24 +1468,24 @@ export default function ClassTimetable({
                 {/* ── WEEK MATRIX VIEW: Full Schedule Grid ── */}
                 {viewMode === 'week' && (
                     <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-2xs">
-                        <div className="overflow-x-auto relative">
+                        <div className="overflow-x-auto relative scrollbar-thin">
                             <table className="w-full text-xs border-collapse text-center">
                                 <thead>
                                     <tr className="border-b border-slate-200 bg-slate-50">
-                                        <th className="sticky left-0 bg-slate-100 text-center p-3 border-r border-slate-200 z-20 min-w-[70px] w-20">
-                                            <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                                        <th className="sticky left-0 bg-slate-100 text-center p-1.5 sm:p-2 border-r border-slate-200 z-20 w-12 sm:w-14 min-w-[48px] sm:min-w-[56px]">
+                                            <span className="text-[10px] sm:text-[11px] font-bold text-slate-700 uppercase tracking-wider">
                                                 Day
                                             </span>
                                         </th>
-                                        {KLU_SESSIONS.map((sess) => (
+                                        {activeSessions.map((sess) => (
                                             <th
                                                 key={sess.id}
-                                                className="p-2.5 min-w-[130px] w-[130px] border-r border-slate-200 text-center font-bold text-slate-700 align-middle"
+                                                className="p-1 sm:p-1.5 min-w-[85px] w-[85px] sm:min-w-[105px] sm:w-[105px] border-r border-slate-200 text-center font-bold text-slate-700 align-middle"
                                             >
-                                                <div className="inline-block px-2 py-0.5 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 font-bold text-[11px] mb-1">
+                                                <div className="inline-block px-1.5 py-0.5 rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 font-bold text-[9px] mb-0.5">
                                                     {sess.id}
                                                 </div>
-                                                <div className="text-[10px] text-slate-500 font-normal font-mono whitespace-nowrap">
+                                                <div className="text-[8px] sm:text-[8.5px] text-slate-500 font-normal font-mono whitespace-nowrap">
                                                     {sess.start}–{sess.end}
                                                 </div>
                                             </th>
@@ -1485,14 +1500,14 @@ export default function ClassTimetable({
 
                                         return (
                                             <tr key={day} className={`hover:bg-slate-50/70 transition-colors ${isToday ? 'bg-indigo-50/30' : ''}`}>
-                                                <td className={`sticky left-0 p-3 border-r border-slate-200 font-bold z-10 ${
+                                                <td className={`sticky left-0 p-1.5 sm:p-2 border-r border-slate-200 font-bold z-10 ${
                                                     isToday ? 'bg-indigo-100 text-indigo-900' : 'bg-slate-50 text-slate-800'
                                                 }`}>
-                                                    <span className="block text-xs uppercase">{day.slice(0, 3)}</span>
-                                                    {isToday && <span className="text-[9px] font-black text-indigo-600 block mt-0.5">TODAY</span>}
+                                                    <span className="block text-[10px] font-black uppercase">{day.slice(0, 3)}</span>
+                                                    {isToday && <span className="text-[7.5px] font-black text-indigo-600 block mt-0.5">TODAY</span>}
                                                 </td>
 
-                                                {KLU_SESSIONS.map((sess) => {
+                                                {activeSessions.map((sess) => {
                                                     const classItem = slots.find(s => {
                                                         if (s.period === sess.slot || s.slotId === sess.id) return true;
                                                         const startP = s.periodStart || s.period;
@@ -1502,7 +1517,7 @@ export default function ClassTimetable({
                                                     });
                                                     if (!classItem) {
                                                         return (
-                                                            <td key={sess.id} className="p-2 border-r border-slate-200 text-slate-300 font-mono text-center">
+                                                            <td key={sess.id} className="p-1 sm:p-1.5 border-r border-slate-200 text-slate-300 font-mono text-center text-[10px]">
                                                                 —
                                                             </td>
                                                         );
@@ -1512,22 +1527,34 @@ export default function ClassTimetable({
                                                     const isSkill = (classItem.component || classItem.type || '').toLowerCase().includes('skill') || classItem.code.endsWith('-S');
                                                     const isTut = (classItem.component || classItem.type || '').toLowerCase().includes('tut') || classItem.code.endsWith('-T');
 
+                                                    const displayTitle = displayMode === 'codes' ? classItem.code : getSlotDisplayTitle(classItem);
+
                                                     return (
                                                         <td
                                                             key={sess.id}
-                                                            className={`p-2 border-r border-slate-200 align-middle ${
-                                                                isLab ? 'bg-emerald-50/80 text-emerald-950'
-                                                                : isSkill ? 'bg-purple-50/80 text-purple-950'
-                                                                : isTut ? 'bg-amber-50/80 text-amber-950'
-                                                                : 'bg-blue-50/80 text-blue-950'
+                                                            className={`p-1 sm:p-1.5 border-r border-slate-200 align-middle ${
+                                                                isLab ? 'bg-emerald-50/85 text-emerald-950'
+                                                                : isSkill ? 'bg-purple-50/85 text-purple-950'
+                                                                : isTut ? 'bg-amber-50/85 text-amber-950'
+                                                                : 'bg-blue-50/85 text-blue-950'
                                                             }`}
                                                         >
                                                             <div className="space-y-0.5">
-                                                                <div className="font-mono font-bold text-xs text-slate-900 leading-tight">
-                                                                    {displayMode === 'codes' ? classItem.code : getSlotDisplayTitle(classItem)}
+                                                                <div
+                                                                    className="font-bold text-[9px] sm:text-[9.5px] leading-tight text-slate-900 line-clamp-2 overflow-hidden"
+                                                                    style={{
+                                                                        display: '-webkit-box',
+                                                                        WebkitLineClamp: 2,
+                                                                        WebkitBoxOrient: 'vertical',
+                                                                        overflow: 'hidden'
+                                                                    }}
+                                                                    title={displayTitle}
+                                                                >
+                                                                    {displayTitle}
                                                                 </div>
-                                                                <div className="text-[10px] text-slate-600 font-medium">
-                                                                    {classItem.section} · Room {cleanRoomNumber(classItem.room)}
+                                                                <div className="text-[8px] sm:text-[8.5px] text-slate-600 font-medium leading-none truncate mt-0.5">
+                                                                    {classItem.section ? `${classItem.section} · ` : ''}
+                                                                    {classItem.room ? `Rm ${cleanRoomNumber(classItem.room)}` : ''}
                                                                 </div>
                                                             </div>
                                                         </td>

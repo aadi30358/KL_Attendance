@@ -29,7 +29,7 @@ import { saveCredentialsToSheet } from '../services/gsheetsService';
 import { recordStudentLogin } from '../services/loginTracker';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { subscribeCrossDomainSync } from '../services/crossDomainSync';
+import { subscribeCrossDomainSync, broadcastAttendanceUpdate } from '../services/crossDomainSync';
 import SEO from '../components/SEO';
 import AddFriendModal from '../components/AddFriendModal';
 import ErpSidebar from '../components/ErpSidebar';
@@ -530,6 +530,12 @@ const Login = () => {
                 // Pre-sync live ERP timetable and grades in background
                 fetchLiveErpTimetable(cleanId).catch(() => {});
                 fetchLiveErpGrades(cleanId).catch(() => {});
+
+                // Instant sub-second event dispatches across tabs and components
+                window.dispatchEvent(new CustomEvent('kl_attendance_updated', { detail: { studentId: cleanId } }));
+                window.dispatchEvent(new CustomEvent('kl_timetable_updated', { detail: { studentId: cleanId } }));
+                window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { studentId: cleanId } }));
+                broadcastAttendanceUpdate({ studentId: cleanId, timestamp: Date.now() }).catch(() => {});
 
                 // Always open Attendance Register first so real registered courses are fetched
                 navigate('/attendance-register');

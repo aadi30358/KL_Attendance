@@ -8,6 +8,7 @@ import { fetchLiveErpTimetable } from '../services/timetableService';
 import { useMaintenance } from '../services/useMaintenance';
 import { useAuth } from '../context/useAuth';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { broadcastAttendanceUpdate } from '../services/crossDomainSync';
 
 export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess }) {
     const { setErpUser } = useAuth();
@@ -252,6 +253,19 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                             window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
                                 detail: { studentId, data }
                             }));
+                            window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                                detail: { studentId }
+                            }));
+                            window.dispatchEvent(new CustomEvent('kl_active_profile_updated', {
+                                detail: { studentId }
+                            }));
+                            broadcastAttendanceUpdate({
+                                studentId,
+                                year: targetYear,
+                                semester: targetSem,
+                                coursesCount: data.length,
+                                timestamp: Date.now()
+                            }).catch(() => {});
                         }
                     }),
                     fetchLiveErpGrades(studentId)

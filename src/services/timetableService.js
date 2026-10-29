@@ -1275,6 +1275,7 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
     const activeErpUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
     const targetId = studentId || activeErpUser || '';
     if (!targetId) return null;
+
     const isSelf = !studentId || studentId === 'default' || studentId === activeErpUser;
 
     const cleanYear = normalizeAcademicYear(selectedYear);
@@ -1290,7 +1291,7 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         cleanSem === 'Even' ? 'Even Sem' : null
     ].filter(Boolean);
 
-    // 1. Check all candidate scoped keys in localStorage
+    // 1. Check all candidate scoped keys in localStorage (strictly matching term first)
     if (typeof window !== 'undefined') {
         const candidateKeys = [];
         semVariants.forEach(s => {
@@ -1306,16 +1307,17 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
                 if (cached) {
                     let parsed = JSON.parse(cached);
                     if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-                        // CRITICAL: If student has not logged into ERP attendance, never return cached live timetable
-                        if (!hasActiveErpSession(targetId) && !parsed._userCustomized) {
-                            continue;
-                        }
                         if (isTimetableValidForStudent(parsed, targetId)) {
                             const normalized = normalizeTimetableFormat(parsed, targetId);
                             if (normalized) {
                                 const totalSlots = Object.values(normalized).reduce((acc, curr) => acc + (Array.isArray(curr) ? curr.length : 0), 0);
                                 if (totalSlots > 0) {
-                                    return { ...normalized, _source: parsed._source, _userCustomized: parsed._userCustomized };
+                                    return { 
+                                        ...normalized, 
+                                        _source: parsed._source || 'saved', 
+                                        _userCustomized: parsed._userCustomized,
+                                        _last_synced: parsed._last_synced || parsed.last_synced_at
+                                    };
                                 }
                             }
                         }
@@ -1459,15 +1461,62 @@ export function saveStudentTimetable(studentId, timetableData, selectedYear = '2
     const cleanSem = normalizeSemester(selectedSem);
     const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
     try {
-        const toSave = { ...timetableData, _userCustomized: true };
+        const toSave = { ...timetableData, _userCustomized: true, _last_synced: new Date().toISOString() };
         localStorage.setItem(`kl_timetable_${studentId}_${cleanYear}_${cleanSem}`, JSON.stringify(toSave));
         localStorage.setItem(`kl_timetable_${studentId}_${cleanYear}_${semDisplay}`, JSON.stringify(toSave));
-        localStorage.setItem(`kl_timetable_${studentId}_${cleanYear}`, JSON.stringify(toSave));
-        localStorage.setItem(`kl_timetable_${studentId}`, JSON.stringify(toSave));
         window.dispatchEvent(new CustomEvent('kl_timetable_updated', { detail: { studentId, year: cleanYear, sem: cleanSem } }));
+
+        // Persist to server database asynchronously
+        const apiBase = getErpBase();
+        fetch(`${apiBase || ''}/api/user-data/${encodeURIComponent(studentId)}/timetable`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                academic_year: cleanYear,
+                semester: cleanSem,
+                timetable: toSave,
+                source: 'user_customized'
+            })
+        }).catch(() => {});
     } catch {
         // ignore
     }
+}
+
+/**
+ * Syncs timetable from persistent server database if client cache is empty
+ */
+export async function syncTimetableWithServer(studentId, yearId = '2026-2027', semId = 'Odd') {
+    const cleanYear = normalizeAcademicYear(yearId);
+    const cleanSem = normalizeSemester(semId);
+    const activeUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
+    const targetId = studentId || activeUser || '';
+    if (!targetId) return null;
+
+    try {
+        const apiBase = getErpBase();
+        const res = await fetch(`${apiBase || ''}/api/user-data/${encodeURIComponent(targetId)}?year=${encodeURIComponent(cleanYear)}&sem=${encodeURIComponent(cleanSem)}`);
+        if (res.ok) {
+            const data = await res.json();
+            if (data?.profile?.timetable) {
+                const tt = data.profile.timetable;
+                tt._source = data.profile.timetable_meta?.source || 'database_cached';
+                tt._last_synced = data.profile.timetable_meta?.last_synced_at;
+                const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
+                try {
+                    localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${cleanSem}`, JSON.stringify(tt));
+                    localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${semDisplay}`, JSON.stringify(tt));
+                } catch { /* ignore */ }
+                window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                    detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
+                }));
+                return tt;
+            }
+        }
+    } catch (e) {
+        console.warn('[TimetableService] Server sync notice:', e.message);
+    }
+    return null;
 }
 
 /**
@@ -1483,6 +1532,9 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
 
     // Check if targetId has an active ERP session
     if (!hasActiveErpSession(targetId)) {
+        // Recover from server database if available
+        const synced = await syncTimetableWithServer(targetId, cleanYear, cleanSem);
+        if (synced) return { success: true, source: 'database_cached', timetable: synced };
         return null;
     }
 
@@ -1490,6 +1542,8 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
     const targetCookie = (typeof window !== 'undefined' ? localStorage.getItem(`erp_cookie_${targetId}`) : null);
     const cookie = targetCookie || getStoredErpCookies(targetId);
     if (!cookie) {
+        const synced = await syncTimetableWithServer(targetId, cleanYear, cleanSem);
+        if (synced) return { success: true, source: 'database_cached', timetable: synced };
         return null;
     }
 
@@ -1548,20 +1602,47 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
             });
             if (proxyResp.ok) {
                 const proxyData = await proxyResp.json().catch(() => null);
-                if (proxyData?.html) {
+                if (proxyData?.timetable && Object.values(proxyData.timetable).some(arr => arr && Object.keys(arr).length > 0)) {
+                    const parsed = proxyData.timetable;
+                    parsed._source = proxyData.source || 'erp_live';
+                    parsed._last_synced = proxyData.last_synced_at || new Date().toISOString();
+                    const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
+                    try {
+                        localStorage.setItem(storageKey, JSON.stringify(parsed));
+                        localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${semDisplay}`, JSON.stringify(parsed));
+                    } catch { /* ignore */ }
+                    window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                        detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
+                    }));
+                    return { success: true, source: parsed._source, timetable: parsed };
+                } else if (proxyData?.html) {
                     const parsed = parseKluTimetableHtml(proxyData.html);
                     if (parsed && Object.values(parsed).some(arr => Array.isArray(arr) && arr.length > 0)) {
                         parsed._source = 'erp_live';
+                        parsed._last_synced = new Date().toISOString();
                         const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
                         try {
                             localStorage.setItem(storageKey, JSON.stringify(parsed));
                             localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${semDisplay}`, JSON.stringify(parsed));
-                            localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}`, JSON.stringify(parsed));
-                            localStorage.setItem(`kl_timetable_${targetId}`, JSON.stringify(parsed));
                         } catch { /* ignore */ }
                         window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
                             detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
                         }));
+                        
+                        // Persist to server database
+                        try {
+                            fetch(`${apiBase || ''}/api/user-data/${encodeURIComponent(targetId)}/timetable`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    academic_year: cleanYear,
+                                    semester: cleanSem,
+                                    timetable: parsed,
+                                    source: 'erp_live'
+                                })
+                            }).catch(() => {});
+                        } catch { /* ignore */ }
+
                         return { success: true, source: 'erp_live', timetable: parsed };
                     }
                 }
@@ -1591,18 +1672,32 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
                             const parsed = parseKluTimetableHtml(html);
                             if (parsed && Object.values(parsed).some(arr => Array.isArray(arr) && arr.length > 0)) {
                                 parsed._source = 'erp_live';
+                                parsed._last_synced = new Date().toISOString();
                                 const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
                                 try {
                                     localStorage.setItem(storageKey, JSON.stringify(parsed));
                                     localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${semDisplay}`, JSON.stringify(parsed));
-                                    localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}`, JSON.stringify(parsed));
-                                    localStorage.setItem(`kl_timetable_${targetId}`, JSON.stringify(parsed));
                                 } catch (err) {
-                                    void err; // Ignore storage quota or private browsing limits
+                                    void err;
                                 }
                                 window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
                                     detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
                                 }));
+
+                                // Persist to server database
+                                try {
+                                    fetch(`${apiBase || ''}/api/user-data/${encodeURIComponent(targetId)}/timetable`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            academic_year: cleanYear,
+                                            semester: cleanSem,
+                                            timetable: parsed,
+                                            source: 'erp_live'
+                                        })
+                                    }).catch(() => {});
+                                } catch { /* ignore */ }
+
                                 return { success: true, source: 'erp_live', timetable: parsed };
                             }
                         }
@@ -1615,6 +1710,10 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
     } catch {
         // silent fallback
     }
+
+    // Final attempt: check if server DB has a saved timetable
+    const synced = await syncTimetableWithServer(targetId, cleanYear, cleanSem);
+    if (synced) return { success: true, source: 'database_cached', timetable: synced };
 
     return null;
 }
@@ -1747,10 +1846,11 @@ export function getLiveClassStatus(timetable = {}, username = null) {
     if (hasClassesToday) {
         for (let i = 0; i < todaySchedule.length; i++) {
             const slot = todaySchedule[i];
-            if (currentMinutes >= slot.startMin && currentMinutes < slot.endMin) {
-                const currentTotalSeconds = currentMinutes * 60 + currentSeconds;
-                const slotStartSeconds = slot.startMin * 60;
-                const slotEndSeconds = slot.endMin * 60;
+            const currentTotalSeconds = currentMinutes * 60 + currentSeconds;
+            const slotStartSeconds = slot.startMin * 60;
+            const slotEndSeconds = slot.endMin * 60;
+
+            if (currentTotalSeconds >= slotStartSeconds && currentTotalSeconds < slotEndSeconds) {
                 const totalSlotSeconds = slotEndSeconds - slotStartSeconds;
                 const elapsedSeconds = Math.max(0, currentTotalSeconds - slotStartSeconds);
                 const totalSecondsRemaining = Math.max(0, slotEndSeconds - currentTotalSeconds);
@@ -1779,11 +1879,9 @@ export function getLiveClassStatus(timetable = {}, username = null) {
                     };
                 }
                 break;
-            } else if (currentMinutes >= slot.endMin) {
+            } else if (currentTotalSeconds >= slotEndSeconds) {
                 previousClass = slot;
-            } else if (currentMinutes < slot.startMin && !nextClass) {
-                const currentTotalSeconds = currentMinutes * 60 + currentSeconds;
-                const slotStartSeconds = slot.startMin * 60;
+            } else if (currentTotalSeconds < slotStartSeconds && !nextClass) {
                 const secsUntil = Math.max(0, slotStartSeconds - currentTotalSeconds);
                 nextClass = {
                     ...slot,

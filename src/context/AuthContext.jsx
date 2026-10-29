@@ -26,8 +26,19 @@ export function AuthProvider({ children }) {
         return signInWithPopup(auth, provider);
     }
 
-    // Comprehensive synchronous and async logout
-    async function logout() {
+    // Comprehensive synchronous and async logout: Ends active session, preserves saved data
+    async function logout(studentId = null) {
+        const targetId = studentId || erpUser || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+        
+        try {
+            if (targetId) {
+                fetch(`/api/user-data/${encodeURIComponent(targetId)}/logout`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                }).catch(() => null);
+            }
+        } catch { /* ignore */ }
+
         try {
             if (typeof erpService?.clearStoredErpCookies === 'function') {
                 erpService.clearStoredErpCookies();
@@ -36,36 +47,74 @@ export function AuthProvider({ children }) {
             console.warn("[Auth] Cookie cleanup:", e);
         }
 
-        // Aggressively clear all ERP session data synchronously
+        // Clear active ERP session data
         sessionStorage.removeItem('adminLoggedOut');
         sessionStorage.removeItem('erp_authenticated');
         sessionStorage.removeItem('admin_token');
         sessionStorage.removeItem('manual_sem_reset');
+        if (targetId) {
+            sessionStorage.removeItem(`erp_verified_${targetId}`);
+        }
 
-        localStorage.removeItem('activeErpUser');
+        // Clear in-memory / session credentials while preserving saved timetable, CGPA, and attendance
         localStorage.removeItem('erpDashboardHtml');
-        // kleData is preserved so offline attendance stays permanent
-        localStorage.removeItem('userUniversity');
-        localStorage.removeItem('userProfile');
         localStorage.removeItem('sessionCookie');
         localStorage.removeItem('isAdminAuthenticated');
-        setErpUser(null);
-        setCurrentUser(null);
 
-        // Notify app components that live ERP session ended while preserving saved credentials
+        // Notify app components that live ERP session ended while preserving saved records
         if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('kl_active_profile_updated'));
             window.dispatchEvent(new CustomEvent('kl_friends_updated'));
-            window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: null } }));
             window.dispatchEvent(new Event('storage'));
         }
 
-        // Sign out Firebase Auth cleanly
+        // Sign out Firebase Auth cleanly if active
         try {
-            await signOut(auth);
+            if (auth.currentUser) {
+                await signOut(auth);
+            }
         } catch (err) {
             console.warn("[Auth] SignOut error notice:", err);
         }
+    }
+
+    // ERP Account Disconnect or Complete Data Deletion
+    async function disconnectErpAccount(studentId = null, deleteData = true) {
+        const targetId = studentId || erpUser || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+
+        try {
+            if (targetId) {
+                await fetch(`/api/user-data/${encodeURIComponent(targetId)}/disconnect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ deleteData })
+                }).catch(() => null);
+            }
+        } catch { /* ignore */ }
+
+        if (deleteData && targetId) {
+            try {
+                const keysToRemove = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const k = localStorage.key(i);
+                    if (k && (k.includes(targetId) || k.startsWith('kl_timetable_') || k.startsWith('kl_grades_') || k.startsWith('cgpa_') || k.startsWith('kleData_'))) {
+                        keysToRemove.push(k);
+                    }
+                }
+                keysToRemove.forEach(k => localStorage.removeItem(k));
+                localStorage.removeItem('original_my_id');
+                localStorage.removeItem('rememberedId');
+                localStorage.removeItem('activeErpUser');
+                localStorage.removeItem('userProfile');
+                localStorage.removeItem('kleData');
+                localStorage.removeItem('cgpa_data');
+                localStorage.removeItem('grades');
+            } catch { /* ignore */ }
+        }
+
+        setErpUser(null);
+        setCurrentUser(null);
+        await logout(targetId);
     }
 
     useEffect(() => {
@@ -96,6 +145,7 @@ export function AuthProvider({ children }) {
         setErpUser,
         signInWithGoogle,
         logout,
+        disconnectErpAccount,
     };
 
     return (
