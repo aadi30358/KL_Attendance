@@ -1,49 +1,55 @@
 /**
  * Attendance Alerts & Real-Time Period Monitoring Engine
  * Provides:
- * 1. KL Timetable Tracker & Period Completion Detection (aggressive 5s polling near period completion)
- * 2. Zero-latency synthesized Web Audio API chime
+ * 1. KL Timetable Tracker & Period Completion Detection (aggressive 4s polling near period completion / in-class)
+ * 2. Zero-latency synthesized Web Audio API chime (descending urgency alert for absent, ascending harmonic for present)
  * 3. Attendance diffing and visual notification state
  */
 
-// KL University Standard Period Timings (IST)
+// KL University Standard 14-Period Timings (IST)
 export const KLU_PERIODS = [
-    { period: 1, start: '09:00', end: '09:50' },
-    { period: 2, start: '09:50', end: '10:40' },
-    { period: 3, start: '10:50', end: '11:40' },
-    { period: 4, start: '11:40', end: '12:30' },
-    { period: 'Lunch', start: '12:30', end: '13:20' },
-    { period: 5, start: '13:20', end: '14:10' },
-    { period: 6, start: '14:10', end: '15:00' },
-    { period: 7, start: '15:10', end: '16:00' },
-    { period: 8, start: '16:00', end: '16:50' },
-    { period: 9, start: '17:00', end: '17:50' },
-    { period: 10, start: '17:50', end: '18:40' }
+    { period: 1, id: 'S1', start: '07:10', end: '08:00' },
+    { period: 2, id: 'S2', start: '08:00', end: '08:50' },
+    { period: 3, id: 'S3', start: '09:20', end: '10:10' },
+    { period: 4, id: 'S4', start: '10:10', end: '11:00' },
+    { period: 5, id: 'S5', start: '11:10', end: '12:00' },
+    { period: 6, id: 'S6', start: '12:00', end: '12:50' },
+    { period: 7, id: 'S7', start: '13:00', end: '13:50' },
+    { period: 8, id: 'S8', start: '13:50', end: '14:40' },
+    { period: 9, id: 'S9', start: '14:40', end: '15:30' },
+    { period: 10, id: 'S10', start: '15:40', end: '16:20' },
+    { period: 11, id: 'S11', start: '16:20', end: '17:30' },
+    { period: 12, id: 'S12', start: '17:30', end: '18:15' },
+    { period: 13, id: 'S13', start: '18:15', end: '19:00' },
+    { period: 14, id: 'S14', start: '19:00', end: '19:45' }
 ];
 
 function parseTimeToMinutes(timeStr) {
+    if (!timeStr) return 0;
     const [h, m] = timeStr.split(':').map(Number);
-    return h * 60 + m;
+    return (h || 0) * 60 + (m || 0);
 }
 
 /**
- * Checks if current time is in the attendance submission window
- * (5 minutes before period end to 15 minutes after period end, when faculty submit attendance).
+ * Checks if current time is in the attendance submission window or active class period.
+ * (Active class period or up to 20 minutes after period end, when faculty submit attendance).
  */
 export function isNearPeriodEnd() {
     const now = new Date();
     // Convert to Indian Standard Time (UTC + 5:30)
     const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-    const istMinutes = (utcMinutes + 330) % 1440; // 5 hours 30 mins
+    const istMinutes = (utcMinutes + 330) % 1440;
 
     for (const p of KLU_PERIODS) {
-        if (typeof p.period !== 'number') continue;
+        const startMinutes = parseTimeToMinutes(p.start);
         const endMinutes = parseTimeToMinutes(p.end);
-        // Window: 5 minutes before end -> 15 minutes after end
-        if (istMinutes >= endMinutes - 5 && istMinutes <= endMinutes + 15) {
+        // Active class or submission window: period start through 20 minutes after end
+        if (istMinutes >= startMinutes && istMinutes <= endMinutes + 20) {
             return {
                 isWindow: true,
                 period: p.period,
+                slotId: p.id,
+                startTime: p.start,
                 endTime: p.end
             };
         }
@@ -57,7 +63,6 @@ export function isNearPeriodEnd() {
  */
 export function getCurrentPeriodInfo() {
     const now = new Date();
-    // Convert to Indian Standard Time (UTC + 5:30)
     const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
     const istMinutes = (utcMinutes + 330) % 1440;
 
@@ -67,29 +72,28 @@ export function getCurrentPeriodInfo() {
         if (istMinutes >= startMin && istMinutes < endMin) {
             return {
                 period: p.period,
-                label: p.period === 'Lunch' ? 'Lunch Break' : `Period ${p.period}`,
+                slotId: p.id,
+                label: `Period ${p.id} (${p.period})`,
                 timing: `${p.start} - ${p.end}`,
-                isSubmissionWindow: istMinutes >= endMin - 5,
-                isLunch: p.period === 'Lunch',
+                isSubmissionWindow: true,
                 isClassHours: true,
-                statusText: p.period === 'Lunch' ? 'Lunch Break (12:30 - 13:20)' : `Period ${p.period} (${p.start} - ${p.end}) in progress`
+                statusText: `Period ${p.id} (${p.start} - ${p.end}) in progress`
             };
         }
     }
 
-    // Check if within submission window (up to 15 mins after period end)
+    // Check if within submission window (up to 20 mins after period end)
     for (const p of KLU_PERIODS) {
-        if (typeof p.period !== 'number') continue;
         const endMin = parseTimeToMinutes(p.end);
-        if (istMinutes >= endMin && istMinutes <= endMin + 15) {
+        if (istMinutes >= endMin && istMinutes <= endMin + 20) {
             return {
                 period: p.period,
-                label: `Period ${p.period}`,
+                slotId: p.id,
+                label: `Period ${p.id}`,
                 timing: `${p.start} - ${p.end}`,
                 isSubmissionWindow: true,
-                isLunch: false,
                 isClassHours: true,
-                statusText: `Period ${p.period} ended · Faculty attendance window active`
+                statusText: `Period ${p.id} ended · Faculty attendance entry window active`
             };
         }
     }
@@ -103,7 +107,6 @@ export function getCurrentPeriodInfo() {
         label: isClassHours ? 'Between Periods' : 'Classes Done for Today',
         timing: '',
         isSubmissionWindow: false,
-        isLunch: false,
         isClassHours,
         statusText: isClassHours ? 'Break Between Periods' : 'Classes done for today'
     };
@@ -111,18 +114,19 @@ export function getCurrentPeriodInfo() {
 
 /**
  * Recommended polling interval:
- * 5 seconds during active attendance submission windows, 20 seconds otherwise.
+ * 4 seconds during active class / attendance submission windows, 12 seconds otherwise.
  */
 export function getRecommendedPollInterval() {
     const check = isNearPeriodEnd();
-    return check.isWindow ? 5000 : 20000;
+    return check.isWindow ? 4000 : 12000;
 }
 
 /**
- * Synthesizes a high-tech two-tone success chime via Web Audio API.
- * Instant zero-latency sound with zero external audio assets.
+ * Synthesizes zero-latency audio alert via Web Audio API.
+ * - If isAbsent === true: Urgent descending tone alerting student that absence was marked.
+ * - If isAbsent === false: Uplifting ascending harmonic chime celebrating present mark.
  */
-export function playAttendanceChime() {
+export function playAttendanceChime(isAbsent = false) {
     try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (!AudioCtx) return;
@@ -133,44 +137,69 @@ export function playAttendanceChime() {
 
         const now = ctx.currentTime;
 
-        // Tone 1: D5 (587.33 Hz)
-        const osc1 = ctx.createOscillator();
-        const gain1 = ctx.createGain();
-        osc1.type = 'sine';
-        osc1.frequency.setValueAtTime(587.33, now);
-        gain1.gain.setValueAtTime(0, now);
-        gain1.gain.linearRampToValueAtTime(0.2, now + 0.03);
-        gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
-        osc1.connect(gain1);
-        gain1.connect(ctx.destination);
-        osc1.start(now);
-        osc1.stop(now + 0.35);
+        if (isAbsent) {
+            // Absent Warning Tone: Urgent dual-pulse minor chord (E5 -> A4)
+            const osc1 = ctx.createOscillator();
+            const gain1 = ctx.createGain();
+            osc1.type = 'sawtooth';
+            osc1.frequency.setValueAtTime(659.25, now); // E5
+            gain1.gain.setValueAtTime(0, now);
+            gain1.gain.linearRampToValueAtTime(0.2, now + 0.02);
+            gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+            osc1.connect(gain1);
+            gain1.connect(ctx.destination);
+            osc1.start(now);
+            osc1.stop(now + 0.28);
 
-        // Tone 2: A5 (880 Hz) harmonic bell
-        const osc2 = ctx.createOscillator();
-        const gain2 = ctx.createGain();
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(880, now + 0.12);
-        gain2.gain.setValueAtTime(0, now + 0.12);
-        gain2.gain.linearRampToValueAtTime(0.25, now + 0.15);
-        gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
-        osc2.connect(gain2);
-        gain2.connect(ctx.destination);
-        osc2.start(now + 0.12);
-        osc2.stop(now + 0.55);
+            const osc2 = ctx.createOscillator();
+            const gain2 = ctx.createGain();
+            osc2.type = 'sawtooth';
+            osc2.frequency.setValueAtTime(440, now + 0.12); // A4
+            gain2.gain.setValueAtTime(0, now + 0.12);
+            gain2.gain.linearRampToValueAtTime(0.25, now + 0.14);
+            gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+            osc2.connect(gain2);
+            gain2.connect(ctx.destination);
+            osc2.start(now + 0.12);
+            osc2.stop(now + 0.5);
+        } else {
+            // Present Celebration Tone: Ascending harmonic bell (D5 -> A5)
+            const osc1 = ctx.createOscillator();
+            const gain1 = ctx.createGain();
+            osc1.type = 'sine';
+            osc1.frequency.setValueAtTime(587.33, now); // D5
+            gain1.gain.setValueAtTime(0, now);
+            gain1.gain.linearRampToValueAtTime(0.2, now + 0.03);
+            gain1.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+            osc1.connect(gain1);
+            gain1.connect(ctx.destination);
+            osc1.start(now);
+            osc1.stop(now + 0.35);
+
+            const osc2 = ctx.createOscillator();
+            const gain2 = ctx.createGain();
+            osc2.type = 'sine';
+            osc2.frequency.setValueAtTime(880, now + 0.12); // A5
+            gain2.gain.setValueAtTime(0, now + 0.12);
+            gain2.gain.linearRampToValueAtTime(0.25, now + 0.15);
+            gain2.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+            osc2.connect(gain2);
+            gain2.connect(ctx.destination);
+            osc2.start(now + 0.12);
+            osc2.stop(now + 0.55);
+        }
     } catch (e) {
-        // Audio policy or unsupported browser
         console.warn('[Audio] Notice on synthesize chime:', e);
     }
 }
 
 /**
  * Compares old attendance list vs new attendance list.
- * Identifies courses that received new attendance marks.
+ * Identifies courses that received new attendance marks (Present or Absent).
  */
 export function calculateAttendanceDiff(oldSubjects, newSubjects) {
     if (!Array.isArray(oldSubjects) || !Array.isArray(newSubjects) || oldSubjects.length === 0) {
-        return { hasChanges: false, changes: [] };
+        return { hasChanges: false, changes: [], isAbsent: false, summaryBanner: '' };
     }
 
     const oldMap = new Map();
@@ -186,7 +215,7 @@ export function calculateAttendanceDiff(oldSubjects, newSubjects) {
 
         const parseCounts = (subj) => {
             if (subj.rawConducted !== undefined && subj.rawAttended !== undefined) {
-                return { conducted: Number(subj.rawConducted), attended: Number(subj.rawAttended) };
+                return { conducted: Number(subj.rawConducted) || 0, attended: Number(subj.rawAttended) || 0 };
             }
             if (typeof subj.attended === 'string' && subj.attended.includes('/')) {
                 const parts = subj.attended.split('/');
@@ -209,15 +238,14 @@ export function calculateAttendanceDiff(oldSubjects, newSubjects) {
         const oldCounts = parseCounts(oldSubj);
         const newCounts = parseCounts(newSubj);
 
-        // Must have valid prior counts to detect a real diff
         if (oldCounts.conducted === 0 && newCounts.conducted === 0) return;
 
         const conductedDiff = newCounts.conducted - oldCounts.conducted;
         const attendedDiff = newCounts.attended - oldCounts.attended;
 
-        // ONLY trigger when a new attendance mark actually occurred
-        // Strictly avoids false alarms from floating point precision
+        // Trigger when an attendance mark actually occurred
         if (conductedDiff > 0 || attendedDiff > 0) {
+            const wasAbsent = conductedDiff > 0 && attendedDiff === 0;
             changes.push({
                 code: newSubj.code,
                 title: newSubj.title,
@@ -226,23 +254,27 @@ export function calculateAttendanceDiff(oldSubjects, newSubjects) {
                 oldPct: oldSubj.percent,
                 newPct: newSubj.percent,
                 wasAttended: attendedDiff > 0,
-                wasAbsent: conductedDiff > 0 && attendedDiff === 0
+                wasAbsent
             });
         }
     });
 
     let summaryBanner = '';
+    let isAbsentAlert = false;
     if (changes.length > 0) {
         const first = changes[0];
+        isAbsentAlert = Boolean(first.wasAbsent);
         const statusText = first.attendedDiff > 0
             ? `+${first.attendedDiff} Present`
             : `+${first.conductedDiff} Absent`;
-        summaryBanner = `${first.code || first.title}: ${statusText} • Now ${first.newPct}%`;
+        const actionPrefix = isAbsentAlert ? '⚠️ Marked ABSENT in' : '🎉 Marked PRESENT in';
+        summaryBanner = `${actionPrefix} ${first.title || first.code}: ${statusText} • Now ${first.newPct}%`;
     }
 
     return {
         hasChanges: changes.length > 0,
         changes,
-        summaryBanner
+        summaryBanner,
+        isAbsent: isAbsentAlert
     };
 }

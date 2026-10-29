@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck, CalendarDays, ArrowRight } from 'lucide-react';
+import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck, CalendarDays, ArrowRight, AlertTriangle } from 'lucide-react';
 import { erpService, hasActiveErpSession } from '../services/erpService';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -9,6 +9,7 @@ import {
     calculateAttendanceDiff,
     playAttendanceChime
 } from '../services/attendanceAlerts';
+import { subscribeCrossDomainSync, broadcastAttendanceUpdate } from '../services/crossDomainSync';
 import { getActiveProfileDetails, getSavedFriends, getMyProfile } from '../services/friendsService';
 import {
     fetchLiveErpTimetable,
@@ -27,7 +28,6 @@ import { fetchLiveErpGrades } from '../services/gradesService';
 import FriendsManagerModal from '../components/FriendsManagerModal';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';
 import ErpSidebar from '../components/ErpSidebar';
-import { broadcastAttendanceUpdate } from '../services/crossDomainSync';
 
 function formatTimeAgo(timestamp) {
     if (!timestamp) return null;
@@ -897,25 +897,117 @@ const AttendanceRegister = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionStatus]);
 
-    // Live background auto-check (only active while viewing current live semester)
+    // Live in-class auto-check & real-time monitoring (active for current academic sessions)
     useEffect(() => {
         if (!showDashboard || !year || !semester) return;
-        const yearObj = availableYears.find(y => y.value === year);
-        const yText = yearObj?.text || '';
-        const isPresentSession = year === '28' || yText.includes('2025-2026') || year === '29';
-        if (!isPresentSession) return; // Completed historical records do not need constant polling
+        const normY = normalizeAcademicYear(year);
+        const curY = new Date().getFullYear();
+        const startYr = parseInt(normY.split('-')[0], 10);
+        const isPresentSession = isNaN(startYr) || startYr >= (curY - 1);
+        if (!isPresentSession) return; // Do not constantly poll completed years from 2021
 
-        const checkPeriodically = () => {
+        let isPolling = false;
+        const doCheck = async () => {
+            if (isPolling) return;
             if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-            handleRefresh(true); // background silent check
+            isPolling = true;
+            try {
+                await handleRefresh(true);
+            } finally {
+                isPolling = false;
+            }
         };
 
-        const nearCheck = isNearPeriodEnd();
-        const intervalMs = nearCheck.isWindow ? 30000 : 120000;
-        const autoTimer = setInterval(checkPeriodically, intervalMs);
-        return () => clearInterval(autoTimer);
+        // 1. Instant check the moment screen wakes up or tab is focused in class (0ms trigger)
+        const onVisibilityChange = () => {
+            if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+                doCheck();
+            }
+        };
+        const onFocus = () => {
+            doCheck();
+        };
+
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        window.addEventListener('focus', onFocus);
+
+        // 2. High-speed in-class polling: 4 seconds during active class periods, 10 seconds otherwise
+        const pollMs = isNearPeriodEnd()?.isWindow ? 4000 : 10000;
+        const autoTimer = setInterval(doCheck, pollMs);
+
+        return () => {
+            clearInterval(autoTimer);
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+            window.removeEventListener('focus', onFocus);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showDashboard, year, semester, availableYears]);
+    }, [showDashboard, year, semester]);
+
+    // 3. Real-Time Cross-Domain & Cross-Tab Subscription (< 1s via BroadcastChannel + Firestore onSnapshot)
+    useEffect(() => {
+        const unsub = subscribeCrossDomainSync((event) => {
+            if (event?.type === 'ATTENDANCE_UPDATED' && event.data) {
+                const targetSid = activeId || localStorage.getItem('activeErpUser');
+                if (event.data.studentId && targetSid && event.data.studentId !== targetSid) {
+                    return; // event was for a different student
+                }
+                const updatedCourses = event.data.data || event.data.attendance_data;
+                if (Array.isArray(updatedCourses) && updatedCourses.length > 0) {
+                    const prev = subjectsRef.current || subjects;
+                    const diff = calculateAttendanceDiff(prev, updatedCourses);
+                    if (diff.hasChanges) {
+                        playAttendanceChime(diff.isAbsent);
+                        setAttendanceNotification({
+                            show: true,
+                            changes: diff.changes,
+                            summary: diff.summaryBanner,
+                            isAbsent: diff.isAbsent,
+                            timestamp: Date.now()
+                        });
+                        const codes = new Set(diff.changes.map(c => c.code));
+                        setRecentlyUpdatedCodes(codes);
+                        setTimeout(() => setRecentlyUpdatedCodes(new Set()), 25000);
+                    }
+                    setSubjects(updatedCourses);
+                    setLastUpdated(event.data.timestamp || Date.now());
+                }
+            }
+        });
+
+        // 4. Local Window Event Listener (0ms for same-window updates)
+        const onLocalUpdate = (e) => {
+            const detail = e.detail;
+            const targetSid = activeId || localStorage.getItem('activeErpUser');
+            if (detail?.studentId && targetSid && detail.studentId !== targetSid) return;
+            const updated = detail?.data || detail?.attendance_data;
+            if (Array.isArray(updated) && updated.length > 0) {
+                const prev = subjectsRef.current || subjects;
+                const diff = calculateAttendanceDiff(prev, updated);
+                if (diff.hasChanges) {
+                    playAttendanceChime(diff.isAbsent);
+                    setAttendanceNotification({
+                        show: true,
+                        changes: diff.changes,
+                        summary: diff.summaryBanner,
+                        isAbsent: diff.isAbsent,
+                        timestamp: Date.now()
+                    });
+                    const codes = new Set(diff.changes.map(c => c.code));
+                    setRecentlyUpdatedCodes(codes);
+                    setTimeout(() => setRecentlyUpdatedCodes(new Set()), 25000);
+                }
+                setSubjects(updated);
+                setLastUpdated(Date.now());
+            }
+        };
+
+        window.addEventListener('kl_attendance_updated', onLocalUpdate);
+
+        return () => {
+            unsub();
+            window.removeEventListener('kl_attendance_updated', onLocalUpdate);
+        };
+    }, [activeId, subjects]);
 
     // Manual or automatic attendance refresh with diff detection and audio alert
     const handleRefresh = async (isSilent = false) => {
@@ -929,19 +1021,21 @@ const AttendanceRegister = () => {
         }
 
         try {
-            const yearObj = availableYears.find(y => y.value === year);
-            const queryYear = yearObj?.text || year;
-            const data = await erpService.fetchAttendance(queryYear, semester);
+            const normY = normalizeAcademicYear(year);
+            const normS = normalizeSemester(semester);
+            const targetStudent = activeId || localStorage.getItem('activeErpUser') || '';
+            const data = await erpService.fetchAttendance(normY, normS, targetStudent);
             if (Array.isArray(data) && data.length > 0) {
                 const prev = subjectsRef.current || subjects;
                 const diff = calculateAttendanceDiff(prev, data);
 
                 if (diff.hasChanges) {
-                    playAttendanceChime();
+                    playAttendanceChime(diff.isAbsent);
                     setAttendanceNotification({
                         show: true,
                         changes: diff.changes,
                         summary: diff.summaryBanner,
+                        isAbsent: diff.isAbsent,
                         timestamp: Date.now()
                     });
                     const codes = new Set(diff.changes.map(c => c.code));
@@ -955,17 +1049,33 @@ const AttendanceRegister = () => {
                 }
 
                 setSubjects(data);
+                const payload = JSON.stringify({ 
+                    attendance_data: data,
+                    year: normY,
+                    semester: normS,
+                    timestamp: Date.now()
+                });
                 try {
-                    localStorage.setItem(storageKey, JSON.stringify({ attendance_data: data }));
-                    const now = Date.now();
-                    if (activeId) {
-                        localStorage.setItem(`attendanceLastUpdated_${activeId}`, String(now));
+                    localStorage.setItem(storageKey, payload);
+                    if (targetStudent) {
+                        localStorage.setItem(`kleData_${targetStudent}_${normY}_${normS}`, payload);
+                        localStorage.setItem(`attendanceLastUpdated_${targetStudent}`, String(Date.now()));
                     }
                 } catch (storageErr) {
                     console.warn('[Storage] Quota exceeded or private browsing:', storageErr);
                 }
                 setLastUpdated(Date.now());
                 setSessionStatus('active');
+
+                // Broadcast instantly across all open tabs, devices, and domains (< 1 second)
+                broadcastAttendanceUpdate({
+                    studentId: targetStudent,
+                    year: normY,
+                    semester: normS,
+                    data,
+                    coursesCount: data.length,
+                    timestamp: Date.now()
+                }).catch(() => {});
             } else if (!isSilent) {
                 setJustCheckedNotice('No attendance records returned for this semester.');
                 setTimeout(() => setJustCheckedNotice(null), 4000);
@@ -1129,6 +1239,12 @@ const AttendanceRegister = () => {
                                             }`} />
                                             <span>{sessionStatus === 'active' ? 'ERP Session Active' : sessionStatus === 'checking' ? 'Checking ERP Session...' : 'Session Expired'}</span>
                                         </div>
+
+                                        {/* In-Class Live Auto-Sync Indicator */}
+                                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200/90 shadow-2xs">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
+                                            <span>In-Class Live Monitor &lt; 1s</span>
+                                        </div>
                                     </div>
 
                                     {/* Prominent Whose Attendance Is Being Seen Badge */}
@@ -1195,16 +1311,26 @@ const AttendanceRegister = () => {
                                 initial={{ opacity: 0, y: -10, scale: 0.98 }}
                                 animate={{ opacity: 1, y: 0, scale: 1 }}
                                 exit={{ opacity: 0, y: -10, scale: 0.98 }}
-                                className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white shadow-xl flex items-center justify-between gap-4 border-2 border-emerald-400"
+                                className={`p-4 sm:p-5 rounded-2xl shadow-xl flex items-center justify-between gap-4 border-2 ${
+                                    attendanceNotification.isAbsent
+                                        ? 'bg-gradient-to-r from-rose-600 via-red-600 to-amber-600 text-white border-rose-300 shadow-rose-500/25 ring-2 ring-rose-200'
+                                        : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white border-emerald-400 shadow-emerald-500/25 ring-2 ring-emerald-200'
+                                }`}
                             >
                                 <div className="flex items-center gap-3.5">
                                     <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 border border-white/30">
-                                        <Sparkles className="w-6 h-6 text-yellow-300 animate-bounce" />
+                                        {attendanceNotification.isAbsent ? (
+                                            <AlertTriangle className="w-6 h-6 text-yellow-300 animate-pulse" />
+                                        ) : (
+                                            <Sparkles className="w-6 h-6 text-yellow-300 animate-bounce" />
+                                        )}
                                     </div>
                                     <div>
                                         <div className="flex items-center gap-2">
-                                            <span className="bg-white/20 text-white text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">New Attendance Detected</span>
-                                            <span className="text-emerald-100 text-xs font-semibold">Just now</span>
+                                            <span className="bg-white/25 text-white text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full">
+                                                {attendanceNotification.isAbsent ? '⚠️ Faculty Attendance Alert — Absent' : '🎉 New Attendance Detected'}
+                                            </span>
+                                            <span className="text-white/80 text-xs font-semibold">Live</span>
                                         </div>
                                         <p className="font-extrabold text-sm sm:text-base mt-0.5">{attendanceNotification.summary}</p>
                                     </div>
@@ -1266,7 +1392,9 @@ const AttendanceRegister = () => {
                                     transition={{ delay: index * 0.03 }}
                                     className={`bg-white rounded-2xl overflow-hidden shadow transition-all duration-300 ${
                                         isRecentlyUpdated
-                                            ? 'border-2 border-emerald-500 ring-4 ring-emerald-200/80 shadow-lg -translate-y-1'
+                                            ? attendanceNotification?.isAbsent
+                                                ? 'border-2 border-rose-500 ring-4 ring-rose-200/90 shadow-xl -translate-y-1'
+                                                : 'border-2 border-emerald-500 ring-4 ring-emerald-200/90 shadow-xl -translate-y-1'
                                             : 'border-2 border-slate-900 hover:shadow-md hover:-translate-y-0.5'
                                     }`}
                                 >
@@ -1280,9 +1408,22 @@ const AttendanceRegister = () => {
                                                 <div className="flex items-center gap-2 flex-wrap">
                                                     <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wide leading-snug">{subject.title}</h3>
                                                     {isRecentlyUpdated && (
-                                                        <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse">
-                                                            <Sparkles className="w-3 h-3 text-emerald-600" />
-                                                            Just Updated
+                                                        <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full animate-pulse border ${
+                                                            attendanceNotification?.isAbsent
+                                                                ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                                                : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                                        }`}>
+                                                            {attendanceNotification?.isAbsent ? (
+                                                                <>
+                                                                    <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                                                    Marked Absent Just Now
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <Sparkles className="w-3 h-3 text-emerald-600" />
+                                                                    Marked Present Just Now
+                                                                </>
+                                                            )}
                                                         </span>
                                                     )}
                                                 </div>
