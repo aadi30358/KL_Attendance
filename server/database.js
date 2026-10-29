@@ -58,6 +58,7 @@ function runMigrations(db) {
             id TEXT PRIMARY KEY,
             username TEXT NOT NULL,
             display_name TEXT,
+            photo_base64 TEXT,
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now')),
             last_login_at TEXT
@@ -138,6 +139,14 @@ function runMigrations(db) {
         );
         CREATE INDEX IF NOT EXISTS idx_sync_history_user ON sync_history(user_id);
     `);
+
+    // Ensure photo_base64 exists on existing users table
+    try {
+        db.exec('ALTER TABLE users ADD COLUMN photo_base64 TEXT;');
+    } catch {
+        // column already exists
+    }
+
     console.log('[Database] Schema migrations applied successfully.');
 }
 
@@ -180,6 +189,40 @@ export function upsertUser(userId, username, displayName = null) {
             updated_at = excluded.updated_at
     `);
     connStmt.run(uid, now, now, now);
+}
+
+/**
+ * Save verified student photo (base64)
+ */
+export function saveUserPhoto(userId, photoBase64) {
+    const uid = cleanId(userId);
+    if (!uid || !photoBase64) return false;
+    const db = getDatabase();
+    upsertUser(uid, uid);
+    const now = new Date().toISOString();
+    try {
+        const stmt = db.prepare('UPDATE users SET photo_base64 = ?, updated_at = ? WHERE id = ?');
+        const res = stmt.run(photoBase64, now, uid);
+        return res.changes > 0;
+    } catch (e) {
+        console.error('[Database] Save photo error:', e);
+        return false;
+    }
+}
+
+/**
+ * Get student photo
+ */
+export function getUserPhoto(userId) {
+    const uid = cleanId(userId);
+    if (!uid) return null;
+    const db = getDatabase();
+    try {
+        const row = db.prepare('SELECT photo_base64 FROM users WHERE id = ?').get(uid);
+        return row?.photo_base64 || null;
+    } catch {
+        return null;
+    }
 }
 
 /**

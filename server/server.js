@@ -17,6 +17,8 @@ import {
     saveCgpa, 
     getCgpa, 
     saveAttendance, 
+    saveUserPhoto,
+    getUserPhoto,
     getFullUserProfile, 
     disconnectErp,
     recordSync,
@@ -2217,6 +2219,12 @@ const handleStudentProfileFetch = async (req, res) => {
             }
         }
 
+        if (targetStudentId && profileData.photoBase64) {
+            try {
+                saveUserPhoto(targetStudentId, profileData.photoBase64);
+            } catch { /* ignore */ }
+        }
+
         res.json({
             success: true,
             source: profileData.photoBase64 ? 'erp_live' : 'cached_or_decoded',
@@ -2238,12 +2246,7 @@ const handleStudentFeesFetch = async (req, res) => {
         console.log(`[Fetch-Fees] Request for: ${targetStudentId || 'unknown'}`);
 
         let payments = [];
-        let feeStructure = [
-            { category: 'Tuition Fee (Semester)', amount: 135000, paid: 135000, due: 0, status: 'PAID', receiptNo: `KLU/2026/TF/${targetStudentId || '30380'}` },
-            { category: 'Special Lab & Infrastructure Fee', amount: 15000, paid: 15000, due: 0, status: 'PAID', receiptNo: `KLU/2026/LF/${targetStudentId || '30380'}` },
-            { category: 'Semester End Exam Fee', amount: 3500, paid: 3500, due: 0, status: 'PAID', receiptNo: `KLU/2026/EF/${targetStudentId || '30380'}` },
-            { category: 'ERP & Learning Management Fee', amount: 2000, paid: 2000, due: 0, status: 'PAID', receiptNo: `KLU/2026/SAP/${targetStudentId || '30380'}` }
-        ];
+        let isLiveFromErp = false;
 
         if (clientCookie) {
             try {
@@ -2258,23 +2261,29 @@ const handleStudentFeesFetch = async (req, res) => {
                 if (feeResp.ok) {
                     const html = await feeResp.text();
                     if (html && !html.includes('id="login-form"')) {
-                        // Extract rows from table
                         const rows = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
                         rows.forEach((row, idx) => {
                             if (idx === 0) return; // skip header
                             const cells = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
                             if (cells.length >= 4) {
                                 const clean = c => c.replace(/<[^>]+>/g, '').trim();
-                                payments.push({
-                                    id: `fee_${idx}`,
-                                    receiptNo: clean(cells[0]) || `REC-${idx}`,
-                                    category: clean(cells[1]) || 'Semester Tuition Fee',
-                                    amount: clean(cells[2]) || '₹1,35,000',
-                                    date: clean(cells[3]) || '2026-07-15',
-                                    status: 'SUCCESS'
-                                });
+                                const rNo = clean(cells[0]);
+                                const cat = clean(cells[1]);
+                                const amt = clean(cells[2]);
+                                const dt = clean(cells[3]);
+                                if (rNo || cat) {
+                                    payments.push({
+                                        id: `fee_${idx}`,
+                                        receiptNo: rNo,
+                                        category: cat,
+                                        amount: amt,
+                                        date: dt,
+                                        status: 'PAID'
+                                    });
+                                }
                             }
                         });
+                        if (payments.length > 0) isLiveFromErp = true;
                     }
                 }
             } catch (err) {
@@ -2282,19 +2291,11 @@ const handleStudentFeesFetch = async (req, res) => {
             }
         }
 
-        if (payments.length === 0) {
-            payments = [
-                { id: 'fee_1', receiptNo: `KLU/REC/2026/08891`, category: 'Tuition Fee - Academic Year 2026-2027', amount: '₹1,35,000', date: '12 July 2026', status: 'SUCCESS' },
-                { id: 'fee_2', receiptNo: `KLU/REC/2026/09420`, category: 'Special Lab & Cloud Computing Fee', amount: '₹15,000', date: '15 July 2026', status: 'SUCCESS' },
-                { id: 'fee_3', receiptNo: `KLU/REC/2026/10211`, category: 'End Semester Exam Fee (Odd Sem)', amount: '₹3,500', date: '04 October 2026', status: 'SUCCESS' }
-            ];
-        }
-
         res.json({
             success: true,
+            isLiveFromErp,
             totalDues: 0,
-            status: 'ALL_FEES_PAID',
-            feeStructure,
+            status: 'ALL_FEES_CLEARED',
             payments
         });
     } catch (error) {
@@ -2311,38 +2312,75 @@ const handleExamSeatingFetch = async (req, res) => {
 
         console.log(`[Fetch-Seating] Request for: ${targetStudentId || 'unknown'}`);
 
-        const seating = [
-            { courseCode: '24CS2101', courseName: 'DESIGN THINKING AND INNOVATION', date: '08 Nov 2026', slot: '09:30 AM - 12:30 PM', block: 'C-Block (CSE)', floor: '4th Floor', room: 'C421', bench: 'Desk 14-B' },
-            { courseCode: '24CS2102', courseName: 'PRINCIPLES OF DEEP NEURAL COMPUTATION', date: '11 Nov 2026', slot: '09:30 AM - 12:30 PM', block: 'C-Block (CSE)', floor: '6th Floor', room: 'C619', bench: 'Desk 08-A' },
-            { courseCode: '24CS2103', courseName: 'EMBEDDED AI – EDGE INTELLIGENCE', date: '14 Nov 2026', slot: '09:30 AM - 12:30 PM', block: 'R-Block (Research)', floor: '2nd Floor', room: 'R210D', bench: 'Desk 22-C' },
-            { courseCode: '24CS2104', courseName: 'AWS CERTIFIED SOLUTIONS ARCHITECT', date: '17 Nov 2026', slot: '09:30 AM - 12:30 PM', block: 'L-Block (Computing)', floor: '5th Floor', room: 'L502', bench: 'Desk 05-A' },
-            { courseCode: '24CS2105', courseName: 'SOA PROGRAMMING AND MICROSERVICES', date: '20 Nov 2026', slot: '09:30 AM - 12:30 PM', block: 'C-Block (CSE)', floor: '6th Floor', room: 'C623', bench: 'Desk 19-B' },
-            { courseCode: '24CS2106', courseName: 'THEORY OF COMPUTATION', date: '23 Nov 2026', slot: '09:30 AM - 12:30 PM', block: 'R-Block (Research)', floor: '2nd Floor', room: 'R201B', bench: 'Desk 11-A' }
-        ];
+        let seating = [];
+        let courseMappings = {};
+
+        // 1. Fetch real student courses & timetable from SQLite database
+        try {
+            const db = getDatabase();
+            const cgpaRow = db.prepare('SELECT courses_json FROM cgpa_records WHERE user_id = ?').get(targetStudentId);
+            if (cgpaRow?.courses_json) {
+                const courses = JSON.parse(cgpaRow.courses_json);
+                if (Array.isArray(courses)) {
+                    courses.forEach(c => {
+                        const code = (c.course_code || '').trim();
+                        const name = (c.course_desc || c.course_name || code).trim();
+                        if (code) courseMappings[code] = name;
+                    });
+                }
+            }
+
+            const ttRow = db.prepare('SELECT timetable_json FROM timetables WHERE user_id = ? ORDER BY academic_year DESC, updated_at DESC LIMIT 1').get(targetStudentId);
+            if (ttRow?.timetable_json) {
+                const tt = JSON.parse(ttRow.timetable_json);
+                const seenCodes = new Set();
+                Object.entries(tt).forEach(([day, slots]) => {
+                    Object.entries(slots).forEach(([, text]) => {
+                        if (typeof text === 'string' && text.includes('RoomNo')) {
+                            const rawParts = text.split('-').map(s => s.trim());
+                            const rawCode = rawParts[0].replace(/[LPTS]$/, '').trim();
+                            const roomMatch = text.match(/RoomNo[^\w]*([A-Za-z0-9]+)/i);
+                            const room = roomMatch ? roomMatch[1] : 'Classroom';
+                            const secMatch = text.match(/S-\d+/i);
+                            const section = secMatch ? secMatch[0] : 'S-Section';
+
+                            if (rawCode && !seenCodes.has(rawCode)) {
+                                seenCodes.add(rawCode);
+                                const blockName = room.startsWith('C') ? 'C-Block (CSE Department)' :
+                                                  room.startsWith('R') ? 'R-Block (Research Wing)' :
+                                                  room.startsWith('L') ? 'L-Block (Computing Lab)' :
+                                                  room.startsWith('S') ? 'S-Block (Science & Humanities)' : 'Campus Academic Block';
+                                seating.push({
+                                    courseCode: rawCode,
+                                    courseName: courseMappings[rawCode] || rawCode,
+                                    room: room,
+                                    section: section,
+                                    block: blockName,
+                                    day: day,
+                                    slot: 'Regular Scheduled Exam Slot'
+                                });
+                            }
+                        }
+                    });
+                });
+            }
+        } catch (dbErr) {
+            console.warn('[Seating] Database extraction notice:', dbErr.message);
+        }
 
         const hallticket = {
             status: 'VERIFIED_ACTIVE',
-            admitCardNumber: `HT/2026/ODD/${targetStudentId || '2400030380'}`,
+            admitCardNumber: `HT/2026/ODD/${targetStudentId || 'STUDENT'}`,
             examCenter: 'KL University Main Campus - Green Fields, Vaddeswaram',
-            barcode: `*${targetStudentId || '2400030380'}*`,
-            reportingTime: '09:00 AM (30 mins before examination)'
-        };
-
-        const hostel = {
-            status: 'ALLOCATED',
-            block: 'Sunflower Boys Hostel (Campus Block H-3)',
-            room: 'Room 312',
-            bed: 'Bed B',
-            mess: 'South & North Biometric Central Mess (Zone 1)',
-            wardenContact: '+91 863-2399999 (Hostel Admin Office)'
+            barcode: `*${targetStudentId || 'STUDENT'}*`,
+            reportingTime: '30 mins before scheduled examination'
         };
 
         res.json({
             success: true,
             studentId: targetStudentId,
             seating,
-            hallticket,
-            hostel
+            hallticket
         });
     } catch (error) {
         console.error("Fetch Exam Seating Error:", error.message);
@@ -2429,6 +2467,37 @@ app.post('/api/user-data/:studentId/attendance', (req, res) => {
         res.json({ success: ok, message: 'Attendance saved to persistent database.' });
     } catch (e) {
         console.error('[API] save attendance error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Save verified student photo to database
+app.post('/api/user-data/:studentId/photo', (req, res) => {
+    try {
+        const { studentId } = req.params;
+        const { photoBase64 } = req.body || {};
+        if (!studentId || !photoBase64) {
+            return res.status(400).json({ success: false, error: 'Missing studentId or photoBase64.' });
+        }
+        const ok = saveUserPhoto(studentId, photoBase64);
+        res.json({ success: ok, message: 'Student photo saved to persistent database.' });
+    } catch (e) {
+        console.error('[API] save photo error:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Get verified student photo from database
+app.get('/api/user-data/:studentId/photo', (req, res) => {
+    try {
+        const { studentId } = req.params;
+        const photo = getUserPhoto(studentId);
+        if (!photo) {
+            return res.status(404).json({ success: false, message: 'No photo found for student in database.' });
+        }
+        res.json({ success: true, photoBase64: photo });
+    } catch (e) {
+        console.error('[API] get photo error:', e);
         res.status(500).json({ success: false, error: e.message });
     }
 });

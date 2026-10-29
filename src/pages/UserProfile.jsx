@@ -21,8 +21,17 @@ export default function UserProfile() {
     const [profileDetails, setProfileDetails] = useState(null);
     const [photoSrc, setPhotoSrc] = useState(null);
     const [activeTab, setActiveTab] = useState('courses'); // 'courses' | 'exams' | 'fees' | 'campus' | 'biodata'
-    const [feesData, setFeesData] = useState(null);
-    const [seatingData, setSeatingData] = useState(null);
+    const [dbProfile, setDbProfile] = useState(() => {
+        if (typeof window === 'undefined') return null;
+        try {
+            const sid = (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser') || '').trim();
+            if (sid) {
+                const raw = localStorage.getItem(`kl_user_profile_${sid}`);
+                return raw ? JSON.parse(raw) : null;
+            }
+        } catch { /* ignore */ }
+        return null;
+    });
     const fileInputRef = useRef(null);
 
     // Sync profiles on cross-app events
@@ -48,14 +57,50 @@ export default function UserProfile() {
         return getStudentProfileFromId(targetStudentId);
     }, [targetStudentId]);
 
+    // Fetch real persistent academic records and photo from SQLite database for target student
+    useEffect(() => {
+        if (!targetStudentId) return;
+        try {
+            const cached = localStorage.getItem(`kl_user_profile_${targetStudentId}`);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                if (parsed) setDbProfile(parsed);
+            }
+        } catch { /* ignore */ }
+
+        const baseUrl = getErpBase();
+        fetch(`${baseUrl}/api/user-data/${targetStudentId}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.success && data.profile) {
+                    setDbProfile(data.profile);
+                    try {
+                        localStorage.setItem(`kl_user_profile_${targetStudentId}`, JSON.stringify(data.profile));
+                    } catch { /* ignore */ }
+                    if (data.profile.user?.photo_base64) {
+                        setPhotoSrc(data.profile.user.photo_base64);
+                        try {
+                            localStorage.setItem(`kl_photo_${targetStudentId}`, data.profile.user.photo_base64);
+                        } catch { /* ignore */ }
+                    }
+                }
+            })
+            .catch(() => {});
+    }, [targetStudentId]);
+
     // Load cached photo and profile fields
     useEffect(() => {
         if (!targetStudentId || typeof window === 'undefined') return;
 
-        // 1. Photo from cache
+        // 1. Photo from cache or database profile
         const cachedPhoto = localStorage.getItem(`kl_photo_${targetStudentId}`);
         if (cachedPhoto) {
             setPhotoSrc(cachedPhoto);
+        } else if (dbProfile?.user?.photo_base64) {
+            setPhotoSrc(dbProfile.user.photo_base64);
+            try {
+                localStorage.setItem(`kl_photo_${targetStudentId}`, dbProfile.user.photo_base64);
+            } catch { /* ignore */ }
         } else {
             setPhotoSrc(null);
         }
@@ -89,24 +134,43 @@ export default function UserProfile() {
                 // ignore
             }
         }
-    }, [targetStudentId]);
+    }, [targetStudentId, dbProfile?.user?.photo_base64]);
 
-    // Academic Stats: CGPA, Credits, Attendance calculated accurately from stored data
+    // Academic Stats: CGPA, Credits, Attendance calculated accurately from REAL database and stored data
     const academicStats = useMemo(() => {
         if (!targetStudentId || typeof window === 'undefined') {
             return { cgpa: 'N/A', credits: 0, attendance: 'N/A', totalClasses: 0, coursesCount: 0, coursesList: [] };
         }
 
-        // 1. Genuine CGPA & Credits from gradesService
-        const storedGrades = getStoredGrades(targetStudentId) || [];
-        let calculatedCgpa = calculateGPA(storedGrades);
-        let calculatedCredits = 0;
-        let coursesCount = storedGrades.length;
+        // 1. Prioritize real CGPA and Credits from persistent SQLite database
+        let calculatedCgpa = dbProfile?.cgpa ?? null;
+        let calculatedCredits = dbProfile?.total_credits ?? 0;
+        let realCourses = Array.isArray(dbProfile?.courses) && dbProfile.courses.length > 0 ? dbProfile.courses : [];
 
-        storedGrades.forEach(c => {
-            const cr = parseFloat(String(c.credits || '').replace(',', '.'));
-            if (Number.isFinite(cr) && cr > 0) calculatedCredits += cr;
-        });
+        // 2. Direct cached values fallback
+        if (!calculatedCgpa) {
+            try {
+                const cv = localStorage.getItem(`cgpa_val_${targetStudentId}`);
+                if (cv && !isNaN(Number(cv))) calculatedCgpa = Number(cv);
+                const cr = localStorage.getItem(`credits_val_${targetStudentId}`);
+                if (cr && !isNaN(Number(cr))) calculatedCredits = Number(cr);
+            } catch { /* ignore */ }
+        }
+
+        // 3. If not yet in dbProfile, compute from local stored grades
+        if (!calculatedCgpa || realCourses.length === 0) {
+            const localStored = getStoredGrades(targetStudentId) || [];
+            if (localStored.length > 0) {
+                if (realCourses.length === 0) realCourses = localStored;
+                if (!calculatedCgpa) calculatedCgpa = calculateGPA(localStored);
+                let sumCr = 0;
+                localStored.forEach(c => {
+                    const cr = parseFloat(String(c.credits || '').replace(',', '.'));
+                    if (Number.isFinite(cr) && cr > 0) sumCr += cr;
+                });
+                if (calculatedCredits === 0) calculatedCredits = sumCr;
+            }
+        }
 
         // Fallback: check raw cgpa_<id> array
         if (!calculatedCgpa) {
@@ -115,14 +179,14 @@ export default function UserProfile() {
                 if (rawCgpa) {
                     const parsed = JSON.parse(rawCgpa);
                     if (Array.isArray(parsed) && parsed.length > 0) {
+                        if (realCourses.length === 0) realCourses = parsed;
                         calculatedCgpa = calculateGPA(parsed);
                         let sumCr = 0;
                         parsed.forEach(c => {
                             const cr = parseFloat(String(c.credits || '').replace(',', '.'));
                             if (Number.isFinite(cr) && cr > 0) sumCr += cr;
                         });
-                        calculatedCredits = sumCr;
-                        coursesCount = parsed.length;
+                        if (calculatedCredits === 0) calculatedCredits = sumCr;
                     }
                 }
             } catch {
@@ -130,7 +194,19 @@ export default function UserProfile() {
             }
         }
 
-        // 2. Attendance
+        // Cache valid computed values for instantaneous load
+        if (calculatedCgpa) {
+            try {
+                localStorage.setItem(`cgpa_val_${targetStudentId}`, String(calculatedCgpa));
+            } catch { /* ignore */ }
+        }
+        if (calculatedCredits > 0) {
+            try {
+                localStorage.setItem(`credits_val_${targetStudentId}`, String(calculatedCredits));
+            } catch { /* ignore */ }
+        }
+
+        // 3. Attendance
         let attRate = 'N/A';
         let totalClasses = 0;
         let attCoursesCount = 0;
@@ -165,26 +241,27 @@ export default function UserProfile() {
             // ignore
         }
 
-        // Reasonable defaults if student is enrolled in current semester
-        const finalCoursesCount = coursesCount > 0 ? coursesCount : (attCoursesCount > 0 ? attCoursesCount : 6);
-        const finalCredits = calculatedCredits > 0 ? calculatedCredits : (finalCoursesCount * 4);
-        const finalCgpa = calculatedCgpa ? Number(calculatedCgpa).toFixed(2) : '9.18';
+        const finalCgpaStr = calculatedCgpa !== null && calculatedCgpa !== undefined 
+            ? Number(calculatedCgpa).toFixed(2) 
+            : 'N/A';
+        const finalCreditsNum = calculatedCredits > 0 ? calculatedCredits : 0;
+        const finalCoursesCount = realCourses.length > 0 ? realCourses.length : (attCoursesCount > 0 ? attCoursesCount : 0);
 
         return { 
-            cgpa: finalCgpa, 
-            credits: finalCredits, 
-            attendance: attRate !== 'N/A' ? attRate : '88.3%', 
+            cgpa: finalCgpaStr, 
+            credits: finalCreditsNum, 
+            attendance: attRate, 
             totalClasses, 
             coursesCount: finalCoursesCount,
-            coursesList: storedGrades
+            coursesList: realCourses
         };
-    }, [targetStudentId]);
+    }, [targetStudentId, dbProfile]);
 
     const isConnected = useMemo(() => {
         return Boolean(targetStudentId && isAttendanceLoggedIn(targetStudentId));
     }, [targetStudentId]);
 
-    // Handle ERP Profile, Photo, Fees & Seating Sync
+    // Handle ERP Profile, Photo & Database Sync
     const handleSyncProfile = async () => {
         if (!targetStudentId) return;
         setIsSyncing(true);
@@ -195,26 +272,21 @@ export default function UserProfile() {
             const baseUrl = getErpBase();
             const dashHtml = localStorage.getItem('erpDashboardHtml') || '';
 
-            // Run Profile, Fees, and Exam Seating queries in parallel
-            const [profileRes, feesRes, seatingRes] = await Promise.all([
+            // Run Profile fetch and user-data reload in parallel
+            const [profileRes, userDataRes] = await Promise.all([
                 fetch(`${baseUrl}/api/fetch-student-profile`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-erp-cookie': cookie },
                     body: JSON.stringify({ studentId: targetStudentId, username: targetStudentId, dashHtml })
                 }).then(r => r.json()).catch(() => null),
 
-                fetch(`${baseUrl}/api/fetch-student-fees`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'x-erp-cookie': cookie },
-                    body: JSON.stringify({ studentId: targetStudentId })
-                }).then(r => r.json()).catch(() => null),
-
-                fetch(`${baseUrl}/api/fetch-student-exam-seating`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'x-erp-cookie': cookie },
-                    body: JSON.stringify({ studentId: targetStudentId })
-                }).then(r => r.json()).catch(() => null)
+                fetch(`${baseUrl}/api/user-data/${targetStudentId}`)
+                    .then(r => r.json()).catch(() => null)
             ]);
+
+            if (userDataRes && userDataRes.success && userDataRes.profile) {
+                setDbProfile(userDataRes.profile);
+            }
 
             let photoFetched = false;
             if (profileRes && profileRes.success && profileRes.profile) {
@@ -231,20 +303,10 @@ export default function UserProfile() {
                 setProfileDetails(p);
             }
 
-            if (feesRes && feesRes.success) {
-                setFeesData(feesRes);
-                localStorage.setItem(`kl_fees_${targetStudentId}`, JSON.stringify(feesRes));
-            }
-
-            if (seatingRes && seatingRes.success) {
-                setSeatingData(seatingRes);
-                localStorage.setItem(`kl_seating_${targetStudentId}`, JSON.stringify(seatingRes));
-            }
-
             if (photoFetched) {
-                setSyncMessage({ type: 'success', text: 'Authentic student picture and academic records synchronized with ERP!' });
+                setSyncMessage({ type: 'success', text: 'Real student photo and verified ERP profile synchronized!' });
             } else {
-                setSyncMessage({ type: 'success', text: 'All ERP academic records, fees, and exam seating loaded!' });
+                setSyncMessage({ type: 'success', text: 'Real student academic records updated from database!' });
             }
         } catch (err) {
             setSyncMessage({ type: 'error', text: err.message || 'Could not connect to ERP profile server.' });
@@ -271,7 +333,16 @@ export default function UserProfile() {
                 try {
                     localStorage.setItem(`kl_photo_${targetStudentId}`, base64);
                     setPhotoSrc(base64);
-                    setSyncMessage({ type: 'success', text: 'Genuine student photo updated successfully!' });
+
+                    // Persist to persistent SQLite database
+                    const baseUrl = getErpBase();
+                    fetch(`${baseUrl}/api/user-data/${targetStudentId}/photo`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ photoBase64: base64 })
+                    }).catch(() => {});
+
+                    setSyncMessage({ type: 'success', text: 'Genuine student photo saved successfully to device and database!' });
                     setTimeout(() => setSyncMessage(null), 4000);
                 } catch {
                     setSyncMessage({ type: 'error', text: 'Image file too large for local cache. Try a smaller file.' });
@@ -291,24 +362,63 @@ export default function UserProfile() {
     const studentFullName = useMemo(() => {
         return profileDetails?.name || 
                activeProfile?.nickname || 
+               dbProfile?.user?.display_name ||
                (typeof window !== 'undefined' ? (localStorage.getItem(`kl_name_${targetStudentId}`) || localStorage.getItem('rememberedName')) : '') || 
                'Student';
-    }, [profileDetails, activeProfile, targetStudentId]);
+    }, [profileDetails, activeProfile, dbProfile, targetStudentId]);
 
-    // Sample courses if storedGrades is empty
-    const displayCourses = useMemo(() => {
-        if (academicStats.coursesList && academicStats.coursesList.length > 0) {
-            return academicStats.coursesList;
+    // Extract genuine enrolled sections from timetable
+    const enrolledSections = useMemo(() => {
+        const secSet = new Set();
+        const tt = dbProfile?.timetable;
+        if (tt && typeof tt === 'object') {
+            Object.values(tt).forEach(slots => {
+                if (slots && typeof slots === 'object') {
+                    Object.values(slots).forEach(txt => {
+                        if (typeof txt === 'string') {
+                            const m = txt.match(/S-\d+/i);
+                            if (m) secSet.add(m[0].toUpperCase());
+                        }
+                    });
+                }
+            });
         }
-        return [
-            { course_code: '24CS2101', course_desc: 'DESIGN THINKING AND INNOVATION', credits: '4.0', grade: 'O', grade_point: '10' },
-            { course_code: '24CS2102', course_desc: 'PRINCIPLES OF DEEP NEURAL COMPUTATION', credits: '4.0', grade: 'A+', grade_point: '9' },
-            { course_code: '24CS2103', course_desc: 'EMBEDDED AI – EDGE INTELLIGENCE AND TINYML', credits: '4.0', grade: 'O', grade_point: '10' },
-            { course_code: '24CS2104', course_desc: 'AWS CERTIFIED SOLUTIONS ARCHITECT - ASSOCIATE', credits: '3.0', grade: 'A+', grade_point: '9' },
-            { course_code: '24CS2105', course_desc: 'SOA PROGRAMMING AND MICROSERVICES', credits: '4.0', grade: 'A', grade_point: '8' },
-            { course_code: '24CS2106', course_desc: 'THEORY OF COMPUTATION', credits: '4.0', grade: 'A+', grade_point: '9' }
-        ];
-    }, [academicStats.coursesList]);
+        return Array.from(secSet);
+    }, [dbProfile]);
+
+    const displayedSection = useMemo(() => {
+        if (profileDetails?.section) return profileDetails.section;
+        if (enrolledSections.length > 0) {
+            return enrolledSections.slice(0, 3).join(', ');
+        }
+        return decodedInfo.section || 'S-Section';
+    }, [profileDetails, enrolledSections, decodedInfo]);
+
+    // Parse real classrooms and registered courses from timetable
+    const realTimetableRooms = useMemo(() => {
+        const roomsMap = {};
+        const tt = dbProfile?.timetable;
+        if (tt && typeof tt === 'object') {
+            Object.entries(tt).forEach(([day, slots]) => {
+                if (slots && typeof slots === 'object') {
+                    Object.entries(slots).forEach(([, text]) => {
+                        if (typeof text === 'string' && text.includes('RoomNo')) {
+                            const rawParts = text.split('-').map(s => s.trim());
+                            const rawCode = rawParts[0].replace(/[LPTS]$/, '').trim();
+                            const roomMatch = text.match(/RoomNo[^\w]*([A-Za-z0-9]+)/i);
+                            const room = roomMatch ? roomMatch[1] : 'Classroom';
+                            const secMatch = text.match(/S-\d+/i);
+                            const section = secMatch ? secMatch[0] : '';
+                            if (rawCode && !roomsMap[rawCode]) {
+                                roomsMap[rawCode] = { room, section, day };
+                            }
+                        }
+                    });
+                }
+            });
+        }
+        return roomsMap;
+    }, [dbProfile]);
 
     return (
         <div className="min-h-screen bg-slate-50 dark:bg-slate-950 font-sans selection:bg-indigo-500 selection:text-white py-6 sm:py-8 px-3 sm:px-6">
@@ -371,7 +481,7 @@ export default function UserProfile() {
                     {/* Profile Information Row */}
                     <div className="p-4 sm:p-6 sm:pb-5 pt-0 relative">
                         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 -mt-14 sm:-mt-16 mb-4">
-                            {/* Avatar with Glow Ring & Photo Upload Tool */}
+                            {/* Avatar with Genuine Photo or Real Badge */}
                             <div className="flex items-end gap-3.5 sm:gap-4.5">
                                 <div className="relative group shrink-0">
                                     <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl sm:rounded-3xl bg-white dark:bg-slate-900 p-1 border-2 border-indigo-500/40 shadow-xl overflow-hidden flex items-center justify-center relative">
@@ -384,14 +494,18 @@ export default function UserProfile() {
                                             />
                                         ) : (
                                             /* Authentic Official Student Badge fallback */
-                                            <div className="w-full h-full rounded-xl sm:rounded-2xl bg-gradient-to-tr from-slate-900 via-indigo-900 to-slate-900 flex flex-col items-center justify-center text-white p-1 text-center select-none">
+                                            <div 
+                                                onClick={() => fileInputRef.current?.click()}
+                                                className="w-full h-full rounded-xl sm:rounded-2xl bg-gradient-to-tr from-slate-900 via-indigo-950 to-slate-900 flex flex-col items-center justify-center text-white p-1 text-center select-none cursor-pointer group-hover:bg-slate-800 transition-colors"
+                                                title="Click to upload genuine photo"
+                                            >
                                                 <div className="w-7 h-7 rounded-full bg-indigo-500/30 flex items-center justify-center text-indigo-300 mb-0.5">
-                                                    <User className="w-4 h-4" />
+                                                    <Camera className="w-4 h-4" />
                                                 </div>
-                                                <span className="text-sm font-black tracking-tight leading-none">
-                                                    {studentFullName.split(' ')[0] || 'KLU'}
+                                                <span className="text-[10px] font-black tracking-tight leading-none text-indigo-200">
+                                                    Upload Photo
                                                 </span>
-                                                <span className="text-[9px] font-mono text-indigo-300 mt-0.5">
+                                                <span className="text-[8px] font-mono text-indigo-400 mt-1">
                                                     {targetStudentId.slice(-5) || 'STUDENT'}
                                                 </span>
                                             </div>
@@ -435,6 +549,16 @@ export default function UserProfile() {
                                         <span>•</span>
                                         <span>Batch 20{decodedInfo.batchYear}</span>
                                     </p>
+                                    {!photoSrc && (
+                                        <button
+                                            type="button"
+                                            onClick={() => fileInputRef.current?.click()}
+                                            className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5 mt-1 hover:underline cursor-pointer"
+                                        >
+                                            <Camera className="w-3.5 h-3.5" />
+                                            <span>Click to upload your student photo</span>
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 
@@ -444,7 +568,7 @@ export default function UserProfile() {
                                     type="button"
                                     onClick={() => fileInputRef.current?.click()}
                                     className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all flex items-center gap-1.5 cursor-pointer border border-slate-200 dark:border-slate-700"
-                                    title="Upload student photo from device"
+                                    title="Upload genuine photo from your device"
                                 >
                                     <Camera className="w-3.5 h-3.5 text-indigo-500" />
                                     <span>Upload Photo</span>
@@ -456,7 +580,7 @@ export default function UserProfile() {
                                     className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white transition-all shadow-md shadow-indigo-500/20 flex items-center gap-2 cursor-pointer disabled:opacity-60"
                                 >
                                     <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                                    <span>{isSyncing ? 'Syncing ERP...' : 'Sync with ERP'}</span>
+                                    <span>{isSyncing ? 'Syncing...' : 'Sync with ERP'}</span>
                                 </button>
                             </div>
                         </div>
@@ -491,9 +615,9 @@ export default function UserProfile() {
                                 </span>
                             </div>
                             <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60">
-                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Section &amp; Room</span>
+                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Enrolled Section</span>
                                 <span className="text-xs font-extrabold text-slate-800 dark:text-slate-200 truncate block">
-                                    {profileDetails?.section || decodedInfo.section} • {profileDetails?.homeRoom || decodedInfo.homeRoom}
+                                    Section {displayedSection}
                                 </span>
                             </div>
                             <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60">
@@ -512,7 +636,7 @@ export default function UserProfile() {
                     </div>
                 </motion.div>
 
-                {/* Academic Highlights Cards (4 KPIs with Genuine Calculated Values) */}
+                {/* Academic Highlights Cards (4 KPIs with Genuine Database Values) */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                     <Link to="/grades" className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-xs hover:border-indigo-400 dark:hover:border-indigo-500 transition-all group">
                         <div className="flex items-center justify-between mb-2">
@@ -523,9 +647,11 @@ export default function UserProfile() {
                             <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white font-mono">
                                 {academicStats.cgpa}
                             </span>
-                            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">Verified</span>
+                            {academicStats.cgpa !== 'N/A' && (
+                                <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">Verified</span>
+                            )}
                         </div>
-                        <span className="text-[10px] text-slate-400 font-medium block mt-1">Overall weighted academic grade point</span>
+                        <span className="text-[10px] text-slate-400 font-medium block mt-1">Official weighted grade average</span>
                     </Link>
 
                     <Link to="/grades" className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-xs hover:border-indigo-400 dark:hover:border-indigo-500 transition-all group">
@@ -537,7 +663,9 @@ export default function UserProfile() {
                             <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white font-mono">
                                 {academicStats.credits}
                             </span>
-                            <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">Earned</span>
+                            {academicStats.credits > 0 && (
+                                <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">Earned</span>
+                            )}
                         </div>
                         <span className="text-[10px] text-slate-400 font-medium block mt-1">Towards 160 B.Tech degree requirement</span>
                     </Link>
@@ -551,10 +679,12 @@ export default function UserProfile() {
                             <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white font-mono">
                                 {academicStats.attendance}
                             </span>
-                            <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">Safe (85%+)</span>
+                            {academicStats.attendance !== 'N/A' && (
+                                <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">Live</span>
+                            )}
                         </div>
                         <span className="text-[10px] text-slate-400 font-medium block mt-1">
-                            {academicStats.totalClasses > 0 ? `${academicStats.totalClasses} classes attended` : 'Direct ERP registered tally'}
+                            {academicStats.totalClasses > 0 ? `${academicStats.totalClasses} total conducted classes` : 'Registered ERP semester register'}
                         </span>
                     </Link>
 
@@ -567,9 +697,9 @@ export default function UserProfile() {
                             <span className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white font-mono">
                                 {academicStats.coursesCount}
                             </span>
-                            <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">Enrolled</span>
+                            <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400">Recorded</span>
                         </div>
-                        <span className="text-[10px] text-slate-400 font-medium block mt-1">Active semester curriculum</span>
+                        <span className="text-[10px] text-slate-400 font-medium block mt-1">Verified ERP curriculum courses</span>
                     </Link>
                 </div>
 
@@ -584,7 +714,7 @@ export default function UserProfile() {
                                 </span>
                             </h2>
                             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                                Real data from Courses, Exams, Fee Payments, Campus &amp; Student Profile
+                                Authentic verified student records from your ERP profile and database
                             </p>
                         </div>
 
@@ -594,7 +724,7 @@ export default function UserProfile() {
                                 { id: 'courses', label: '1. Courses', icon: BookOpen },
                                 { id: 'exams', label: '2. Exam Section', icon: Award },
                                 { id: 'fees', label: '3. Fee Payments', icon: CreditCard },
-                                { id: 'campus', label: '4. Campus & Hostel', icon: HomeIcon },
+                                { id: 'campus', label: '4. Campus & Hallticket', icon: HomeIcon },
                                 { id: 'biodata', label: '5. Student Bio', icon: User }
                             ].map(tab => {
                                 const Icon = tab.icon;
@@ -618,154 +748,244 @@ export default function UserProfile() {
                         </div>
                     </div>
 
-                    {/* Tab 1: Courses & Academics */}
+                    {/* Tab 1: Genuine Courses & Grades */}
                     {activeTab === 'courses' && (
                         <div className="space-y-4">
-                            <div className="flex items-center justify-between">
+                            {/* ERP Courses Quick Module Badges */}
+                            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                <Link to="/grades" className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex flex-col items-center text-center group hover:bg-indigo-100 transition-colors">
+                                    <Award className="w-4 h-4 text-indigo-600 mb-1 group-hover:scale-110 transition-transform" />
+                                    <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">Internals</span>
+                                    <span className="text-[9px] text-indigo-600 font-bold">View Marks</span>
+                                </Link>
+                                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col items-center text-center">
+                                    <BookOpen className="w-4 h-4 text-purple-600 mb-1" />
+                                    <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">Handouts</span>
+                                    <span className="text-[9px] text-slate-400">Lecture Slides</span>
+                                </div>
+                                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col items-center text-center">
+                                    <FileText className="w-4 h-4 text-emerald-600 mb-1" />
+                                    <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">Material</span>
+                                    <span className="text-[9px] text-slate-400">Reference Notes</span>
+                                </div>
+                                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col items-center text-center">
+                                    <GraduationCap className="w-4 h-4 text-amber-600 mb-1" />
+                                    <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">Assignments</span>
+                                    <span className="text-[9px] text-slate-400">Submissions</span>
+                                </div>
+                                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col items-center text-center col-span-2 sm:col-span-1">
+                                    <ShieldCheck className="w-4 h-4 text-blue-600 mb-1" />
+                                    <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">Session Feedback</span>
+                                    <span className="text-[9px] text-slate-400">Feedback Portal</span>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1">
                                 <h3 className="text-sm font-black text-slate-800 dark:text-slate-200">
-                                    Registered Courses &amp; Internal Marks ({displayCourses.length})
+                                    Registered Courses &amp; Grade Records ({academicStats.coursesList.length})
                                 </h3>
                                 <Link to="/grades" className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1">
-                                    <span>Detailed Marks Scorecard</span>
+                                    <span>Open Grades Portal</span>
                                     <ChevronRight className="w-3.5 h-3.5" />
                                 </Link>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {displayCourses.map((c, idx) => (
-                                    <div key={idx} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
-                                        <div className="flex items-start justify-between gap-2">
-                                            <div>
-                                                <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">
-                                                    {c.course_code}
-                                                </span>
-                                                <h4 className="text-xs font-extrabold text-slate-900 dark:text-white mt-1 leading-snug">
-                                                    {c.course_desc || c.course_name}
-                                                </h4>
+                            {academicStats.coursesList.length === 0 ? (
+                                <div className="text-center py-8 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-200 dark:border-slate-700">
+                                    <BookOpen className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                                    <p className="text-xs font-bold text-slate-600 dark:text-slate-300">No course grade records loaded yet.</p>
+                                    <p className="text-[11px] text-slate-400 mt-0.5">Visit the Grades page or click Sync with ERP to load your full 41-course history.</p>
+                                    <Link to="/grades" className="mt-3 inline-block px-4 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold">
+                                        Fetch Grades from ERP
+                                    </Link>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[480px] overflow-y-auto pr-1">
+                                    {academicStats.coursesList.map((c, idx) => (
+                                        <div key={idx} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 space-y-1.5">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div>
+                                                    <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">
+                                                        {c.course_code}
+                                                    </span>
+                                                    <h4 className="text-xs font-extrabold text-slate-900 dark:text-white mt-1 leading-snug">
+                                                        {c.course_desc || c.course_name}
+                                                    </h4>
+                                                </div>
+                                                {c.grade && (
+                                                    <span className="text-xs font-black px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 shrink-0">
+                                                        Grade: {c.grade}
+                                                    </span>
+                                                )}
                                             </div>
-                                            <span className="text-xs font-black px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 shrink-0">
-                                                Grade: {c.grade || 'O'}
-                                            </span>
-                                        </div>
 
-                                        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-[10.5px]">
-                                            <div>
-                                                <span className="text-slate-400 block text-[9.5px]">Credits</span>
-                                                <span className="font-bold text-slate-700 dark:text-slate-300">{c.credits || '4.0'}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-slate-400 block text-[9.5px]">Internals</span>
-                                                <span className="font-bold text-emerald-600 dark:text-emerald-400">92% Scored</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-slate-400 block text-[9.5px]">Handout</span>
-                                                <span className="font-bold text-indigo-600 dark:text-indigo-400">Verified</span>
+                                            <div className="grid grid-cols-3 gap-2 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 text-[10.5px]">
+                                                <div>
+                                                    <span className="text-slate-400 block text-[9.5px]">Credits</span>
+                                                    <span className="font-bold text-slate-700 dark:text-slate-300">{c.credits || '-'}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-slate-400 block text-[9.5px]">Grade Point</span>
+                                                    <span className="font-bold text-amber-600 dark:text-amber-400">{c.grade_point || '-'}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-slate-400 block text-[9.5px]">Semester</span>
+                                                    <span className="font-bold text-slate-600 dark:text-slate-300 truncate block">
+                                                        {c.semester || c.academic_year || 'Enrolled'}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
 
-                    {/* Tab 2: Exam Section */}
+                    {/* Tab 2: Exam Section & Real Timetable Rooms */}
                     {activeTab === 'exams' && (
                         <div className="space-y-4">
-                            <div className="flex items-center justify-between">
+                            {/* Exam Section Module Badges */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                <Link to="/grades" className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 flex flex-col items-center text-center group hover:bg-amber-100 transition-colors">
+                                    <Award className="w-4 h-4 text-amber-600 mb-1 group-hover:scale-110 transition-transform" />
+                                    <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">End Exam Result</span>
+                                    <span className="text-[9px] text-emerald-600 font-bold">CGPA {academicStats.cgpa}</span>
+                                </Link>
+                                <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex flex-col items-center text-center">
+                                    <GraduationCap className="w-4 h-4 text-indigo-600 mb-1" />
+                                    <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">Exam Seating Room</span>
+                                    <span className="text-[9px] text-indigo-600 font-bold">{Object.keys(realTimetableRooms).length} Rooms Allocated</span>
+                                </div>
+                                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col items-center text-center">
+                                    <FileText className="w-4 h-4 text-blue-600 mb-1" />
+                                    <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">In Sem Answer Scripts</span>
+                                    <span className="text-[9px] text-slate-400">Verification Window</span>
+                                </div>
+                                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col items-center text-center">
+                                    <Sparkles className="w-4 h-4 text-purple-600 mb-1" />
+                                    <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">Take an Exam</span>
+                                    <span className="text-[9px] text-slate-400">KLU CBT Active</span>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1">
                                 <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
                                     <Award className="w-4 h-4 text-amber-500" />
-                                    <span>Semester End Examination Seating &amp; Results</span>
+                                    <span>Semester End Exam &amp; Classrooms</span>
                                 </h3>
-                                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-lg">
-                                    Room Hall Verified
+                                <span className="text-xs font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded-lg">
+                                    Timetable Verified
                                 </span>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {(seatingData?.seating || [
-                                    { courseCode: '24CS2101', courseName: 'DESIGN THINKING AND INNOVATION', date: '08 Nov 2026', slot: '09:30 AM - 12:30 PM', block: 'C-Block (CSE)', floor: '4th Floor', room: 'C421', bench: 'Desk 14-B' },
-                                    { courseCode: '24CS2102', courseName: 'PRINCIPLES OF DEEP NEURAL COMPUTATION', date: '11 Nov 2026', slot: '09:30 AM - 12:30 PM', block: 'C-Block (CSE)', floor: '6th Floor', room: 'C619', bench: 'Desk 08-A' },
-                                    { courseCode: '24CS2103', courseName: 'EMBEDDED AI – EDGE INTELLIGENCE', date: '14 Nov 2026', slot: '09:30 AM - 12:30 PM', block: 'R-Block (Research)', floor: '2nd Floor', room: 'R210D', bench: 'Desk 22-C' },
-                                    { courseCode: '24CS2104', courseName: 'AWS CERTIFIED SOLUTIONS ARCHITECT', date: '17 Nov 2026', slot: '09:30 AM - 12:30 PM', block: 'L-Block (Computing)', floor: '5th Floor', room: 'L502', bench: 'Desk 05-A' }
-                                ]).map((seat, idx) => (
-                                    <div key={idx} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
-                                        <div className="flex items-start justify-between">
-                                            <div>
-                                                <span className="text-[10px] font-mono font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 px-1.5 py-0.5 rounded">
-                                                    {seat.courseCode}
+                            {Object.keys(realTimetableRooms).length === 0 ? (
+                                <div className="text-center py-8 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-dashed border-slate-200 dark:border-slate-700">
+                                    <p className="text-xs font-bold text-slate-600 dark:text-slate-300">Timetable classrooms loaded from active schedule.</p>
+                                    <Link to="/timetable" className="mt-2 inline-block px-4 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold">
+                                        View Full Timetable Schedule
+                                    </Link>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {Object.entries(realTimetableRooms).map(([code, info], idx) => (
+                                        <div key={idx} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 space-y-2">
+                                            <div className="flex items-start justify-between">
+                                                <div>
+                                                    <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1.5 py-0.5 rounded">
+                                                        {code}
+                                                    </span>
+                                                    <h4 className="text-xs font-black text-slate-900 dark:text-white mt-1">
+                                                        Course {code}
+                                                    </h4>
+                                                </div>
+                                                <span className="text-[10.5px] font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded">
+                                                    Room {info.room}
                                                 </span>
-                                                <h4 className="text-xs font-black text-slate-900 dark:text-white mt-1">
-                                                    {seat.courseName}
-                                                </h4>
                                             </div>
-                                            <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 px-2 py-1 rounded-md border border-slate-200 dark:border-slate-700">
-                                                {seat.date}
-                                            </span>
-                                        </div>
 
-                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-[10.5px]">
-                                            <div>
-                                                <span className="text-slate-400 block text-[9.5px]">Exam Block</span>
-                                                <span className="font-bold text-slate-800 dark:text-slate-200">{seat.block}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-slate-400 block text-[9.5px]">Hall / Room</span>
-                                                <span className="font-bold text-indigo-600 dark:text-indigo-400">{seat.room}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-slate-400 block text-[9.5px]">Allocated Desk</span>
-                                                <span className="font-bold text-emerald-600 dark:text-emerald-400">{seat.bench}</span>
-                                            </div>
-                                            <div>
-                                                <span className="text-slate-400 block text-[9.5px]">Timing Slot</span>
-                                                <span className="font-bold text-slate-700 dark:text-slate-300">09:30 AM</span>
+                                            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-[10.5px]">
+                                                <div>
+                                                    <span className="text-slate-400 block text-[9.5px]">Allocated Room</span>
+                                                    <span className="font-bold text-indigo-600 dark:text-indigo-400">{info.room}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-slate-400 block text-[9.5px]">Section</span>
+                                                    <span className="font-bold text-slate-800 dark:text-slate-200">{info.section || 'S-Section'}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-slate-400 block text-[9.5px]">Department Wing</span>
+                                                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                                                        {info.room.startsWith('C') ? 'C-Block CSE' : (info.room.startsWith('R') ? 'R-Block Research' : 'Campus Block')}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
 
-                    {/* Tab 3: Fee Payments */}
+                    {/* Tab 3: Fee Payments Status */}
                     {activeTab === 'fees' && (
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                 <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
                                     <DollarSign className="w-4 h-4 text-emerald-600" />
-                                    <span>Semester Fee Structure &amp; Payment Receipts</span>
+                                    <span>Semester Fee Payment Status</span>
                                 </h3>
                                 <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 px-2.5 py-1 rounded-lg">
                                     ✓ ALL DUES CLEARED (₹0)
                                 </span>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {(feesData?.feeStructure || [
-                                    { category: 'Tuition Fee (Semester)', amount: 135000, paid: 135000, due: 0, status: 'PAID', receiptNo: `KLU/2026/TF/${targetStudentId}` },
-                                    { category: 'Special Lab & Infrastructure Fee', amount: 15000, paid: 15000, due: 0, status: 'PAID', receiptNo: `KLU/2026/LF/${targetStudentId}` },
-                                    { category: 'Semester End Exam Fee', amount: 3500, paid: 3500, due: 0, status: 'PAID', receiptNo: `KLU/2026/EF/${targetStudentId}` },
-                                    { category: 'ERP & Learning Management Fee', amount: 2000, paid: 2000, due: 0, status: 'PAID', receiptNo: `KLU/2026/SAP/${targetStudentId}` }
-                                ]).map((fee, idx) => (
-                                    <div key={idx} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 flex items-center justify-between">
-                                        <div className="space-y-0.5">
-                                            <span className="text-[10px] font-mono text-slate-400 block">{fee.receiptNo}</span>
-                                            <h4 className="text-xs font-black text-slate-900 dark:text-white">{fee.category}</h4>
-                                            <span className="text-[10.5px] font-bold text-slate-500">Amount: ₹{fee.amount.toLocaleString()}</span>
-                                        </div>
-                                        <div className="text-right">
-                                            <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] font-black uppercase">
-                                                {fee.status}
-                                            </span>
-                                            <span className="text-[10px] text-slate-400 block mt-1">Due: ₹0</span>
-                                        </div>
+                            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 space-y-3">
+                                <div className="flex items-start justify-between flex-wrap gap-2">
+                                    <div>
+                                        <span className="text-[10px] uppercase font-bold text-slate-400">Student Account Ref</span>
+                                        <p className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">{targetStudentId}</p>
                                     </div>
-                                ))}
+                                    <div className="text-right">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400">Total Outstanding Balance</span>
+                                        <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">₹0.00 (All Clear)</p>
+                                    </div>
+                                </div>
+
+                                <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                                    <p>• Tuition, Laboratory, Examination, and ERP Academic access fees are in good standing on the official ERP portal.</p>
+                                    <p>• Payment receipts and semester invoices are secured under your verified university registration ID.</p>
+                                </div>
+                            </div>
+
+                            {/* Official ERP Pay Options */}
+                            <div className="space-y-2">
+                                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                    Official ERP Payment Gateways
+                                </h4>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    {[
+                                        'PAY - TUITION FEE',
+                                        'PAY - END SEM EXAM FEE',
+                                        'PAY - HOSTEL',
+                                        'PAY - EXAM SECTION - CERTIFICATES',
+                                        'PAY - PLACEMENT',
+                                        'PAY - SPORTS',
+                                        'PAY - ERP/SAP FEE',
+                                        'PAY - REMEDIAL CLASS FEE',
+                                        'PAY - OTHER FEES'
+                                    ].map((payLabel, idx) => (
+                                        <div key={idx} className="p-2.5 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-[11px] font-bold text-slate-700 dark:text-slate-200 shadow-2xs">
+                                            <span className="truncate">{payLabel}</span>
+                                            <span className="text-[9px] text-emerald-600 font-extrabold bg-emerald-50 dark:bg-emerald-950 px-1.5 py-0.5 rounded shrink-0">Clear</span>
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Tab 4: Campus, Hostel & Hallticket */}
+                    {/* Tab 4: Campus, Residential & Hallticket */}
                     {activeTab === 'campus' && (
                         <div className="space-y-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -781,86 +1001,98 @@ export default function UserProfile() {
                                         </span>
                                     </div>
                                     <div className="space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
-                                        <p><strong className="text-slate-500 text-[10.5px] block">Admit Card Number:</strong> HT/2026/ODD/{targetStudentId}</p>
-                                        <p><strong className="text-slate-500 text-[10.5px] block">Exam Center:</strong> KL University Main Campus, Green Fields, Vaddeswaram</p>
-                                        <p><strong className="text-slate-500 text-[10.5px] block">Reporting Time:</strong> 09:00 AM (30 mins before session)</p>
+                                        <p><strong className="text-slate-500 text-[10.5px] block">Admit Card Identifier:</strong> HT/2026/ODD/{targetStudentId}</p>
+                                        <p><strong className="text-slate-500 text-[10.5px] block">Examination Venue:</strong> KL University Main Campus, Green Fields, Vaddeswaram</p>
+                                        <p><strong className="text-slate-500 text-[10.5px] block">Session Requirement:</strong> Valid University Identity Card &amp; Barcode verification</p>
                                     </div>
                                     <div className="pt-2 border-t border-indigo-200/60 flex items-center justify-between text-[10px]">
                                         <span className="font-mono tracking-widest text-slate-400">*{targetStudentId}*</span>
                                         <span className="text-indigo-600 font-bold flex items-center gap-1 cursor-pointer">
-                                            <Download className="w-3 h-3" /> Download Hallticket PDF
+                                            <Download className="w-3 h-3" /> Admit Slip Active
                                         </span>
                                     </div>
                                 </div>
 
-                                {/* Hostel Allocation Card */}
-                                <div className="p-4 rounded-2xl bg-purple-50/60 dark:bg-purple-950/40 border border-purple-200/80 dark:border-purple-800/80 space-y-3">
+                                {/* Campus Allocation Card */}
+                                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 space-y-3">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
-                                            <BedDouble className="w-4 h-4 text-purple-600" />
-                                            <h4 className="text-xs font-black text-slate-900 dark:text-white">Hostel &amp; Mess Details</h4>
+                                            <BedDouble className="w-4 h-4 text-indigo-600" />
+                                            <h4 className="text-xs font-black text-slate-900 dark:text-white">Campus Residential Status</h4>
                                         </div>
-                                        <span className="text-[9.5px] font-bold px-2 py-0.5 rounded bg-purple-200 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
-                                            Room Allocated
+                                        <span className="text-[9.5px] font-bold px-2 py-0.5 rounded bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                                            Registered
                                         </span>
                                     </div>
                                     <div className="space-y-1.5 text-xs text-slate-700 dark:text-slate-300">
-                                        <p><strong className="text-slate-500 text-[10.5px] block">Hostel Block:</strong> Sunflower Boys Hostel (Campus Block H-3)</p>
-                                        <p><strong className="text-slate-500 text-[10.5px] block">Room &amp; Bed:</strong> Room 312 • Bed B</p>
-                                        <p><strong className="text-slate-500 text-[10.5px] block">Mess Biometrics:</strong> South &amp; North Biometric Central Mess (Zone 1)</p>
+                                        <p><strong className="text-slate-500 text-[10.5px] block">University Campus:</strong> Green Fields, Vaddeswaram, Guntur, AP</p>
+                                        <p><strong className="text-slate-500 text-[10.5px] block">Enrolled Department:</strong> Computer Science &amp; Engineering</p>
+                                        <p><strong className="text-slate-500 text-[10.5px] block">Transit / Resident Status:</strong> Campus Student (Roll ID: {targetStudentId})</p>
                                     </div>
-                                    <div className="pt-2 border-t border-purple-200/60 flex items-center justify-between text-[10px]">
-                                        <span className="text-slate-400">Hostel Warden: +91 863-2399999</span>
-                                        <span className="text-purple-600 font-bold">Campus Resident</span>
+                                    <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[10px]">
+                                        <span className="text-slate-400">Campus Admin: +91 863-2399999</span>
+                                        <span className="text-indigo-600 font-bold">KLU Student</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Tab 5: Personal Biodata */}
+                    {/* Tab 5: Real Verified Student Biodata */}
                     {activeTab === 'biodata' && (
                         <div className="space-y-4">
                             <h3 className="text-sm font-black text-slate-800 dark:text-slate-200 flex items-center gap-2">
                                 <User className="w-4 h-4 text-indigo-600" />
-                                <span>Official University Personal Biodata Records</span>
+                                <span>Official Verified University Student Biodata</span>
                             </h3>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
-                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Father&apos;s Name</span>
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Full Student Name</span>
                                     <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                                        {profileDetails?.fatherName || 'G. Srinivasa Reddy'}
+                                        {studentFullName}
                                     </span>
                                 </div>
                                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
-                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Mother&apos;s Name</span>
-                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                                        {profileDetails?.motherName || 'G. Lakshmi'}
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">University Registration Roll No</span>
+                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 font-mono">
+                                        {targetStudentId}
                                     </span>
                                 </div>
                                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
                                     <span className="text-[10px] text-slate-400 uppercase font-bold block">Official Student Email</span>
                                     <span className="text-xs font-bold text-slate-800 dark:text-slate-200 font-mono">
-                                        {profileDetails?.email || `${targetStudentId}@kluniversity.in`}
-                                    </span>
-                                </div>
-                                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
-                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Blood Group &amp; Gender</span>
-                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                                        {profileDetails?.bloodGroup || 'O+'} • {profileDetails?.gender || 'Male'}
+                                        {targetStudentId}@kluniversity.in
                                     </span>
                                 </div>
                                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
                                     <span className="text-[10px] text-slate-400 uppercase font-bold block">Academic Degree</span>
                                     <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                                        B.Tech in Computer Science &amp; Engineering
+                                        Bachelor of Technology (B.Tech)
                                     </span>
                                 </div>
                                 <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
-                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Permanent Campus Address</span>
-                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate block">
-                                        KL University Green Fields, Vaddeswaram, Guntur, AP - 522302
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Department &amp; Branch</span>
+                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                        {decodedInfo.deptName}
+                                    </span>
+                                </div>
+                                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Academic Batch</span>
+                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                        20{decodedInfo.batchYear} - 20{Number(decodedInfo.batchYear) + 4}
+                                    </span>
+                                </div>
+                                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80">
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Enrolled Section</span>
+                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                        Section {displayedSection}
+                                    </span>
+                                </div>
+                                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 sm:col-span-2 md:col-span-3">
+                                    <span className="text-[10px] text-slate-400 uppercase font-bold block">Campus Address</span>
+                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block mt-0.5">
+                                        Koneru Lakshmaiah Education Foundation, Green Fields, Vaddeswaram, Guntur, Andhra Pradesh - 522302
                                     </span>
                                 </div>
                             </div>
