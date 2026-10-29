@@ -41,9 +41,16 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
 
     const handleDelete = (e, friendId) => {
         e.stopPropagation();
-        if (window.confirm('Are you sure you want to remove this saved friend profile?')) {
-            deleteFriend(friendId);
+        const targetId = friendId || '';
+        const prof = (targetId === 'main') ? myProfile : friends.find(f => f.id === targetId || f.studentId === targetId);
+        const sid = prof?.studentId || '';
+        const label = prof?.nickname || sid || (targetId === 'main' ? 'Primary Profile' : 'this profile');
+        if (window.confirm(`Are you sure you want to permanently delete ${label} (${sid || targetId})?\n\nAll saved timetable, CGPA, and attendance data will be permanently removed.`)) {
+            deleteFriend(targetId);
             setFriends(getSavedFriends());
+            if (targetId === 'main' && typeof onClose === 'function') {
+                onClose();
+            }
         }
     };
 
@@ -238,6 +245,14 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                                                 </p>
                                             </div>
                                         </div>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleDelete(e, 'main')}
+                                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer shrink-0"
+                                            title="Permanently delete profile"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
                                     </div>
 
                                     {/* Action Buttons: Timetable (No Captcha), CGPA (No Captcha), Attendance (Captcha) */}

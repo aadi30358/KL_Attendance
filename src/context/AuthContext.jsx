@@ -94,6 +94,15 @@ export function AuthProvider({ children }) {
 
         if (deleteData && targetId) {
             try {
+                try {
+                    const rawDel = localStorage.getItem('kl_deleted_friends');
+                    const delList = rawDel ? JSON.parse(rawDel) : [];
+                    if (targetId && !delList.includes(targetId)) delList.push(targetId);
+                    if (!delList.includes('main')) delList.push('main');
+                    if (targetId && !delList.includes(`friend_${targetId}`)) delList.push(`friend_${targetId}`);
+                    localStorage.setItem('kl_deleted_friends', JSON.stringify(delList));
+                } catch { /* ignore */ }
+
                 const keysToRemove = [];
                 for (let i = 0; i < localStorage.length; i++) {
                     const k = localStorage.key(i);
@@ -104,7 +113,13 @@ export function AuthProvider({ children }) {
                 keysToRemove.forEach(k => localStorage.removeItem(k));
                 localStorage.removeItem('original_my_id');
                 localStorage.removeItem('rememberedId');
+                localStorage.removeItem('rememberedPassword');
+                localStorage.removeItem('rememberedName');
+                localStorage.removeItem('userCredentials');
+                localStorage.removeItem('userCredentials_enc');
                 localStorage.removeItem('activeErpUser');
+                localStorage.removeItem('erp_username');
+                localStorage.removeItem('timetable_studentId');
                 localStorage.removeItem('userProfile');
                 localStorage.removeItem('kleData');
                 localStorage.removeItem('cgpa_data');

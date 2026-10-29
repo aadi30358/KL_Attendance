@@ -172,10 +172,12 @@ export default function ErpSidebar({
         setCaptchaTarget(profile);
     };
 
-    const handleDeleteFriend = (e, friendId) => {
+    const handleDeleteAccount = (e, profile) => {
         e.stopPropagation();
-        if (window.confirm('Are you sure you want to remove this saved friend profile?')) {
-            deleteFriend(friendId);
+        const sid = profile?.studentId || profile?.username || '';
+        const label = profile?.nickname || (profile?.id === 'main' ? 'Primary Account' : 'this account');
+        if (window.confirm(`Are you sure you want to permanently delete ${label} (${sid || profile?.id})?\n\nAll saved timetable, CGPA, and attendance data will be permanently removed.`)) {
+            deleteFriend(profile.id || sid);
             setAllProfiles(getAllProfiles());
             setActiveProfile(getActiveProfileDetails());
         }
@@ -356,16 +358,14 @@ export default function ErpSidebar({
                                                             Switch
                                                         </button>
                                                     )}
-                                                    {!isSelf && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={(e) => handleDeleteFriend(e, profile.id)}
-                                                            className="p-0.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                                                            title="Delete friend profile"
-                                                        >
-                                                            <Trash2 className="w-3 h-3" />
-                                                        </button>
-                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => handleDeleteAccount(e, profile)}
+                                                        className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                                        title={isSelf ? "Permanently delete account" : "Delete friend profile"}
+                                                    >
+                                                        <Trash2 className="w-3 h-3" />
+                                                    </button>
                                                 </div>
                                             </div>
 

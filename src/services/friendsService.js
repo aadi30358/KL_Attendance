@@ -194,9 +194,36 @@ export const getSavedFriends = () => {
 export const getMyProfile = () => {
     if (typeof window === 'undefined') return null;
     try {
+        let deletedList = [];
+        try {
+            const rawDel = localStorage.getItem('kl_deleted_friends');
+            if (rawDel) {
+                const parsed = JSON.parse(rawDel);
+                if (Array.isArray(parsed)) deletedList = parsed;
+            }
+        } catch { /* ignore */ }
+
         let myId = (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId') || '').trim();
         let rawName = localStorage.getItem('rememberedName') || '';
         let myPass = localStorage.getItem('rememberedPassword') || '';
+
+        // If myId was permanently deleted, purge all primary keys and reset myId to empty
+        if (myId && (deletedList.includes(myId) || deletedList.includes('main') || deletedList.includes(`friend_${myId}`))) {
+            try {
+                localStorage.removeItem('original_my_id');
+                localStorage.removeItem('rememberedId');
+                localStorage.removeItem('rememberedPassword');
+                localStorage.removeItem('rememberedName');
+                localStorage.removeItem('userCredentials');
+                localStorage.removeItem('userCredentials_enc');
+                localStorage.removeItem('activeErpUser');
+                localStorage.removeItem('erp_username');
+                localStorage.removeItem('timetable_studentId');
+            } catch { /* ignore */ }
+            myId = '';
+            myPass = '';
+            rawName = '';
+        }
 
         // Check legacy userCredentials if myId is still empty
         if (!myId) {
@@ -204,9 +231,12 @@ export const getMyProfile = () => {
                 const legacy = localStorage.getItem('userCredentials');
                 if (legacy) {
                     const parsed = JSON.parse(legacy);
-                    myId = (parsed.username || parsed.idNumber || parsed.studentId || '').trim();
-                    if (parsed.password && !myPass) myPass = encodePassword(parsed.password);
-                    if (parsed.name || parsed.nickname) rawName = parsed.name || parsed.nickname;
+                    const candId = (parsed.username || parsed.idNumber || parsed.studentId || '').trim();
+                    if (candId && !deletedList.includes(candId)) {
+                        myId = candId;
+                        if (parsed.password && !myPass) myPass = encodePassword(parsed.password);
+                        if (parsed.name || parsed.nickname) rawName = parsed.name || parsed.nickname;
+                    }
                 }
             } catch { /* ignore */ }
         }
@@ -214,7 +244,7 @@ export const getMyProfile = () => {
         // Check activeErpUser or erp_username or timetable_studentId
         if (!myId) {
             const candidate = (localStorage.getItem('activeErpUser') || localStorage.getItem('erp_username') || localStorage.getItem('timetable_studentId') || '').trim();
-            if (candidate && /^\d{5,}$/.test(candidate)) {
+            if (candidate && /^\d{5,}$/.test(candidate) && !deletedList.includes(candidate)) {
                 // Ensure candidate does not belong to a friend
                 const rawFriends = localStorage.getItem(FRIENDS_STORAGE_KEY);
                 let isFriend = false;
@@ -230,8 +260,8 @@ export const getMyProfile = () => {
             }
         }
 
-        // Defensively preserve recovered ID so it is never lost
-        if (myId) {
+        // Defensively preserve recovered ID so it is never lost, UNLESS it was deleted
+        if (myId && !deletedList.includes(myId)) {
             try {
                 if (!localStorage.getItem('original_my_id')) {
                     localStorage.setItem('original_my_id', myId);
@@ -246,8 +276,11 @@ export const getMyProfile = () => {
         if (customName) rawName = customName;
         const cleanName = customName || stripEmojis(rawName);
 
-        // Strictly return null if neither ID nor password is saved
+        // Strictly return null if neither ID nor password is saved, OR if deleted
         if (!myId && !myPass) {
+            return null;
+        }
+        if (myId && deletedList.includes(myId)) {
             return null;
         }
 
@@ -275,6 +308,18 @@ export const saveMyProfile = ({ nickname, studentId, password }) => {
 
     try {
         if (cleanId) {
+            // Remove from deleted list if re-saving
+            try {
+                const rawDel = localStorage.getItem('kl_deleted_friends');
+                if (rawDel) {
+                    let delList = JSON.parse(rawDel);
+                    if (Array.isArray(delList)) {
+                        delList = delList.filter(d => d !== cleanId && d !== `friend_${cleanId}` && d !== 'main');
+                        localStorage.setItem('kl_deleted_friends', JSON.stringify(delList));
+                    }
+                }
+            } catch { /* ignore */ }
+
             // Guard: Never save a friend's ID as my profile
             const friends = getSavedFriends();
             const isFriend = friends.some(f => f.studentId === cleanId && (f.nickname || '').toLowerCase() !== cleanNick.toLowerCase());
@@ -312,6 +357,18 @@ export const saveFriend = ({ id, nickname, studentId, password }) => {
     }
 
     try {
+        // Remove from deleted list if re-saving
+        try {
+            const rawDel = localStorage.getItem('kl_deleted_friends');
+            if (rawDel) {
+                let delList = JSON.parse(rawDel);
+                if (Array.isArray(delList)) {
+                    delList = delList.filter(d => d !== cleanId && d !== `friend_${cleanId}`);
+                    localStorage.setItem('kl_deleted_friends', JSON.stringify(delList));
+                }
+            }
+        } catch { /* ignore */ }
+
         const friends = getSavedFriends();
         // Check by ID if editing, otherwise check by studentId
         let existingIdx = -1;
@@ -396,21 +453,72 @@ export const saveFriend = ({ id, nickname, studentId, password }) => {
 export const deleteFriend = (friendId) => {
     if (typeof window === 'undefined') return;
     try {
+        const targetId = typeof friendId === 'object' ? (friendId?.id || friendId?.studentId || '') : String(friendId || '');
+        if (!targetId) return;
+
+        const myProf = getMyProfile();
+        const mySid = (myProf?.studentId || localStorage.getItem('rememberedId') || localStorage.getItem('original_my_id') || '').trim();
+
         const friends = getSavedFriends();
-        const toDelete = friends.find(f => f.id === friendId || f.studentId === friendId || f.username === friendId);
-        const sid = toDelete?.studentId || toDelete?.username || (String(friendId).startsWith('friend_') ? String(friendId).replace('friend_', '') : friendId);
+        const toDelete = friends.find(f => f.id === targetId || f.studentId === targetId || f.username === targetId);
+
+        let sid = '';
+        if (targetId === 'main') {
+            sid = mySid;
+        } else if (toDelete?.studentId || toDelete?.username) {
+            sid = (toDelete.studentId || toDelete.username).trim();
+        } else if (/^\d{4,}$/.test(targetId)) {
+            sid = targetId.trim();
+        } else if (targetId.startsWith('friend_')) {
+            sid = targetId.replace('friend_', '').trim();
+        } else if (targetId.startsWith('maddy_')) {
+            sid = targetId.replace('maddy_', '').trim();
+        }
+        if (!sid && targetId === mySid) {
+            sid = mySid;
+        }
+
+        const isPrimaryAccount = (targetId === 'main') || (Boolean(sid) && Boolean(mySid) && sid === mySid);
 
         // Permanently record in deleted blacklist so self-healing discovery NEVER resurrects this profile
         try {
             const rawDel = localStorage.getItem('kl_deleted_friends');
             const delList = rawDel ? JSON.parse(rawDel) : [];
             if (sid && !delList.includes(sid)) delList.push(sid);
-            if (friendId && !delList.includes(friendId)) delList.push(friendId);
+            if (targetId && !delList.includes(targetId)) delList.push(targetId);
             if (sid && !delList.includes(`friend_${sid}`)) delList.push(`friend_${sid}`);
+            if (sid && !delList.includes(`maddy_${sid}`)) delList.push(`maddy_${sid}`);
+            if (isPrimaryAccount && !delList.includes('main')) delList.push('main');
             localStorage.setItem('kl_deleted_friends', JSON.stringify(delList));
         } catch { /* ignore */ }
 
-        const filtered = friends.filter(f => f.id !== friendId && (sid ? (f.studentId !== sid && f.username !== sid) : true));
+        // If Primary account is being deleted, completely wipe all primary identity keys
+        if (isPrimaryAccount) {
+            try {
+                localStorage.removeItem('original_my_id');
+                localStorage.removeItem('rememberedId');
+                localStorage.removeItem('rememberedPassword');
+                localStorage.removeItem('rememberedName');
+                localStorage.removeItem('userCredentials');
+                localStorage.removeItem('userCredentials_enc');
+                localStorage.removeItem('activeErpUser');
+                localStorage.removeItem('erp_username');
+                localStorage.removeItem('timetable_studentId');
+                localStorage.removeItem('userProfile');
+                localStorage.removeItem('kleData');
+                localStorage.removeItem('cgpa_data');
+                localStorage.removeItem('grades');
+                localStorage.removeItem('erpDashboardHtml');
+                localStorage.removeItem('sessionCookie');
+            } catch { /* ignore */ }
+        }
+
+        const filtered = friends.filter(f => {
+            const fSid = (f.studentId || f.username || '').trim();
+            if (f.id === targetId || (sid && f.id === sid)) return false;
+            if (sid && fSid === sid) return false;
+            return true;
+        });
         localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(filtered));
 
         // Also remove from maddys
@@ -419,7 +527,12 @@ export const deleteFriend = (friendId) => {
             if (rawM) {
                 let mList = JSON.parse(rawM);
                 if (Array.isArray(mList)) {
-                    mList = mList.filter(m => m.id !== friendId && (sid ? (m.username !== sid && m.studentId !== sid) : true));
+                    mList = mList.filter(m => {
+                        const mSid = (m.studentId || m.username || String(m.id || '')).trim();
+                        if (m.id === targetId || (sid && m.id === sid)) return false;
+                        if (sid && mSid === sid) return false;
+                        return true;
+                    });
                     localStorage.setItem('maddys', JSON.stringify(mList));
                 }
             }
@@ -440,26 +553,52 @@ export const deleteFriend = (friendId) => {
                 localStorage.removeItem(`kl_name_${sid}`);
                 for (let i = localStorage.length - 1; i >= 0; i--) {
                     const k = localStorage.key(i);
-                    if (k && (k.startsWith(`kl_timetable_${sid}`) || k.startsWith(`kleData_${sid}`) || k.startsWith(`kl_scorecard_${sid}`))) {
+                    if (k && (k.includes(sid) || k.startsWith(`kl_timetable_${sid}`) || k.startsWith(`kleData_${sid}`) || k.startsWith(`kl_scorecard_${sid}`))) {
                         localStorage.removeItem(k);
                     }
                 }
             } catch { /* ignore */ }
         }
 
-        // If the active profile was deleted, reset to main
+        // Wipe server database records if sid exists
+        if (sid) {
+            try {
+                fetch(`/api/user-data/${encodeURIComponent(sid)}/disconnect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ deleteData: true })
+                }).catch(() => null);
+            } catch { /* ignore */ }
+        }
+
+        // Active profile handling: switch to next available profile or clear
         const activeId = getActiveProfileId();
-        if (activeId === friendId || (toDelete && activeId === toDelete.id) || activeId === sid) {
-            setActiveProfileId('main');
+        const remaining = getAllProfiles();
+        const nextProfile = remaining.length > 0 ? remaining[0] : null;
+        const nextId = nextProfile?.id || null;
+        const nextSid = nextProfile?.studentId || nextProfile?.username || null;
+
+        if (activeId === targetId || activeId === sid || (toDelete && activeId === toDelete.id) || (isPrimaryAccount && (activeId === 'main' || activeId === sid))) {
+            setActiveProfileId(nextId, nextSid);
+            try {
+                if (nextSid) {
+                    localStorage.setItem('activeErpUser', nextSid);
+                } else {
+                    localStorage.removeItem('activeErpUser');
+                }
+            } catch { /* ignore */ }
         }
 
         window.dispatchEvent(new CustomEvent('kl_friends_updated', { detail: filtered }));
-        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: 'main' }));
+        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: nextId, studentId: nextSid } }));
+        window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: nextProfile, studentId: nextSid } }));
         window.dispatchEvent(new Event('storage'));
     } catch (err) {
-        console.warn('[FriendsService] Failed to delete friend:', err);
+        console.warn('[FriendsService] Failed to delete profile:', err);
     }
 };
+
+export const deleteProfile = deleteFriend;
 
 /**
  * Save or import a friend's timetable without requiring their password (privacy-preserving)

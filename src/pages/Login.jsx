@@ -989,23 +989,23 @@ const Login = () => {
                                                         <Edit2 className="w-3.5 h-3.5" />
                                                     </button>
                                                 )}
-                                                {activeProfile.isFriend && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            if (window.confirm(`Delete ${activeProfile.nickname}?`)) {
-                                                                deleteFriend(activeProfile.id);
-                                                                const updated = getAllProfiles();
-                                                                setAllProfilesList(updated);
-                                                                setSelectedProfileId(updated.length > 0 ? updated[0].id : 'new');
-                                                            }
-                                                        }}
-                                                        className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
-                                                        title="Remove profile"
-                                                    >
-                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                    </button>
-                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const sid = activeProfile.studentId || activeProfile.username || '';
+                                                        const label = activeProfile.nickname || sid || 'this profile';
+                                                        if (window.confirm(`Are you sure you want to permanently delete ${label} (${sid})?\n\nAll saved timetable, CGPA, and attendance data will be permanently removed.`)) {
+                                                            deleteFriend(activeProfile.id || sid);
+                                                            const updated = getAllProfiles();
+                                                            setAllProfilesList(updated);
+                                                            setSelectedProfileId(updated.length > 0 ? updated[0].id : 'new');
+                                                        }
+                                                    }}
+                                                    className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors cursor-pointer"
+                                                    title="Permanently delete profile"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
                                             </div>
                                         </div>
 
