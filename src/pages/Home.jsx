@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, useMotionValue, useSpring, useTransform, useScroll, AnimatePresence } from 'framer-motion';
-import { ArrowRight, Calculator, Calendar, Clock, Sparkles, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, User, Users, UserPlus, Key, BarChart3, ShieldCheck, LogOut } from 'lucide-react';
-import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS, syncTimetableWithServer, fetchLiveErpTimetable } from '../services/timetableService';
+import { ArrowRight, Calculator, Calendar, Clock, Sparkles, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, User, Users, UserPlus, Key, BarChart3, ShieldCheck } from 'lucide-react';
+import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS, syncTimetableWithServer } from '../services/timetableService';
 import { getActiveProfileDetails, getAllProfiles, setActiveProfileId } from '../services/friendsService';
 import { hasActiveErpSession, isAttendanceLoggedIn } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
@@ -466,7 +466,7 @@ const ExamCountdownSection = () => {
                                         ].map(([l, v], i) => (
                                             <div key={i} className="flex flex-col items-center">
                                                 <div className="bg-slate-50 dark:bg-slate-800/80 w-full rounded-xl py-2 sm:py-3 border border-slate-100 dark:border-slate-700/60 group-hover:border-slate-200 dark:group-hover:border-slate-600 transition-colors">
-                                                    <span className="block text-lg sm:text-xl font-black text-slate-800 dark:text-slate-100 leading-none mb-1 tabular-nums">{v}</span>
+                                                    <span className="block text-lg sm:text-xl font-black text-slate-800 dark:text-slate-100 leading-none mb-1">{v}</span>
                                                 </div>
                                                 <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 dark:text-slate-400 uppercase mt-1">{l}</span>
                                             </div>
@@ -1251,7 +1251,7 @@ export default function Home() {
                                                         </span>
                                                     </span>
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-mono font-bold text-xs sm:text-[12.5px] text-cyan-400 tracking-wide tabular-nums">
+                                                        <span className="font-mono font-bold text-xs sm:text-[12.5px] text-cyan-400 tracking-wide">
                                                             {liveClassStatus.istTimeWithSecondsString || liveClassStatus.istTimeString}
                                                         </span>
                                                     </div>
@@ -1350,7 +1350,7 @@ export default function Home() {
                                                         <span className="text-slate-400 font-medium">
                                                             Class in progress ({liveClassStatus.currentClass.progressPercent || 0}%)
                                                         </span>
-                                                        <span className="text-emerald-400 font-bold font-mono text-xs tabular-nums">
+                                                        <span className="text-emerald-400 font-bold font-mono text-xs">
                                                             {liveClassStatus.currentClass.minutesRemaining}m {liveClassStatus.currentClass.secondsRemaining ?? 0}s left
                                                         </span>
                                                     </div>

@@ -14,11 +14,9 @@ import {
     upsertUser, 
     saveTimetable, 
     getTimetable, 
-    getAllTimetablesForUser,
     saveCgpa, 
     getCgpa, 
     saveAttendance, 
-    getAttendance, 
     getFullUserProfile, 
     disconnectErp,
     recordSync,
@@ -1469,6 +1467,8 @@ app.post('/api/ai/gemini', aiLimiter, async (req, res) => {
 const handleTimetableFetch = async (req, res) => {
     try {
         const { username, studentId, academic_year_code, semester_id } = req.body || {};
+        const reqYear = String(req.body?.yearId || academic_year_code || '2026-2027');
+        const reqSem = String(req.body?.semId || semester_id || '1');
         let clientCookie = req.headers['x-erp-cookie'] || req.headers['cookie'] || '';
         
         console.log(`[Fetch-Timetable] Request for: ${studentId || username || 'unknown'}`);
@@ -1481,10 +1481,7 @@ const handleTimetableFetch = async (req, res) => {
             });
             const currentCookieStr = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
 
-            const reqYear = String(req.body?.yearId || academic_year_code || '');
-            const reqSem = String(req.body?.semId || semester_id || '');
-
-            const curYear = new Date().getFullYear();
+                        const curYear = new Date().getFullYear();
             const yearMatch = reqYear.match(/^(\d{4})/);
             const firstYear = yearMatch ? parseInt(yearMatch[1], 10) : curYear;
 
