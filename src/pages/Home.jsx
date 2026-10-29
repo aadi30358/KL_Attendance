@@ -466,7 +466,7 @@ const ExamCountdownSection = () => {
                                         ].map(([l, v], i) => (
                                             <div key={i} className="flex flex-col items-center">
                                                 <div className="bg-slate-50 dark:bg-slate-800/80 w-full rounded-xl py-2 sm:py-3 border border-slate-100 dark:border-slate-700/60 group-hover:border-slate-200 dark:group-hover:border-slate-600 transition-colors">
-                                                    <span className="block text-lg sm:text-xl font-black text-slate-800 dark:text-slate-100 leading-none mb-1">{v}</span>
+                                                    <span className="block text-lg sm:text-xl font-black text-slate-800 dark:text-slate-100 leading-none mb-1 tabular-nums">{v}</span>
                                                 </div>
                                                 <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 dark:text-slate-400 uppercase mt-1">{l}</span>
                                             </div>
@@ -1251,7 +1251,7 @@ export default function Home() {
                                                         </span>
                                                     </span>
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-mono font-bold text-xs sm:text-[12.5px] text-cyan-400 tracking-wide">
+                                                        <span className="font-mono font-bold text-xs sm:text-[12.5px] text-cyan-400 tracking-wide tabular-nums">
                                                             {liveClassStatus.istTimeWithSecondsString || liveClassStatus.istTimeString}
                                                         </span>
                                                     </div>
@@ -1350,7 +1350,7 @@ export default function Home() {
                                                         <span className="text-slate-400 font-medium">
                                                             Class in progress ({liveClassStatus.currentClass.progressPercent || 0}%)
                                                         </span>
-                                                        <span className="text-emerald-400 font-bold font-mono text-xs">
+                                                        <span className="text-emerald-400 font-bold font-mono text-xs tabular-nums">
                                                             {liveClassStatus.currentClass.minutesRemaining}m {liveClassStatus.currentClass.secondsRemaining ?? 0}s left
                                                         </span>
                                                     </div>

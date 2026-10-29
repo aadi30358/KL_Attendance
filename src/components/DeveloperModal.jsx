@@ -140,10 +140,11 @@ export const DeveloperModal = () => {
                             </div>
                             <button
                                 onClick={() => setIsOpen(false)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                className="w-10 h-10 min-w-[40px] min-h-[40px] rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer flex items-center justify-center touch-manipulation"
                                 title="Close (Esc)"
+                                aria-label="Close dialog"
                             >
-                                <X className="w-4 h-4" />
+                                <X className="w-5 h-5" />
                             </button>
                         </div>
 
@@ -199,7 +200,7 @@ export const DeveloperModal = () => {
                             <span>Type <code className="text-indigo-600 dark:text-indigo-400 font-mono font-bold">portfolio()</code> in Console</span>
                             <button
                                 onClick={() => setIsOpen(false)}
-                                className="px-2.5 py-1 rounded-md bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer text-xs"
+                                className="px-4 py-2 min-h-[38px] rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer text-xs touch-manipulation active:scale-95 shadow-2xs"
                             >
                                 Close
                             </button>

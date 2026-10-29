@@ -99,8 +99,22 @@ function BunkSimulator({ subject }) {
         ? userSelectedComp
         : (availableComps[0]?.id || 'L');
 
-    const bunkCount = parseInt(bunkInput) || 0;
+    const bunkCount = parseInt(bunkInput, 10) || 0;
     let projectedActual = null;
+
+    const handleDecrement = () => {
+        const cur = parseInt(bunkInput, 10) || 0;
+        if (cur <= 1) {
+            setBunkInput('');
+        } else {
+            setBunkInput(String(cur - 1));
+        }
+    };
+
+    const handleIncrement = () => {
+        const cur = parseInt(bunkInput, 10) || 0;
+        setBunkInput(String(cur + 1));
+    };
 
     if (bunkCount > 0) {
         const components = subject?.components ? Object.entries(subject.components) : [];
@@ -127,8 +141,8 @@ function BunkSimulator({ subject }) {
         } else {
             // Fallback for subjects with simple class totals
             const parts = (subject?.attended || '0/0').split('/');
-            const attended = parseInt(parts[0]) || 0;
-            const total = parseInt(parts[1]) || 0;
+            const attended = parseInt(parts[0], 10) || 0;
+            const total = parseInt(parts[1], 10) || 0;
             projectedActual = (total + bunkCount > 0) ? Math.ceil((attended / (total + bunkCount)) * 100) : null;
         }
     }
@@ -141,26 +155,47 @@ function BunkSimulator({ subject }) {
         <div className="mt-4 pt-4 border-t border-slate-100">
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.12em] mb-2">Bunk Simulator</p>
             <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                     <select
                         value={selectedComp}
                         onChange={(e) => setUserSelectedComp(e.target.value)}
-                        className="bg-white border-2 border-indigo-300 text-slate-700 text-xs rounded-xl px-2 py-2 focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold w-[110px] shrink-0 shadow-sm transition-all cursor-pointer"
+                        className="bg-white border-2 border-indigo-200 text-slate-800 text-xs rounded-xl px-2.5 py-2.5 min-h-[44px] focus:outline-none focus:ring-4 focus:ring-indigo-100 font-bold w-[115px] sm:w-[125px] shrink-0 shadow-2xs transition-all cursor-pointer touch-manipulation"
                     >
                         {availableComps.map((comp) => (
                             <option key={comp.id} value={comp.id}>{comp.label}</option>
                         ))}
                     </select>
-                    <input
-                        type="number"
-                        min="0"
-                        placeholder="Classes to bunk"
-                        value={bunkInput}
-                        onChange={e => setBunkInput(e.target.value)}
-                        className="flex-1 min-w-0 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-700 focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-slate-50"
-                    />
+
+                    <div className="flex items-center border border-slate-200 rounded-xl bg-slate-50 p-0.5 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all flex-1 min-w-[155px] min-h-[44px]">
+                        <button
+                            type="button"
+                            onClick={handleDecrement}
+                            disabled={bunkCount <= 0}
+                            aria-label="Decrease classes to bunk"
+                            className="w-9 h-9 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-white hover:bg-slate-100 active:scale-95 text-slate-700 font-bold text-base transition-all disabled:opacity-30 disabled:pointer-events-none shadow-2xs border border-slate-200/60 touch-manipulation cursor-pointer select-none"
+                        >
+                            -
+                        </button>
+                        <input
+                            type="number"
+                            min="0"
+                            placeholder="0 skips"
+                            value={bunkInput}
+                            onChange={e => setBunkInput(e.target.value)}
+                            className="flex-1 min-w-0 text-center font-bold font-mono text-xs text-slate-800 bg-transparent focus:outline-none tabular-nums px-2"
+                        />
+                        <button
+                            type="button"
+                            onClick={handleIncrement}
+                            aria-label="Increase classes to bunk"
+                            className="w-9 h-9 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-indigo-50 hover:bg-indigo-100 active:scale-95 text-indigo-700 font-bold text-base transition-all shadow-2xs border border-indigo-200/60 touch-manipulation cursor-pointer select-none"
+                        >
+                            +
+                        </button>
+                    </div>
+
                     {projectedActual !== null && (
-                        <div className={`text-sm font-black tabular-nums shrink-0 ${projColor}`}>
+                        <div className={`text-sm font-black tabular-nums shrink-0 px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-100 ${projColor}`}>
                             → {projectedActual}%
                         </div>
                     )}
@@ -170,8 +205,8 @@ function BunkSimulator({ subject }) {
                         {projectedActual >= 85
                             ? <span className="text-emerald-700">Safe</span>
                             : projectedActual >= 75
-                                ? <span className="text-amber-700">⚠️ Caution: Attendance below 85%, my friend — whatever the reason, too many skips ain’t cool. Reconsider before it’s a whole problem.</span>
-                                : <span className="text-red-700">⚠️ Attendance on thin ice, it’s giving detention vibes — don’t say I didn’t warn you.</span>}
+                                ? <span className="text-amber-700">⚠️ Caution: Attendance below 85%, my friend — whatever the reason, too many skips ain&apos;t cool. Reconsider before it&apos;s a whole problem.</span>
+                                : <span className="text-red-700">⚠️ Attendance on thin ice, it&apos;s giving detention vibes — don&apos;t say I didn&apos;t warn you.</span>}
                     </p>
                 )}
                 <p className="text-[10px] text-slate-400 italic font-medium mt-2">
@@ -891,7 +926,7 @@ const AttendanceRegister = () => {
 
     // Automatically log out before or upon university ERP session expiration
     useEffect(() => {
-        if (sessionStatus === 'expired') {
+        if (sessionStatus === 'expired') { 
             handleLogoutAction('session_expired');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1450,21 +1485,21 @@ const AttendanceRegister = () => {
                                                                 {compName === 'L' ? 'Lecture' : compName === 'P' ? 'Practical' : compName === 'T' ? 'Tutorial' : compName === 'S' ? 'Skill' : compName}
                                                             </span>
                                                             <div className="flex items-center gap-1 shrink-0">
-                                                                <span className="text-slate-900 text-xs font-bold font-mono">{compData.attended}/{compData.conducted}</span>
-                                                                <span className={`text-[10px] font-semibold ${getColor(compData.percent)}`}>({compData.percent}%)</span>
+                                                                <span className="text-slate-900 text-xs font-bold font-mono tabular-nums">{compData.attended}/{compData.conducted}</span>
+                                                                <span className={`text-[10px] font-semibold tabular-nums ${getColor(compData.percent)}`}>({compData.percent}%)</span>
                                                             </div>
                                                         </div>
                                                     ))}
                                                     {(!subject.components || Object.keys(subject.components).length === 0) && (
                                                         <div className="flex justify-between items-center">
                                                             <span className="text-slate-600 text-xs font-medium">Classes</span>
-                                                            <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended}</span>
+                                                            <span className="text-slate-900 text-xs font-bold font-mono tabular-nums">{subject.attended}</span>
                                                         </div>
                                                     )}
                                                     {subject.components && Object.keys(subject.components).length > 0 && (
                                                         <div className="flex justify-between items-center pt-2 border-t border-slate-100 mt-1">
                                                             <span className="text-slate-700 text-xs font-bold">Total (Raw)</span>
-                                                            <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended}</span>
+                                                            <span className="text-slate-900 text-xs font-bold font-mono tabular-nums">{subject.attended}</span>
                                                         </div>
                                                     )}
                                                 </div>
