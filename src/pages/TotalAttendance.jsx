@@ -9,12 +9,9 @@ const getStoredErpData = () => {
         const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
         const keysToTry = [];
         if (activeId) keysToTry.push(`kleData_${activeId}`);
-        keysToTry.push('kleData');
-        for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            if (k && k.startsWith('kleData_') && !keysToTry.includes(k)) {
-                keysToTry.push(k);
-            }
+        const rememberedId = localStorage.getItem('rememberedId');
+        if (!activeId || activeId === rememberedId) {
+            keysToTry.push('kleData');
         }
 
         for (const key of keysToTry) {

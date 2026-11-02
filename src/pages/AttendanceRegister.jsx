@@ -465,8 +465,11 @@ const AttendanceRegister = () => {
                                 if (Array.isArray(freshCourses) && freshCourses.length > 0) {
                                     const freshKey = `${targetId}_${normYear}_${normSem}`;
                                     sessionAttendanceBaselines.current.set(freshKey, freshCourses);
-                                    setSubjects(freshCourses);
-                                    setLastUpdated(Date.now());
+                                    const currentActive = localStorage.getItem('activeErpUser');
+                                    if (!currentActive || String(currentActive).trim() === String(targetId).trim()) {
+                                        setSubjects(freshCourses);
+                                        setLastUpdated(Date.now());
+                                    }
                                     const payload = JSON.stringify({
                                         attendance_data: freshCourses,
                                         year: normYear,
@@ -518,6 +521,12 @@ const AttendanceRegister = () => {
             const finalSem = normSem;
             const baseKey = `${targetId}_${finalYear}_${finalSem}`;
             sessionAttendanceBaselines.current.set(baseKey, finalCourses);
+
+            const currentActive = localStorage.getItem('activeErpUser');
+            if (currentActive && String(currentActive).trim() !== String(targetId).trim()) {
+                // Profile was switched while network request was in flight; do not overwrite current view
+                return;
+            }
 
             setSubjects(finalCourses);
             setShowDashboard(true);
@@ -917,6 +926,10 @@ const AttendanceRegister = () => {
         const doCheck = async () => {
             if (isPolling) return;
             if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+            const targetStudent = activeId || localStorage.getItem('activeErpUser') || '';
+            if (!targetStudent || !hasActiveErpSession(targetStudent)) {
+                return; // Strictly skip auto-poll if student does not have an active verified ERP session
+            }
             isPolling = true;
             try {
                 await handleRefresh(true);
@@ -1045,6 +1058,15 @@ const AttendanceRegister = () => {
             const normY = normalizeAcademicYear(year);
             const normS = normalizeSemester(semester);
             const targetStudent = activeId || localStorage.getItem('activeErpUser') || '';
+            if (!targetStudent || !hasActiveErpSession(targetStudent)) {
+                if (!isSilent) {
+                    const profToVerify = activeProfile || (getSavedFriends() || []).find(f => f.studentId === targetStudent || f.id === targetStudent) || (getMyProfile()?.studentId === targetStudent ? getMyProfile() : null);
+                    if (profToVerify?.password || profToVerify?.hasSavedPassword || profToVerify?.studentId) {
+                        setTargetFriendForCaptcha(profToVerify);
+                    }
+                }
+                return;
+            }
             const data = await erpService.fetchAttendance(normY, normS, targetStudent);
             if (Array.isArray(data) && data.length > 0) {
                 const key = `${targetStudent}_${normY}_${normS}`;
@@ -1077,7 +1099,10 @@ const AttendanceRegister = () => {
                 }
 
                 sessionAttendanceBaselines.current.set(key, data);
-                setSubjects(data);
+                const currentActive = localStorage.getItem('activeErpUser');
+                if (!currentActive || String(currentActive).trim() === String(targetStudent).trim()) {
+                    setSubjects(data);
+                }
                 const payload = JSON.stringify({ 
                     attendance_data: data,
                     year: normY,
@@ -1085,7 +1110,8 @@ const AttendanceRegister = () => {
                     timestamp: Date.now()
                 });
                 try {
-                    localStorage.setItem(storageKey, payload);
+                    const scopedKey = targetStudent ? `kleData_${targetStudent}` : 'kleData';
+                    localStorage.setItem(scopedKey, payload);
                     if (targetStudent) {
                         localStorage.setItem(`kleData_${targetStudent}_${normY}_${normS}`, payload);
                         localStorage.setItem(`attendanceLastUpdated_${targetStudent}`, String(Date.now()));
@@ -1230,15 +1256,27 @@ const AttendanceRegister = () => {
                                 setActiveId(newId);
                                 setActiveProfile(profile);
                                 try {
-                                    const cached = localStorage.getItem(`kleData_${newId}`) || localStorage.getItem('kleData');
+                                    const rememberedId = typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : null;
+                                    const isPrimary = newId === rememberedId;
+                                    const cached = localStorage.getItem(`kleData_${newId}`) || (isPrimary ? localStorage.getItem('kleData') : null);
                                     if (cached) {
                                         const parsed = JSON.parse(cached);
                                         const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
                                         if (Array.isArray(list) && list.length > 0) {
                                             setSubjects(list);
+                                            setShowDashboard(true);
+                                        } else {
+                                            setSubjects([]);
+                                            setShowDashboard(false);
                                         }
+                                    } else {
+                                        setSubjects([]);
+                                        setShowDashboard(false);
                                     }
-                                } catch { /* ignore */ }
+                                } catch { 
+                                    setSubjects([]);
+                                    setShowDashboard(false);
+                                }
                             }
                         }}
                     />

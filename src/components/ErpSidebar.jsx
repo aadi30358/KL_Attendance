@@ -142,7 +142,7 @@ export default function ErpSidebar({
             if (savedCookie) {
                 setStoredErpCookies(savedCookie, sid);
             } else {
-                clearStoredErpCookies();
+                clearStoredErpCookies(sid);
             }
         }
         setActiveProfileId(pid, sid);

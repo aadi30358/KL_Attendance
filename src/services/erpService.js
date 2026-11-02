@@ -100,18 +100,16 @@ export const getStoredErpCookies = (studentId = null) => {
             const mainCookie = localStorage.getItem('erp_cookie_main');
             if (mainCookie) return mainCookie;
         }
-        // If inMemoryErpCookies is available without a bound user, it's the active pre-login Captcha session
-        if (inMemoryErpCookies && !inMemoryErpUser) {
-            return inMemoryErpCookies;
-        }
+        // Strict student isolation: Never return another student's cookies
         return '';
     }
     const activeUser = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
     if (activeUser) {
         const userCookie = localStorage.getItem(`erp_cookie_${activeUser}`);
         if (userCookie) return userCookie;
+        if (inMemoryErpCookies && inMemoryErpUser === activeUser) return inMemoryErpCookies;
     }
-    return inMemoryErpCookies || '';
+    return '';
 };
 
 export const setStoredErpCookies = (val, studentId = null) => {
@@ -925,6 +923,14 @@ export const erpService = {
     // Prime the Yii2 controller session and fetch real options
     async getAvailableSessions(studentId = null) {
         try {
+            const cleanSid = (studentId || '').trim();
+            if (cleanSid) {
+                const cookie = getStoredErpCookies(cleanSid);
+                if (!cookie) {
+                    return null; // Strict isolation: Do not query without student's session cookie
+                }
+            }
+
             const apiBase = getErpBase();
             const headers = buildErpHeaders({
                 'Pragma': 'no-cache',
@@ -967,7 +973,9 @@ export const erpService = {
     // Lightweight session keep-alive ping to prevent university ERP timeout
     async keepSessionAlive() {
         try {
-            const cookie = getStoredErpCookies();
+            const activeUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
+            if (!activeUser) return { success: false, sessionActive: false, reason: 'No active user' };
+            const cookie = getStoredErpCookies(activeUser);
             if (!cookie) return { success: false, sessionActive: false, reason: 'No session cookie' };
 
             const apiBase = getErpBase();
@@ -975,7 +983,7 @@ export const erpService = {
                 'Pragma': 'no-cache',
                 'Cache-Control': 'no-cache',
                 'X-Requested-With': 'XMLHttpRequest'
-            });
+            }, activeUser);
 
             let resp = await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
                 method: 'GET',
@@ -989,7 +997,7 @@ export const erpService = {
                     method: 'GET',
                     credentials: 'include',
                     cache: 'no-store',
-                    headers: buildErpHeaders(headers)
+                    headers: buildErpHeaders(headers, activeUser)
                 });
             }
 
@@ -1002,7 +1010,7 @@ export const erpService = {
                 return { success: false, sessionActive: false, reason: 'Session expired' };
             }
 
-            saveErpCookiesFromResponse(resp);
+            saveErpCookiesFromResponse(resp, { studentId: activeUser });
             return { success: true, sessionActive: true };
         } catch (e) {
             console.warn("[ERP] Session keep-alive ping notice:", e.message);
@@ -1015,9 +1023,16 @@ export const erpService = {
         const apiBase = getErpBase();
         const csrfToken = this.getCachedCsrfToken();
         const targetStudent = studentId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null);
+        if (!targetStudent) return [];
+
+        // STRICT GUARD: Must have authentic session cookie for this specific student!
+        const targetCookie = getStoredErpCookies(targetStudent);
+        if (!targetCookie) {
+            console.warn(`[ERP] Refusing to fetch attendance for ${targetStudent}: No active session cookie found. Prevents cross-student data contamination.`);
+            return [];
+        }
 
         // 1. Prime the controller session and discover dynamic options
-
         let sessionInfo = null;
         try {
             sessionInfo = await this.getAvailableSessions(targetStudent);
@@ -1122,15 +1137,18 @@ export const erpService = {
                         primeForm.append('_csrf', effectiveCsrfToken);
                         primeForm.append('_csrf-frontend', effectiveCsrfToken);
                     }
+                    const primeHeaders = buildErpHeaders({
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Pragma': 'no-cache',
+                        'Cache-Control': 'no-cache',
+                        'Referer': 'https://newerp.kluniversity.in/index.php'
+                    }, targetStudent);
+                    primeHeaders['x-erp-cookie'] = targetCookie;
+
                     await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
                         method: 'POST',
-                        headers: buildErpHeaders({
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'X-Requested-With': 'XMLHttpRequest',
-                            'Pragma': 'no-cache',
-                            'Cache-Control': 'no-cache',
-                            'Referer': 'https://newerp.kluniversity.in/index.php'
-                        }, targetStudent),
+                        headers: primeHeaders,
                         body: primeForm,
                         credentials: 'include',
                         cache: 'no-store'
@@ -1159,6 +1177,7 @@ export const erpService = {
                     'Cache-Control': 'no-cache',
                     'Referer': 'https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput'
                 }, targetStudent);
+                headers['x-erp-cookie'] = targetCookie;
                 if (effectiveCsrfToken) {
                     headers['X-CSRF-Token'] = effectiveCsrfToken;
                 }
@@ -1182,7 +1201,7 @@ export const erpService = {
 
                 let html = await response.text();
                 if ((html.includes('<div id="root">') || html.includes('/vite.svg') || html.includes('/timetable-logo.svg')) && apiBase !== FALLBACK_ERP_BASE) {
-                    const fbHeaders = { ...headers };
+                    const fbHeaders = { ...headers, 'x-erp-cookie': targetCookie };
                     const cookie = getStoredErpCookies(targetStudent);
                     if (cookie) fbHeaders['x-erp-cookie'] = cookie;
                     response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
