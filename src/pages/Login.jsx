@@ -441,18 +441,20 @@ const Login = () => {
             const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken);
 
             if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, cleanId)) {
-                localStorage.setItem('erpDashboardHtml', loginResult.html);
-                const cachedForUser = localStorage.getItem(`kleData_${cleanId}`);
-                if (cachedForUser) {
-                    localStorage.setItem('kleData', cachedForUser);
-                }
-                localStorage.setItem('userUniversity', 'klu');
+                try {
+                    localStorage.setItem('erpDashboardHtml', loginResult.html);
+                    const cachedForUser = localStorage.getItem(`kleData_${cleanId}`);
+                    if (cachedForUser) {
+                        localStorage.setItem('kleData', cachedForUser);
+                    }
+                    localStorage.setItem('userUniversity', 'klu');
+                    localStorage.setItem('activeErpUser', cleanId);
+                    const currentCookies = erpService.getStoredErpCookies(cleanId);
+                    if (currentCookies) {
+                        localStorage.setItem(`erp_cookie_${cleanId}`, currentCookies);
+                    }
+                } catch { /* ignore storage error */ }
                 setErpUser(cleanId);
-                localStorage.setItem('activeErpUser', cleanId);
-                const currentCookies = erpService.getStoredErpCookies(cleanId);
-                if (currentCookies) {
-                    localStorage.setItem(`erp_cookie_${cleanId}`, currentCookies);
-                }
 
                 if (!isNewProfile && activeProfile) {
                     setActiveProfileId(activeProfile.id);
@@ -995,7 +997,7 @@ const Login = () => {
                                                         const sid = activeProfile.studentId || activeProfile.username || '';
                                                         const label = activeProfile.nickname || sid || 'this profile';
                                                         if (window.confirm(`Are you sure you want to permanently delete ${label} (${sid})?\n\nAll saved timetable, CGPA, and attendance data will be permanently removed.`)) {
-                                                            deleteFriend(activeProfile.id || sid);
+                                                            deleteFriend(activeProfile.id || sid, sid);
                                                             const updated = getAllProfiles();
                                                             setAllProfilesList(updated);
                                                             setSelectedProfileId(updated.length > 0 ? updated[0].id : 'new');

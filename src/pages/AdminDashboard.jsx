@@ -446,7 +446,7 @@ export default function AdminDashboard() {
                     const data = await res.json();
                     if (data.success && data.token) {
                         sessionStorage.removeItem('adminLoggedOut');
-                        sessionStorage.setItem('admin_token', data.token);
+                        try { sessionStorage.setItem('admin_token', data.token); } catch { /* ignore */ }
                         setAdminLoggedOut(false);
                         setIsLocalAdmin(true);
                         setLoginError('');
@@ -478,7 +478,7 @@ export default function AdminDashboard() {
                     exp: Date.now() + 24 * 60 * 60 * 1000,
                     sig: expectedHash || 'direct-auth'
                 });
-                    sessionStorage.setItem('admin_token', localSession);
+                    try { sessionStorage.setItem('admin_token', localSession); } catch { /* ignore */ }
                     setAdminLoggedOut(false);
                     setIsLocalAdmin(true);
                     setLoginError('');

@@ -71,7 +71,7 @@ export default function ErpSidebar({
     };
 
     const handleChangeSelection = () => {
-        sessionStorage.setItem('manual_sem_reset', 'true');
+        try { sessionStorage.setItem('manual_sem_reset', 'true'); } catch { /* ignore */ }
         window.dispatchEvent(new CustomEvent('kl_reset_selection'));
         if (location.pathname !== '/attendance-register') {
             navigate('/attendance-register');
@@ -177,7 +177,7 @@ export default function ErpSidebar({
         const sid = profile?.studentId || profile?.username || '';
         const label = profile?.nickname || (profile?.id === 'main' ? 'Primary Account' : 'this account');
         if (window.confirm(`Are you sure you want to permanently delete ${label} (${sid || profile?.id})?\n\nAll saved timetable, CGPA, and attendance data will be permanently removed.`)) {
-            deleteFriend(profile.id || sid);
+            deleteFriend(profile.id || sid, sid);
             setAllProfiles(getAllProfiles());
             setActiveProfile(getActiveProfileDetails());
         }

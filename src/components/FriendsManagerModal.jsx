@@ -46,7 +46,7 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
         const sid = prof?.studentId || '';
         const label = prof?.nickname || sid || (targetId === 'main' ? 'Primary Profile' : 'this profile');
         if (window.confirm(`Are you sure you want to permanently delete ${label} (${sid || targetId})?\n\nAll saved timetable, CGPA, and attendance data will be permanently removed.`)) {
-            deleteFriend(targetId);
+            deleteFriend(targetId, sid);
             setFriends(getSavedFriends());
             if (targetId === 'main' && typeof onClose === 'function') {
                 onClose();

@@ -18,9 +18,13 @@ const UserProfile = () => {
     useEffect(() => {
         if (currentUser) {
             const fetchProfile = async () => {
-                const docSnap = await getDoc(doc(db, "users", currentUser.uid));
-                if (docSnap.exists()) {
-                    setLinks(docSnap.data());
+                try {
+                    const docSnap = await getDoc(doc(db, "users", currentUser.uid));
+                    if (docSnap && docSnap.exists()) {
+                        setLinks(docSnap.data());
+                    }
+                } catch (e) {
+                    console.warn('[UserProfile] fetch error:', e);
                 }
             };
             fetchProfile();

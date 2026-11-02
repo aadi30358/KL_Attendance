@@ -47,7 +47,7 @@ const Navbar = () => {
     };
 
     const handleResetSemester = () => {
-        sessionStorage.setItem('manual_sem_reset', 'true');
+        try { sessionStorage.setItem('manual_sem_reset', 'true'); } catch { /* ignore */ }
         window.dispatchEvent(new CustomEvent('kl_reset_selection'));
         if (location.pathname !== '/timetable') {
             navigate('/attendance-register');

@@ -1919,7 +1919,7 @@ const AttendanceRegister = () => {
                                         const normY = normalizeAcademicYear(year);
                                         const normS = normalizeSemester(semester);
                                         const scopedKey = activeId ? `kleData_${activeId}_${normY}_${normS}` : null;
-                                        const hasCache = Boolean(scopedKey && localStorage.getItem(scopedKey));
+                                        let hasCache = false; try { hasCache = Boolean(scopedKey && localStorage.getItem(scopedKey)); } catch { /* ignore */ }
                                         if (!hasCache && !hasActiveErpSession(activeId)) {
                                             const currentSaved = (getSavedFriends() || []).find(f => f.studentId === activeId || f.id === activeId) || (getMyProfile()?.studentId === activeId ? getMyProfile() : null);
                                             if (currentSaved?.password || currentSaved?.hasSavedPassword) {
@@ -1942,7 +1942,7 @@ const AttendanceRegister = () => {
                                                 const normY = normalizeAcademicYear(year);
                                                 const normS = normalizeSemester(semester);
                                                 const scopedKey = activeId ? `kleData_${activeId}_${normY}_${normS}` : null;
-                                                const hasCache = Boolean(scopedKey && localStorage.getItem(scopedKey));
+                                                let hasCache = false; try { hasCache = Boolean(scopedKey && localStorage.getItem(scopedKey)); } catch { /* ignore */ }
                                                 if (hasCache) return '⚡ View Attendance (Instant)';
                                                 if (!hasActiveErpSession(activeId)) return '🛡️ Login with Captcha & Get Attendance';
                                                 return 'Get Attendance';

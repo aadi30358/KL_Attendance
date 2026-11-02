@@ -1204,7 +1204,7 @@ export const erpService = {
                     }
                 });
                 if (updated) {
-                    localStorage.setItem('subjectMappings', JSON.stringify(mappings));
+                    try { localStorage.setItem('subjectMappings', JSON.stringify(mappings)); } catch { /* ignore */ }
                     window.dispatchEvent(new CustomEvent('kl_subject_mappings_updated'));
                 }
             }

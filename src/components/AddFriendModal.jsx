@@ -72,7 +72,7 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
                     localStorage.setItem(`manualYear_${cleanId}`, currentYr);
                 }
                 if (!localStorage.getItem(`manualSem_${cleanId}`)) {
-                    localStorage.setItem(`manualSem_${cleanId}`, 'Odd');
+                    try { localStorage.setItem(`manualSem_${cleanId}`, 'Odd'); } catch { /* ignore */ }
                 }
                 window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: profId, studentId: cleanId } }));
                 window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: saved, studentId: cleanId } }));

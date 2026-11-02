@@ -10,7 +10,7 @@ export default function ThemeToggle() {
     } else {
       document.documentElement.classList.remove('dark');
     }
-    localStorage.setItem('theme', theme);
+    try { localStorage.setItem('theme', theme); } catch { /* ignore */ }
   }, [theme]);
 
   const toggleTheme = () => {

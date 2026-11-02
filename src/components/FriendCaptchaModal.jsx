@@ -166,13 +166,15 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
 
             if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, studentId)) {
                 // Save session for profile
-                localStorage.setItem('erpDashboardHtml', loginResult.html);
-                localStorage.setItem('userUniversity', 'klu');
-                localStorage.setItem('activeErpUser', studentId);
-                const currentCookies = erpService.getStoredErpCookies(studentId);
-                if (currentCookies) {
-                    localStorage.setItem(`erp_cookie_${studentId}`, currentCookies);
-                }
+                try {
+                    localStorage.setItem('erpDashboardHtml', loginResult.html);
+                    localStorage.setItem('userUniversity', 'klu');
+                    localStorage.setItem('activeErpUser', studentId);
+                    const currentCookies = erpService.getStoredErpCookies(studentId);
+                    if (currentCookies) {
+                        localStorage.setItem(`erp_cookie_${studentId}`, currentCookies);
+                    }
+                } catch { /* ignore storage error */ }
 
                 // Set active profile
                 setActiveProfileId(friend.id || 'main');
@@ -245,11 +247,13 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                                 semester: targetSem,
                                 timestamp: Date.now()
                             });
-                            localStorage.setItem(`kleData_${studentId}`, payload);
-                            localStorage.setItem(`kleData_${studentId}_${targetYear}_${targetSem}`, payload);
-                            localStorage.setItem(`activeYear_${studentId}`, targetYear);
-                            localStorage.setItem(`activeSem_${studentId}`, targetSem);
-                            localStorage.setItem(`attendanceLastUpdated_${studentId}`, String(Date.now()));
+                            try {
+                                localStorage.setItem(`kleData_${studentId}`, payload);
+                                localStorage.setItem(`kleData_${studentId}_${targetYear}_${targetSem}`, payload);
+                                localStorage.setItem(`activeYear_${studentId}`, targetYear);
+                                localStorage.setItem(`activeSem_${studentId}`, targetSem);
+                                localStorage.setItem(`attendanceLastUpdated_${studentId}`, String(Date.now()));
+                            } catch { /* ignore storage error */ }
                             window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
                                 detail: { studentId, data }
                             }));

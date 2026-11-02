@@ -3,6 +3,7 @@ import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from
 import { auth } from "../firebase";
 import { AuthContext } from "./useAuth";
 import { erpService } from "../services/erpService";
+import { deleteFriend } from "../services/friendsService";
 
 export function AuthProvider({ children }) {
     const [currentUser, setCurrentUser] = useState(() => auth.currentUser || null);
@@ -94,6 +95,7 @@ export function AuthProvider({ children }) {
 
         if (deleteData && targetId) {
             try {
+                deleteFriend(targetId, targetId);
                 try {
                     const rawDel = localStorage.getItem('kl_deleted_friends');
                     const delList = rawDel ? JSON.parse(rawDel) : [];

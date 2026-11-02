@@ -39,7 +39,7 @@ export function useDeploymentSync() {
             if (remoteVersion > current + 1500) {
                 const lastSynced = sessionStorage.getItem('kl_last_synced_version');
                 if (lastSynced === String(remoteVersion)) return;
-                sessionStorage.setItem('kl_last_synced_version', String(remoteVersion));
+                try { sessionStorage.setItem('kl_last_synced_version', String(remoteVersion)); } catch { /* ignore */ }
                 try {
                     Object.keys(sessionStorage).forEach(k => {
                         if (k.startsWith('kl_reloaded_')) sessionStorage.removeItem(k);

@@ -338,7 +338,7 @@ export const saveStoredGrades = (studentId, grades) => {
             ...c,
             student_id: targetId
         }));
-        localStorage.setItem(key, JSON.stringify(stamped));
+        try { localStorage.setItem(key, JSON.stringify(stamped)); } catch { /* ignore */ }
     } catch {
         // ignore
     }
@@ -556,7 +556,7 @@ export const saveGradesAndMappings = (studentId, courses) => {
             localStorage.setItem(`kl_grades_${targetId}`, JSON.stringify(stamped));
             localStorage.setItem(`cgpa_${targetId}`, JSON.stringify(stamped));
             if (isMain) {
-                localStorage.setItem('cgpa_data', JSON.stringify(stamped));
+                try { localStorage.setItem('cgpa_data', JSON.stringify(stamped)); } catch { /* ignore */ }
             }
 
             // Populate subjectMappings for Timetable display
@@ -573,7 +573,7 @@ export const saveGradesAndMappings = (studentId, courses) => {
                 }
             });
             if (updated) {
-                localStorage.setItem('subjectMappings', JSON.stringify(mappings));
+                try { localStorage.setItem('subjectMappings', JSON.stringify(mappings)); } catch { /* ignore */ }
                 window.dispatchEvent(new CustomEvent('kl_subject_mappings_updated'));
             }
             window.dispatchEvent(new CustomEvent('kl_grades_updated', { detail: { studentId: targetId, courses: stamped } }));

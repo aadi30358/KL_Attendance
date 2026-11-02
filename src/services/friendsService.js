@@ -401,7 +401,7 @@ export const saveFriend = ({ id, nickname, studentId, password }) => {
             friends.push(friendEntry);
         }
 
-        localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friends));
+        try { localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friends)); } catch { /* ignore */ }
         if (cleanId && cleanNick && !cleanNick.startsWith('Friend (')) {
             try {
                 localStorage.setItem(`kl_name_${cleanId}`, cleanNick);
@@ -450,11 +450,11 @@ export const saveFriend = ({ id, nickname, studentId, password }) => {
 /**
  * Delete a friend profile
  */
-export const deleteFriend = (friendId) => {
+export const deleteFriend = (friendId, explicitSid = null) => {
     if (typeof window === 'undefined') return;
     try {
         const targetId = typeof friendId === 'object' ? (friendId?.id || friendId?.studentId || '') : String(friendId || '');
-        if (!targetId) return;
+        if (!targetId && !explicitSid) return;
 
         const myProf = getMyProfile();
         const mySid = (myProf?.studentId || localStorage.getItem('rememberedId') || localStorage.getItem('original_my_id') || '').trim();
@@ -462,17 +462,21 @@ export const deleteFriend = (friendId) => {
         const friends = getSavedFriends();
         const toDelete = friends.find(f => f.id === targetId || f.studentId === targetId || f.username === targetId);
 
-        let sid = '';
-        if (targetId === 'main') {
-            sid = mySid;
-        } else if (toDelete?.studentId || toDelete?.username) {
-            sid = (toDelete.studentId || toDelete.username).trim();
-        } else if (/^\d{4,}$/.test(targetId)) {
-            sid = targetId.trim();
-        } else if (targetId.startsWith('friend_')) {
-            sid = targetId.replace('friend_', '').trim();
-        } else if (targetId.startsWith('maddy_')) {
-            sid = targetId.replace('maddy_', '').trim();
+        let sid = explicitSid ? String(explicitSid).trim() : '';
+        if (!sid) {
+            if (typeof friendId === 'object' && (friendId?.studentId || friendId?.username)) {
+                sid = (friendId.studentId || friendId.username).trim();
+            } else if (targetId === 'main') {
+                sid = mySid;
+            } else if (toDelete?.studentId || toDelete?.username) {
+                sid = (toDelete.studentId || toDelete.username).trim();
+            } else if (/^\d{4,}$/.test(targetId)) {
+                sid = targetId.trim();
+            } else if (targetId.startsWith('friend_')) {
+                sid = targetId.replace('friend_', '').trim();
+            } else if (targetId.startsWith('maddy_')) {
+                sid = targetId.replace('maddy_', '').trim();
+            }
         }
         if (!sid && targetId === mySid) {
             sid = mySid;
@@ -519,7 +523,7 @@ export const deleteFriend = (friendId) => {
             if (sid && fSid === sid) return false;
             return true;
         });
-        localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(filtered));
+        try { localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(filtered)); } catch { /* ignore */ }
 
         // Also remove from maddys
         try {
@@ -631,7 +635,7 @@ export const saveFriendTimetable = ({ studentId, nickname, timetable, academicYe
             friends.push(friendEntry);
         }
 
-        localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friends));
+        try { localStorage.setItem(FRIENDS_STORAGE_KEY, JSON.stringify(friends)); } catch { /* ignore */ }
         if (cleanId && cleanNick && !cleanNick.startsWith('Friend (')) {
             try {
                 localStorage.setItem(`kl_name_${cleanId}`, cleanNick);
