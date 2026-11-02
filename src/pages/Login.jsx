@@ -546,7 +546,12 @@ const Login = () => {
             }
         } catch (err) {
             console.error("Login attempt failed:", err);
-            setError(err.message || "Login failed. Please check the captcha code.");
+            const msg = err.message || "Login failed. Please check the captcha code.";
+            if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('Abort')) {
+                setError("ERP server response took longer than expected. Please enter the new captcha to try again.");
+            } else {
+                setError(msg);
+            }
             setCaptcha('');
             refreshCaptcha(true);
         } finally {

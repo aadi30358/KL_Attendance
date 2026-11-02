@@ -279,7 +279,12 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             }
         } catch (err) {
             console.error('Friend login failed:', err);
-            setError(err.message || 'The verification code is incorrect. Please check the captcha.');
+            const msg = err.message || 'The verification code is incorrect. Please check the captcha.';
+            if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('Abort')) {
+                setError('ERP server response took longer than expected. Please enter the new captcha to try again.');
+            } else {
+                setError(msg);
+            }
             setCaptcha('');
             refreshCaptcha();
         } finally {

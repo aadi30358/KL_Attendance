@@ -481,7 +481,7 @@ export const erpService = {
                     captcha: captcha.trim(),
                     csrfToken: token
                 }),
-                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined
+                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(7000) : undefined
             });
 
             const data = await resp.json().catch(() => null);
@@ -506,13 +506,18 @@ export const erpService = {
                     }
                 }
                 if (data.error) {
-                    throw new Error(data.error);
+                    if (data.error.toLowerCase().includes('incorrect') || data.error.toLowerCase().includes('verification code') || data.error.toLowerCase().includes('password')) {
+                        throw new Error(data.error);
+                    }
                 }
             }
         } catch (fastErr) {
-            if (fastErr.message && !fastErr.message.includes('fetch') && !fastErr.message.includes('NetworkError') && !fastErr.message.includes('Failed to fetch')) {
+            const errMsg = String(fastErr?.message || '');
+            if (errMsg.toLowerCase().includes('incorrect') || errMsg.toLowerCase().includes('verification code')) {
                 throw fastErr;
             }
+            // For any timeout, abort, or network issue with /api/fast-login, silently fall back to direct ERP login
+            console.warn('[ERP] fast-login attempt bypassed, proceeding to direct ERP login:', errMsg);
         }
 
         // 2. Direct POST to /index.php?r=site%2Flogin fallback
@@ -976,7 +981,7 @@ export const erpService = {
                     body: formData,
                     credentials: 'include',
                     cache: 'no-store',
-                    signal: AbortSignal.timeout(12000)
+                    signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(20000) : undefined
                 });
 
                 if (response.status === 400) {
