@@ -132,6 +132,7 @@ const Login = () => {
     // Captcha & submission
     const [captcha, setCaptcha] = useState('');
     const [captchaUrl, setCaptchaUrl] = useState('');
+    const [isCaptchaLoading, setIsCaptchaLoading] = useState(false);
     const [csrfToken, setCsrfToken] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -297,6 +298,7 @@ const Login = () => {
 
     const refreshCaptcha = useCallback(async (keepError = false) => {
         const refreshId = ++initCounterRef.current;
+        setIsCaptchaLoading(true);
         setCaptcha('');
         if (!keepError) {
             setError('');
@@ -326,6 +328,10 @@ const Login = () => {
             if (refreshId !== initCounterRef.current) return;
             console.error("Failed to refresh captcha", err);
             setError("Failed to load captcha. Please click refresh.");
+        } finally {
+            if (refreshId === initCounterRef.current) {
+                setIsCaptchaLoading(false);
+            }
         }
     }, []);
 
@@ -338,6 +344,7 @@ const Login = () => {
         const initId = ++initCounterRef.current;
 
         const init = async () => {
+            setIsCaptchaLoading(true);
             try {
                 erpService.clearStoredErpCookies();
                 sessionStorage.removeItem('erp_authenticated');
@@ -366,6 +373,10 @@ const Login = () => {
                 console.error("Failed to init login", err);
                 if (isMounted && initId === initCounterRef.current) {
                     refreshCaptcha();
+                }
+            } finally {
+                if (isMounted && initId === initCounterRef.current) {
+                    setIsCaptchaLoading(false);
                 }
             }
         };
@@ -1148,19 +1159,24 @@ const Login = () => {
                                                         <img 
                                                             src={captchaUrl} 
                                                             alt="Captcha" 
-                                                            className="h-10 object-contain mix-blend-multiply opacity-85" 
+                                                            className={`h-10 object-contain mix-blend-multiply transition-opacity duration-150 ${isCaptchaLoading ? 'opacity-30' : 'opacity-85'}`} 
                                                         />
-                                                    ) : (
-                                                        <div className="animate-pulse bg-slate-200 w-full h-full" />
+                                                    ) : null}
+                                                    {(!captchaUrl || isCaptchaLoading) && (
+                                                        <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-slate-100/90 text-slate-500 text-xs font-bold">
+                                                            <RefreshCcw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                                                            <span>Loading...</span>
+                                                        </div>
                                                     )}
                                                 </div>
                                                 <button
                                                     type="button"
+                                                    disabled={isCaptchaLoading}
                                                     onClick={() => refreshCaptcha(false)}
-                                                    className="w-[52px] h-[52px] bg-white border-2 border-slate-200 rounded-2xl flex items-center justify-center hover:bg-slate-50 transition-colors text-slate-500 hover:text-slate-800 shadow-xs shrink-0 cursor-pointer"
+                                                    className="w-[52px] h-[52px] bg-white border-2 border-slate-200 rounded-2xl flex items-center justify-center hover:bg-slate-50 transition-colors text-slate-500 hover:text-slate-800 shadow-xs shrink-0 cursor-pointer disabled:opacity-60"
                                                     title="Refresh Captcha"
                                                 >
-                                                    <RefreshCcw className="w-4 h-4" />
+                                                    <RefreshCcw className={`w-4 h-4 ${isCaptchaLoading ? 'animate-spin text-indigo-600' : ''}`} />
                                                 </button>
                                             </div>
                                         </div>

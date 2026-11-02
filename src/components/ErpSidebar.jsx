@@ -23,7 +23,7 @@ import {
     deleteFriend,
     setActiveProfileId
 } from '../services/friendsService';
-import { setStoredErpCookies, clearStoredErpCookies } from '../services/erpService';
+import { setStoredErpCookies, clearStoredErpCookies, prewarmCaptcha } from '../services/erpService';
 import { useMaintenance } from '../services/useMaintenance';
 import FriendsManagerModal from './FriendsManagerModal';
 import AddFriendModal from './AddFriendModal';
@@ -391,6 +391,7 @@ export default function ErpSidebar({
                                                 </button>
                                                 <button
                                                     type="button"
+                                                    onMouseEnter={() => prewarmCaptcha().catch(() => {})}
                                                     onClick={() => handleQuickAttendance(profile)}
                                                     className="flex-1 py-1 px-1 bg-slate-900 hover:bg-indigo-600 text-white text-[9px] font-bold rounded-md transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
                                                     title="Check attendance with captcha verification"

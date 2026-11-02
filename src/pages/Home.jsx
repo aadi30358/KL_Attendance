@@ -4,7 +4,7 @@ import { motion, useMotionValue, useSpring, useTransform, useScroll, AnimatePres
 import { ArrowRight, Calculator, Calendar, Clock, Sparkles, CalendarDays, Bot, Flame, LogIn, Wrench, X, MapPin, Coffee, Utensils, Compass, User, Users, UserPlus, Key, BarChart3, ShieldCheck } from 'lucide-react';
 import { getStudentTimetable, getLiveClassStatus, cleanRoomNumber, getSubjectName, getTruePresentAcademicYearAndSem, DAYS_OF_WEEK, KLU_SESSIONS, syncTimetableWithServer } from '../services/timetableService';
 import { getActiveProfileDetails, getAllProfiles, setActiveProfileId } from '../services/friendsService';
-import { hasActiveErpSession, isAttendanceLoggedIn } from '../services/erpService';
+import { hasActiveErpSession, isAttendanceLoggedIn, prewarmCaptcha } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
 import AddFriendModal from '../components/AddFriendModal';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';
@@ -1053,7 +1053,7 @@ export default function Home() {
                                     </>
                                 ) : (
                                     <Link
-                                        to="/login"
+                                        to="/login" onMouseEnter={() => prewarmCaptcha().catch(() => {})} onTouchStart={() => prewarmCaptcha().catch(() => {})}
                                         className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold transition-all shadow-xs shadow-indigo-500/20 active:scale-95 cursor-pointer"
                                     >
                                         <LogIn className="w-3.5 h-3.5" />
@@ -1131,7 +1131,7 @@ export default function Home() {
 
                                 <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
                                     <Link
-                                        to="/login"
+                                        to="/login" onMouseEnter={() => prewarmCaptcha().catch(() => {})} onTouchStart={() => prewarmCaptcha().catch(() => {})}
                                         className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white transition-all shadow-md shadow-indigo-500/25 cursor-pointer"
                                     >
                                         <LogIn className="w-4 h-4" />
@@ -1783,7 +1783,7 @@ export default function Home() {
                     {/* 4. ERP Login Card */}
                     <div className="min-h-[280px] sm:min-h-[300px] md:h-[360px]">
                         <ThreeDParallaxCard
-                            to="/login"
+                            to="/login" onMouseEnter={() => prewarmCaptcha().catch(() => {})} onTouchStart={() => prewarmCaptcha().catch(() => {})}
                             icon={maintenanceConfig?.enabled ? Wrench : LogIn}
                             colorClass={maintenanceConfig?.enabled ? "text-amber-500" : "text-rose-500"}
                             accentColor={maintenanceConfig?.enabled ? "bg-gradient-to-tr from-amber-500 to-orange-500" : "bg-gradient-to-tr from-rose-600 to-pink-500"}

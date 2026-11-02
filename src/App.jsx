@@ -6,6 +6,7 @@ import { doc, setDoc, increment } from 'firebase/firestore';
 import { db } from './firebase';
 import { useDeploymentSync } from './services/useDeploymentSync';
 import { initConsolePortfolio } from './services/consolePortfolio';
+import { prewarmCaptcha } from './services/erpService';
 
 import { AuthProvider } from './context/AuthContext';
 import { AttendanceProvider } from './context/AttendanceContext';
@@ -108,6 +109,7 @@ const AppWithAuth = () => {
     if ('requestIdleCallback' in window) {
       requestIdleCallback(() => {
         pingBackend();
+        prewarmCaptcha().catch(() => {});
         const interval = setInterval(pingBackend, 3 * 60 * 1000);
         return () => clearInterval(interval);
       }, { timeout: 3000 });

@@ -248,7 +248,56 @@ export const buildErpHeaders = (extraHeaders = {}, studentId = null) => {
     return headers;
 };
 
+// High-Speed Pre-Warmed Captcha Cache & Concurrency Lock
+let prewarmedCaptcha = null; // { csrfToken, captchaUrl, cookies, timestamp }
+let prewarmPromise = null;
+
+export const prewarmCaptcha = async (force = false) => {
+    if (typeof window === 'undefined') return null;
+
+    const now = Date.now();
+    // Cache is valid for 3 minutes (180,000ms)
+    if (!force && prewarmedCaptcha && (now - prewarmedCaptcha.timestamp < 180000)) {
+        return prewarmedCaptcha;
+    }
+
+    if (prewarmPromise) {
+        return prewarmPromise;
+    }
+
+    const apiBase = getErpBase();
+
+    prewarmPromise = (async () => {
+        try {
+            const resp = await fetch(`${apiBase || ''}/api/session-init`, {
+                cache: 'no-store',
+                headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+            });
+            if (resp.ok) {
+                const data = await resp.json().catch(() => null);
+                if (data && data.success && data.csrfToken && data.captchaUrl) {
+                    prewarmedCaptcha = {
+                        csrfToken: data.csrfToken,
+                        captchaUrl: data.captchaUrl,
+                        cookies: data.cookies || '',
+                        timestamp: Date.now()
+                    };
+                    return prewarmedCaptcha;
+                }
+            }
+        } catch (e) {
+            console.warn('[ERP] Background captcha pre-warm notice:', e?.message || e);
+        } finally {
+            prewarmPromise = null;
+        }
+        return null;
+    })();
+
+    return prewarmPromise;
+};
+
 export const erpService = {
+    prewarmCaptcha,
     getErpBase,
     getStoredErpCookies,
     saveErpCookiesFromResponse,
@@ -257,13 +306,53 @@ export const erpService = {
     // Fetch the login page to scrape CSRF token and initial captcha atomically
     // Fetch the login page to scrape CSRF token and initial captcha atomically
     async getInitialState() {
-        const apiBase = getErpBase();
+        const now = Date.now();
 
-        // Clear any stale captcha cookies before initializing fresh session
+        // 1. Instant 0ms return if pre-warmed captcha is ready
+        if (prewarmedCaptcha && (now - prewarmedCaptcha.timestamp < 180000)) {
+            const consumed = prewarmedCaptcha;
+            prewarmedCaptcha = null; // Consume atomically
+
+            inMemoryCaptchaCookies = consumed.cookies;
+            if (consumed.csrfToken) {
+                setStoredCsrfToken(consumed.csrfToken);
+            }
+
+            // Immediately start pre-warming the NEXT captcha in background for zero lag on refresh
+            setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
+
+            return {
+                csrfToken: consumed.csrfToken,
+                captchaUrl: consumed.captchaUrl
+            };
+        }
+
+        // 2. If a pre-warm request is currently in-flight, await it directly without redundant network fetch
+        if (prewarmPromise) {
+            try {
+                const result = await prewarmPromise;
+                if (result && (Date.now() - result.timestamp < 180000)) {
+                    prewarmedCaptcha = null; // Consume
+                    inMemoryCaptchaCookies = result.cookies;
+                    if (result.csrfToken) {
+                        setStoredCsrfToken(result.csrfToken);
+                    }
+                    setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
+                    return {
+                        csrfToken: result.csrfToken,
+                        captchaUrl: result.captchaUrl
+                    };
+                }
+            } catch {
+                // proceed to standard fetch
+            }
+        }
+
+        const apiBase = getErpBase();
         inMemoryCaptchaCookies = '';
         inMemoryCsrfToken = '';
 
-        // 1. Fast single-trip session initialization via /api/session-init
+        // 3. Fast single-trip session initialization via /api/session-init
         try {
             const resp = await fetch(`${apiBase || ''}/api/session-init`, {
                 cache: 'no-store',
@@ -278,6 +367,7 @@ export const erpService = {
                     if (data.csrfToken) {
                         setStoredCsrfToken(data.csrfToken);
                     }
+                    setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
                     return {
                         csrfToken: data.csrfToken,
                         captchaUrl: data.captchaUrl
@@ -364,6 +454,48 @@ export const erpService = {
     // Refresh captcha directly via ERP endpoint
     async refreshCaptcha(_studentId = null) {
         void _studentId;
+        const now = Date.now();
+
+        // 1. Instant 0ms return if pre-warmed captcha is ready
+        if (prewarmedCaptcha && (now - prewarmedCaptcha.timestamp < 180000)) {
+            const consumed = prewarmedCaptcha;
+            prewarmedCaptcha = null; // Consume atomically
+
+            inMemoryCaptchaCookies = consumed.cookies;
+            if (consumed.csrfToken) {
+                setStoredCsrfToken(consumed.csrfToken);
+            }
+
+            // Immediately start pre-warming the NEXT captcha in background
+            setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
+
+            return {
+                dataUrl: consumed.captchaUrl,
+                csrfToken: consumed.csrfToken
+            };
+        }
+
+        // 2. If a pre-warm request is currently in-flight, await it directly
+        if (prewarmPromise) {
+            try {
+                const result = await prewarmPromise;
+                if (result && (Date.now() - result.timestamp < 180000)) {
+                    prewarmedCaptcha = null; // Consume
+                    inMemoryCaptchaCookies = result.cookies;
+                    if (result.csrfToken) {
+                        setStoredCsrfToken(result.csrfToken);
+                    }
+                    setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
+                    return {
+                        dataUrl: result.captchaUrl,
+                        csrfToken: result.csrfToken
+                    };
+                }
+            } catch {
+                // proceed to standard refresh
+            }
+        }
+
         const apiBase = getErpBase();
         const reqHeaders = { 'Cache-Control': 'no-cache' };
         if (inMemoryCaptchaCookies) {
