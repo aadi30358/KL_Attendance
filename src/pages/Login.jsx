@@ -292,6 +292,7 @@ const Login = () => {
 
     const captchaUrlRef = useRef('');
     const csrfTokenRef = useRef('');
+    const captchaCookiesRef = useRef('');
     const isSubmittingRef = useRef(false);
     const initCounterRef = useRef(0);
     const captchaInputRef = useRef(null);
@@ -306,6 +307,9 @@ const Login = () => {
         try {
             const res = await erpService.refreshCaptcha();
             if (refreshId !== initCounterRef.current) return;
+            if (res?.cookies) {
+                captchaCookiesRef.current = res.cookies;
+            }
             const resolvedUrl = res?.captchaUrl || res?.dataUrl || (res?.blob ? URL.createObjectURL(res.blob) : null) || (res?.captchaBlob ? URL.createObjectURL(res.captchaBlob) : null);
             if (resolvedUrl) {
                 if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
@@ -346,6 +350,9 @@ const Login = () => {
                 const res = await erpService.getInitialState();
                 if (!isMounted || initId !== initCounterRef.current) return;
 
+                if (res?.cookies) {
+                    captchaCookiesRef.current = res.cookies;
+                }
                 if (res?.csrfToken) {
                     setCsrfToken(res.csrfToken);
                     csrfTokenRef.current = res.csrfToken;
@@ -440,7 +447,8 @@ const Login = () => {
 
         try {
             const activeToken = csrfTokenRef.current || erpService.getStoredCsrfToken() || csrfToken || '';
-            const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken);
+            const boundCookies = captchaCookiesRef.current || '';
+            const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken, boundCookies);
 
             if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, cleanId)) {
                 try {

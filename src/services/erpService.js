@@ -174,8 +174,8 @@ export function isVerifiedErpDashboard(html, username = '') {
     const cleanUser = username ? String(username).trim() : '';
     const hasUsername = cleanUser ? html.toLowerCase().includes(cleanUser.toLowerCase()) : false;
 
-    if (cleanUser) {
-        return Boolean(hasUsername && (hasLogout || hasStudentModule));
+    if (cleanUser && hasUsername) {
+        return Boolean(hasLogout || hasStudentModule);
     }
 
     return Boolean(hasLogout || hasStudentModule);
@@ -336,6 +336,7 @@ export const erpService = {
                 csrfToken: consumed.csrfToken,
                 captchaUrl: consumed.captchaUrl,
                 dataUrl: consumed.captchaUrl,
+                cookies: consumed.cookies,
                 blob: null
             };
         }
@@ -355,6 +356,7 @@ export const erpService = {
                         csrfToken: result.csrfToken,
                         captchaUrl: result.captchaUrl,
                         dataUrl: result.captchaUrl,
+                        cookies: result.cookies,
                         blob: null
                     };
                 }
@@ -387,6 +389,7 @@ export const erpService = {
                         csrfToken: data.csrfToken,
                         captchaUrl: data.captchaUrl,
                         dataUrl: data.captchaUrl,
+                        cookies: data.cookies,
                         blob: null
                     };
                 }
@@ -415,6 +418,7 @@ export const erpService = {
                             csrfToken: data.csrfToken,
                             captchaUrl: data.captchaUrl,
                             dataUrl: data.captchaUrl,
+                            cookies: data.cookies,
                             blob: null
                         };
                     }
@@ -499,6 +503,7 @@ export const erpService = {
                 captchaUrl: consumed.captchaUrl,
                 dataUrl: consumed.captchaUrl,
                 csrfToken: consumed.csrfToken,
+                cookies: consumed.cookies,
                 blob: null
             };
         }
@@ -518,6 +523,7 @@ export const erpService = {
                         captchaUrl: result.captchaUrl,
                         dataUrl: result.captchaUrl,
                         csrfToken: result.csrfToken,
+                        cookies: result.cookies,
                         blob: null
                     };
                 }
@@ -546,7 +552,7 @@ export const erpService = {
                     if (data.csrfToken) {
                         setStoredCsrfToken(data.csrfToken);
                     }
-                    return { captchaUrl: data.captchaUrl, dataUrl: data.captchaUrl, csrfToken: data.csrfToken, blob: null };
+                    return { captchaUrl: data.captchaUrl, dataUrl: data.captchaUrl, csrfToken: data.csrfToken, cookies: data.cookies, blob: null };
                 }
             }
         } catch (e) {
@@ -615,7 +621,8 @@ export const erpService = {
                 url: imgUrl,
                 captchaUrl: objectUrl,
                 dataUrl: objectUrl,
-                csrfToken: inMemoryCsrfToken || ''
+                csrfToken: inMemoryCsrfToken || '',
+                cookies: inMemoryCaptchaCookies || ''
             };
         } catch (e) {
             console.error('[ERP] refreshCaptcha error:', e);
@@ -624,7 +631,7 @@ export const erpService = {
     },
 
     // Login function
-    async login(username, password, captcha, csrfToken) {
+    async login(username, password, captcha, csrfToken, boundCookies = null) {
         const apiBase = getErpBase();
 
         let token = csrfToken || getStoredCsrfToken();
@@ -634,7 +641,7 @@ export const erpService = {
         }
 
         const cleanUsername = username.trim();
-        const activeCaptchaCookie = inMemoryCaptchaCookies || inMemoryErpCookies;
+        const activeCaptchaCookie = boundCookies || inMemoryCaptchaCookies || inMemoryErpCookies;
 
         // 1. Try high-performance /api/fast-login endpoint first
         try {

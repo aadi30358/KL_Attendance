@@ -168,7 +168,6 @@ export default function ErpSidebar({
     };
 
     const handleQuickAttendance = (profile) => {
-        handleSwitchProfile(profile, true);
         setCaptchaTarget(profile);
     };
 
@@ -453,9 +452,10 @@ export default function ErpSidebar({
                 friend={captchaTarget}
                 isOpen={Boolean(captchaTarget)}
                 onClose={() => setCaptchaTarget(null)}
-                onSuccess={() => {
-                    setActiveProfile(getActiveProfileDetails());
+                onSuccess={(verifiedProfile) => {
+                    const prof = verifiedProfile || captchaTarget;
                     setCaptchaTarget(null);
+                    handleSwitchProfile(prof);
                     navigate('/attendance-register');
                 }}
             />

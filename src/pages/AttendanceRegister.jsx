@@ -667,7 +667,19 @@ const AttendanceRegister = () => {
             setYear(targetYear);
             setSemester(targetSem);
 
-            // Check if cached data exists for quick display while refreshing
+            // If the switched profile does not have an active ERP session, DO NOT display private attendance data!
+            if (!hasActiveErpSession(newId)) {
+                setLoading(false);
+                setSubjects([]);
+                setShowDashboard(false);
+                const profToVerify = newProfile || (getSavedFriends() || []).find(f => f.studentId === newId || f.id === newId) || (getMyProfile()?.studentId === newId ? getMyProfile() : null);
+                if (profToVerify?.password || profToVerify?.hasSavedPassword || profToVerify?.studentId) {
+                    setTargetFriendForCaptcha(profToVerify);
+                    return;
+                }
+            }
+
+            // Only if authenticated: check if cached data exists for quick display while refreshing
             const scopedKey = newId ? `kleData_${newId}_${targetYear}_${targetSem}` : null;
             const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
             const fallbackRaw = (!scopedRaw && newId) ? localStorage.getItem(`kleData_${newId}`) : null;
@@ -688,16 +700,6 @@ const AttendanceRegister = () => {
             if (!hasValidCache) {
                 setSubjects([]);
                 setShowDashboard(false);
-            }
-
-            // If the switched profile does not have an active ERP session, prompt Captcha immediately
-            if (!hasActiveErpSession(newId)) {
-                setLoading(false);
-                const profToVerify = newProfile || (getSavedFriends() || []).find(f => f.studentId === newId || f.id === newId) || (getMyProfile()?.studentId === newId ? getMyProfile() : null);
-                if (profToVerify?.password || profToVerify?.hasSavedPassword || profToVerify?.studentId) {
-                    setTargetFriendForCaptcha(profToVerify);
-                    return;
-                }
             }
 
             // Immediately fetch fresh live attendance from ERP for the switched person

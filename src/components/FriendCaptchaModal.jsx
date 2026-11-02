@@ -26,6 +26,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
 
     const captchaUrlRef = useRef('');
     const csrfTokenRef = useRef('');
+    const captchaCookiesRef = useRef('');
     const inputRef = useRef(null);
 
     const studentId = friend?.studentId || friend?.username || (friend?.id !== 'main' ? friend?.id : '') || (typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : '') || '';
@@ -52,6 +53,9 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         setCaptcha('');
         try {
             const res = await erpService.refreshCaptcha(studentId);
+            if (res?.cookies) {
+                captchaCookiesRef.current = res.cookies;
+            }
             const resolvedUrl = res?.captchaUrl || res?.dataUrl || (res?.blob ? URL.createObjectURL(res.blob) : null) || (res?.captchaBlob ? URL.createObjectURL(res.captchaBlob) : null);
             if (resolvedUrl) {
                 if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
@@ -87,6 +91,9 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             try {
                 const res = await erpService.getInitialState();
                 if (!isMounted) return;
+                if (res?.cookies) {
+                    captchaCookiesRef.current = res.cookies;
+                }
                 if (res?.csrfToken) {
                     setCsrfToken(res.csrfToken);
                     csrfTokenRef.current = res.csrfToken;
@@ -153,7 +160,8 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         setError('');
 
         try {
-            const loginResult = await erpService.login(studentId, rawPassword, cleanCaptcha, activeToken);
+            const boundCookies = captchaCookiesRef.current || '';
+            const loginResult = await erpService.login(studentId, rawPassword, cleanCaptcha, activeToken, boundCookies);
 
             if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, studentId)) {
                 // Save session for profile
@@ -293,7 +301,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
     if (!isOpen || !friend) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs font-sans">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md font-sans">
             <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
