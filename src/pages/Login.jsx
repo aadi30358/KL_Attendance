@@ -306,19 +306,13 @@ const Login = () => {
         try {
             const res = await erpService.refreshCaptcha();
             if (refreshId !== initCounterRef.current) return;
-            if (res?.dataUrl) {
+            const resolvedUrl = res?.captchaUrl || res?.dataUrl || (res?.blob ? URL.createObjectURL(res.blob) : null) || (res?.captchaBlob ? URL.createObjectURL(res.captchaBlob) : null);
+            if (resolvedUrl) {
                 if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
                     URL.revokeObjectURL(captchaUrlRef.current);
                 }
-                captchaUrlRef.current = res.dataUrl;
-                setCaptchaUrl(res.dataUrl);
-            } else if (res?.blob) {
-                if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
-                    URL.revokeObjectURL(captchaUrlRef.current);
-                }
-                const objectUrl = URL.createObjectURL(res.blob);
-                captchaUrlRef.current = objectUrl;
-                setCaptchaUrl(objectUrl);
+                captchaUrlRef.current = resolvedUrl;
+                setCaptchaUrl(resolvedUrl);
             }
             if (res?.csrfToken) {
                 setCsrfToken(res.csrfToken);
@@ -356,16 +350,13 @@ const Login = () => {
                     setCsrfToken(res.csrfToken);
                     csrfTokenRef.current = res.csrfToken;
                 }
-                if (res?.captchaUrl) {
-                    captchaUrlRef.current = res.captchaUrl;
-                    setCaptchaUrl(res.captchaUrl);
-                } else if (res?.captchaBlob) {
+                const resolvedUrl = res?.captchaUrl || res?.dataUrl || (res?.captchaBlob ? URL.createObjectURL(res.captchaBlob) : null) || (res?.blob ? URL.createObjectURL(res.blob) : null);
+                if (resolvedUrl) {
                     if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
                         URL.revokeObjectURL(captchaUrlRef.current);
                     }
-                    const objectUrl = URL.createObjectURL(res.captchaBlob);
-                    captchaUrlRef.current = objectUrl;
-                    setCaptchaUrl(objectUrl);
+                    captchaUrlRef.current = resolvedUrl;
+                    setCaptchaUrl(resolvedUrl);
                 } else {
                     refreshCaptcha();
                 }
@@ -557,9 +548,12 @@ const Login = () => {
             }
         } catch (err) {
             console.error("Login attempt failed:", err);
-            const msg = err.message || "Login failed. Please check the captcha code.";
-            if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('Abort')) {
+            const msg = String(err?.message || err || "Login failed. Please check the captcha code.");
+            const lowerMsg = msg.toLowerCase();
+            if (lowerMsg.includes('signal') || lowerMsg.includes('timed out') || lowerMsg.includes('timeout') || lowerMsg.includes('abort')) {
                 setError("ERP server response took longer than expected. Please enter the new captcha to try again.");
+            } else if (lowerMsg.includes('verification code') || lowerMsg.includes('captcha')) {
+                setError("The verification code is incorrect. Please check the captcha.");
             } else {
                 setError(msg);
             }
@@ -1044,24 +1038,29 @@ const Login = () => {
                                                         className="w-full h-14 bg-slate-50/80 border border-slate-300 focus:border-indigo-600 focus:bg-white focus:ring-2 focus:ring-indigo-100 rounded-2xl px-4 text-slate-900 placeholder:text-slate-300 focus:outline-none transition-all font-black tracking-widest shadow-2xs uppercase text-lg text-center"
                                                     />
                                                 </div>
-                                                <div className="w-36 sm:w-44 h-14 bg-slate-100/70 border border-slate-200 rounded-2xl flex items-center justify-center overflow-hidden shrink-0">
+                                                <div className="w-36 sm:w-44 h-14 bg-slate-100/70 border border-slate-200 rounded-2xl flex items-center justify-center overflow-hidden shrink-0 relative">
                                                     {captchaUrl ? (
                                                         <img 
                                                             src={captchaUrl} 
                                                             alt="Captcha" 
-                                                            className="h-10 sm:h-11 object-contain mix-blend-multiply opacity-90" 
+                                                            className={`h-10 sm:h-11 object-contain mix-blend-multiply transition-opacity duration-150 ${isCaptchaLoading ? 'opacity-30' : 'opacity-90'}`} 
                                                         />
-                                                    ) : (
-                                                        <div className="animate-pulse bg-slate-200 w-full h-full" />
+                                                    ) : null}
+                                                    {(!captchaUrl || isCaptchaLoading) && (
+                                                        <div className="absolute inset-0 flex items-center justify-center bg-slate-100/80 backdrop-blur-[1px]">
+                                                            <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                                                            <span className="text-[11px] font-bold text-slate-500 ml-1.5">Loading...</span>
+                                                        </div>
                                                     )}
                                                 </div>
                                                 <button
                                                     type="button"
                                                     onClick={() => refreshCaptcha(false)}
-                                                    className="w-14 h-14 bg-white border border-slate-200 rounded-2xl flex items-center justify-center hover:bg-slate-50 transition-colors text-slate-400 hover:text-slate-700 shadow-2xs shrink-0 cursor-pointer"
+                                                    disabled={isCaptchaLoading}
+                                                    className="w-14 h-14 bg-white border border-slate-200 rounded-2xl flex items-center justify-center hover:bg-slate-50 transition-colors text-slate-400 hover:text-slate-700 shadow-2xs shrink-0 cursor-pointer disabled:opacity-50"
                                                     title="Refresh Captcha"
                                                 >
-                                                    <RefreshCcw className="w-5 h-5" />
+                                                    <RefreshCcw className={`w-5 h-5 ${isCaptchaLoading ? 'animate-spin text-indigo-600' : ''}`} />
                                                 </button>
                                             </div>
                                         </div>

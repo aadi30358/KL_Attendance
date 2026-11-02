@@ -52,19 +52,13 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         setCaptcha('');
         try {
             const res = await erpService.refreshCaptcha(studentId);
-            if (res?.dataUrl) {
+            const resolvedUrl = res?.captchaUrl || res?.dataUrl || (res?.blob ? URL.createObjectURL(res.blob) : null) || (res?.captchaBlob ? URL.createObjectURL(res.captchaBlob) : null);
+            if (resolvedUrl) {
                 if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
                     URL.revokeObjectURL(captchaUrlRef.current);
                 }
-                captchaUrlRef.current = res.dataUrl;
-                setCaptchaUrl(res.dataUrl);
-            } else if (res?.blob) {
-                if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
-                    URL.revokeObjectURL(captchaUrlRef.current);
-                }
-                const objectUrl = URL.createObjectURL(res.blob);
-                captchaUrlRef.current = objectUrl;
-                setCaptchaUrl(objectUrl);
+                captchaUrlRef.current = resolvedUrl;
+                setCaptchaUrl(resolvedUrl);
             }
             if (res?.csrfToken) {
                 setCsrfToken(res.csrfToken);
@@ -97,16 +91,13 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     setCsrfToken(res.csrfToken);
                     csrfTokenRef.current = res.csrfToken;
                 }
-                if (res?.captchaUrl) {
-                    setCaptchaUrl(res.captchaUrl);
-                    captchaUrlRef.current = res.captchaUrl;
-                } else if (res?.captchaBlob) {
+                const resolvedUrl = res?.captchaUrl || res?.dataUrl || (res?.captchaBlob ? URL.createObjectURL(res.captchaBlob) : null) || (res?.blob ? URL.createObjectURL(res.blob) : null);
+                if (resolvedUrl) {
                     if (captchaUrlRef.current && captchaUrlRef.current.startsWith('blob:')) {
                         URL.revokeObjectURL(captchaUrlRef.current);
                     }
-                    const objectUrl = URL.createObjectURL(res.captchaBlob);
-                    captchaUrlRef.current = objectUrl;
-                    setCaptchaUrl(objectUrl);
+                    captchaUrlRef.current = resolvedUrl;
+                    setCaptchaUrl(resolvedUrl);
                 } else {
                     await refreshCaptcha();
                 }
@@ -279,9 +270,12 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             }
         } catch (err) {
             console.error('Friend login failed:', err);
-            const msg = err.message || 'The verification code is incorrect. Please check the captcha.';
-            if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('Abort')) {
+            const msg = String(err?.message || err || 'The verification code is incorrect. Please check the captcha.');
+            const lowerMsg = msg.toLowerCase();
+            if (lowerMsg.includes('signal') || lowerMsg.includes('timed out') || lowerMsg.includes('timeout') || lowerMsg.includes('abort')) {
                 setError('ERP server response took longer than expected. Please enter the new captcha to try again.');
+            } else if (lowerMsg.includes('verification code') || lowerMsg.includes('captcha')) {
+                setError('The verification code is incorrect. Please check the captcha.');
             } else {
                 setError(msg);
             }

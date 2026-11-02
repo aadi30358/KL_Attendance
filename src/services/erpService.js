@@ -269,16 +269,27 @@ export const prewarmCaptcha = async (force = false) => {
 
     prewarmPromise = (async () => {
         try {
-            const resp = await fetch(`${apiBase || ''}/api/session-init`, {
+            let resp = await fetch(`${apiBase || ''}/api/session-init`, {
                 cache: 'no-store',
                 headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
-            });
-            if (resp.ok) {
+            }).catch(() => null);
+
+            if (!resp || !resp.ok) {
+                if (apiBase !== FALLBACK_ERP_BASE && typeof window !== 'undefined') {
+                    resp = await fetch(`${FALLBACK_ERP_BASE}/api/session-init`, {
+                        cache: 'no-store',
+                        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+                    }).catch(() => null);
+                }
+            }
+
+            if (resp && resp.ok) {
                 const data = await resp.json().catch(() => null);
                 if (data && data.success && data.csrfToken && data.captchaUrl) {
                     prewarmedCaptcha = {
                         csrfToken: data.csrfToken,
                         captchaUrl: data.captchaUrl,
+                        dataUrl: data.captchaUrl,
                         cookies: data.cookies || '',
                         timestamp: Date.now()
                     };
@@ -323,7 +334,9 @@ export const erpService = {
 
             return {
                 csrfToken: consumed.csrfToken,
-                captchaUrl: consumed.captchaUrl
+                captchaUrl: consumed.captchaUrl,
+                dataUrl: consumed.captchaUrl,
+                blob: null
             };
         }
 
@@ -340,7 +353,9 @@ export const erpService = {
                     setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
                     return {
                         csrfToken: result.csrfToken,
-                        captchaUrl: result.captchaUrl
+                        captchaUrl: result.captchaUrl,
+                        dataUrl: result.captchaUrl,
+                        blob: null
                     };
                 }
             } catch {
@@ -370,7 +385,9 @@ export const erpService = {
                     setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
                     return {
                         csrfToken: data.csrfToken,
-                        captchaUrl: data.captchaUrl
+                        captchaUrl: data.captchaUrl,
+                        dataUrl: data.captchaUrl,
+                        blob: null
                     };
                 }
             }
@@ -470,8 +487,10 @@ export const erpService = {
             setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
 
             return {
+                captchaUrl: consumed.captchaUrl,
                 dataUrl: consumed.captchaUrl,
-                csrfToken: consumed.csrfToken
+                csrfToken: consumed.csrfToken,
+                blob: null
             };
         }
 
@@ -487,8 +506,10 @@ export const erpService = {
                     }
                     setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
                     return {
+                        captchaUrl: result.captchaUrl,
                         dataUrl: result.captchaUrl,
-                        csrfToken: result.csrfToken
+                        csrfToken: result.csrfToken,
+                        blob: null
                     };
                 }
             } catch {
@@ -516,7 +537,7 @@ export const erpService = {
                     if (data.csrfToken) {
                         setStoredCsrfToken(data.csrfToken);
                     }
-                    return { dataUrl: data.captchaUrl, csrfToken: data.csrfToken };
+                    return { captchaUrl: data.captchaUrl, dataUrl: data.captchaUrl, csrfToken: data.csrfToken, blob: null };
                 }
             }
         } catch (e) {
@@ -578,7 +599,15 @@ export const erpService = {
             const imgSc = imgResp.headers?.get?.('x-set-erp-cookie') || imgResp.headers?.get?.('set-cookie');
             if (imgSc) inMemoryCaptchaCookies = imgSc;
             const blob = await imgResp.blob();
-            return { blob, url: imgUrl };
+            const objectUrl = URL.createObjectURL(blob);
+            return {
+                blob,
+                captchaBlob: blob,
+                url: imgUrl,
+                captchaUrl: objectUrl,
+                dataUrl: objectUrl,
+                csrfToken: inMemoryCsrfToken || ''
+            };
         } catch (e) {
             console.error('[ERP] refreshCaptcha error:', e);
             throw e;
@@ -613,7 +642,7 @@ export const erpService = {
                     captcha: captcha.trim(),
                     csrfToken: token
                 }),
-                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(7000) : undefined
+                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(25000) : undefined
             });
 
             const data = await resp.json().catch(() => null);
@@ -1113,7 +1142,7 @@ export const erpService = {
                     body: formData,
                     credentials: 'include',
                     cache: 'no-store',
-                    signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(20000) : undefined
+                    signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(25000) : undefined
                 });
 
                 if (response.status === 400) {

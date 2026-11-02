@@ -630,11 +630,15 @@ const AttendanceRegister = () => {
                 } catch { /* ignore */ }
             }
 
-            if (error.message?.startsWith('DEBUG_HTML:') || error.message?.startsWith('No table found')) { 
-                setDebugHtml(error.message); 
+            const errMsg = String(error?.message || error || '');
+            const lowerErr = errMsg.toLowerCase();
+            if (lowerErr.includes('signal') || lowerErr.includes('timed out') || lowerErr.includes('timeout') || lowerErr.includes('abort')) {
+                setFetchError('University ERP server took longer than expected to respond. Please try again or re-verify your session.');
+            } else if (errMsg.startsWith('DEBUG_HTML:') || errMsg.startsWith('No table found')) { 
+                setDebugHtml(errMsg); 
                 setShowDashboard(true); 
             } else {
-                setFetchError(error.message || 'Failed to fetch attendance. Please verify your login status.');
+                setFetchError(errMsg || 'Failed to fetch attendance. Please verify your login status.');
             }
         } finally { 
             setLoading(false); 
