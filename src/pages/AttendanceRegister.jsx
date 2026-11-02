@@ -968,8 +968,8 @@ const AttendanceRegister = () => {
         const unsub = subscribeCrossDomainSync((event) => {
             if (event?.type === 'ATTENDANCE_UPDATED' && event.data) {
                 const targetSid = activeId || localStorage.getItem('activeErpUser');
-                if (event.data.studentId && targetSid && String(event.data.studentId).trim() !== String(targetSid).trim()) {
-                    return; // event was for a different student
+                if (!event.data.studentId || !targetSid || String(event.data.studentId).trim() !== String(targetSid).trim()) {
+                    return; // event was for a different student or lacked studentId
                 }
                 const updatedCourses = event.data.data || event.data.attendance_data;
                 if (Array.isArray(updatedCourses) && updatedCourses.length > 0) {
@@ -1005,7 +1005,7 @@ const AttendanceRegister = () => {
         const onLocalUpdate = (e) => {
             const detail = e.detail;
             const targetSid = activeId || localStorage.getItem('activeErpUser');
-            if (detail?.studentId && targetSid && String(detail.studentId).trim() !== String(targetSid).trim()) return;
+            if (!detail?.studentId || !targetSid || String(detail.studentId).trim() !== String(targetSid).trim()) return;
             const updated = detail?.data || detail?.attendance_data;
             if (Array.isArray(updated) && updated.length > 0) {
                 const normY = normalizeAcademicYear(year);
@@ -1141,7 +1141,13 @@ const AttendanceRegister = () => {
                 handleLogoutAction('session_expired');
                 return;
             } else if (!isSilent) {
-                setFetchError(error.message || 'Failed to refresh attendance.');
+                const errMsg = String(error?.message || error || '');
+                const lowerErr = errMsg.toLowerCase();
+                if (lowerErr.includes('signal') || lowerErr.includes('timed out') || lowerErr.includes('timeout') || lowerErr.includes('abort')) {
+                    setFetchError('University ERP server took longer than expected to respond. Please try again or re-verify your session.');
+                } else {
+                    setFetchError(errMsg || 'Failed to refresh attendance.');
+                }
             }
         } finally {
             if (!isSilent) setRefreshing(false);
@@ -1436,14 +1442,22 @@ const AttendanceRegister = () => {
 
                 {/* Attendance Subjects */}
                 {loading && subjects.length === 0 ? (
-                                <div className="max-w-2xl mx-auto bg-white border-2 border-slate-900 rounded-[2.5rem] p-12 text-center shadow-lg my-8">
-                                    <div className="w-14 h-14 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-5" />
-                                    <h3 className="text-xl font-black text-slate-900 mb-2">Fetching Academic Record</h3>
-                                    <p className="text-slate-500 text-sm font-medium">
-                                        Retrieving course registered records for <span className="font-bold text-indigo-600">{displayYearText} ({displaySemesterText} Semester)</span> from KL ERP...
-                                    </p>
-                                </div>
-                            ) : subjects.length > 0 ? (
+                    <div className="max-w-2xl mx-auto bg-white border-2 border-slate-900 rounded-[2.5rem] p-12 text-center shadow-lg my-8">
+                        <div className="w-14 h-14 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-5" />
+                        <h3 className="text-xl font-black text-slate-900 mb-2">Fetching Academic Record</h3>
+                        <p className="text-slate-500 text-sm font-medium">
+                            Retrieving course registered records for <span className="font-bold text-indigo-600">{displayYearText} ({displaySemesterText} Semester)</span> from KL ERP...
+                        </p>
+                    </div>
+                ) : targetFriendForCaptcha ? (
+                    <div className="max-w-2xl mx-auto bg-white border-2 border-slate-900 rounded-[2.5rem] p-12 text-center shadow-lg my-8">
+                        <div className="w-14 h-14 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-5" />
+                        <h3 className="text-xl font-black text-slate-900 mb-2">Authenticating Session</h3>
+                        <p className="text-slate-500 text-sm font-medium">
+                            Please solve the Captcha verification above to view attendance records.
+                        </p>
+                    </div>
+                ) : subjects.length > 0 ? (
                     <>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-7xl mx-auto">
                         {subjects.map((subject, index) => {

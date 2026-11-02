@@ -467,13 +467,15 @@ const Login = () => {
                 setErpUser(cleanId);
 
                 if (!isNewProfile && activeProfile) {
-                    setActiveProfileId(activeProfile.id);
-                    if (activeProfile.id === 'main') {
+                    const primaryRemembered = (typeof window !== 'undefined' ? (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId')) : '') || '';
+                    const isSelf = activeProfile.id === 'main' || !activeProfile.isFriend || (primaryRemembered && cleanId === primaryRemembered);
+                    if (isSelf) {
                         saveMyProfile({
-                            nickname: activeProfile.nickname || localStorage.getItem('rememberedName') || 'My Account',
+                            nickname: activeProfile.nickname || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account',
                             studentId: cleanId,
                             password: cleanPass
                         });
+                        setActiveProfileId('main', cleanId);
                     } else {
                         saveFriend({
                             id: activeProfile.id,
@@ -481,6 +483,7 @@ const Login = () => {
                             studentId: cleanId,
                             password: cleanPass
                         });
+                        setActiveProfileId(activeProfile.id, cleanId);
                     }
                 } else {
                     // Check if cleanId matches an existing saved friend

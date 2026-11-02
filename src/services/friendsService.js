@@ -731,22 +731,32 @@ export const getActiveProfileDetails = (specificProfileId) => {
     const profileId = specificProfileId || getActiveProfileId();
     const friends = getSavedFriends();
     const myProf = getMyProfile();
+    const primarySid = (myProf?.studentId || (typeof window !== 'undefined' ? (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId')) : '') || '').trim();
 
-    // 1. If profileId matches a friend (by id, studentId, or username)
-    if (profileId && profileId !== 'main') {
-        const friend = friends.find(f => f.id === profileId || f.studentId === profileId || f.username === profileId);
+    // 1. If profileId matches myProfile (by 'main', or primary studentId/username)
+    if (profileId === 'main' || !profileId || (primarySid && (profileId === primarySid || profileId === myProf?.username))) {
+        if (myProf) return { ...myProf, isFriend: false };
+        if (primarySid) {
+            const rawName = (typeof window !== 'undefined' ? (localStorage.getItem('rememberedName') || localStorage.getItem(`kl_name_${primarySid}`)) : '') || 'My Account';
+            return {
+                id: 'main',
+                isFriend: false,
+                nickname: rawName,
+                label: rawName,
+                studentId: primarySid,
+                hasSavedPassword: Boolean(typeof window !== 'undefined' && localStorage.getItem('rememberedPassword'))
+            };
+        }
+    }
+
+    // 2. If profileId matches a friend (and is NOT the primary studentId)
+    if (profileId && profileId !== 'main' && profileId !== primarySid) {
+        const friend = friends.find(f => (f.id === profileId || f.studentId === profileId || f.username === profileId) && f.studentId !== primarySid);
         if (friend) {
             return {
                 ...friend,
                 isFriend: true
             };
-        }
-    }
-
-    // 2. If profileId matches myProfile (by 'main', studentId, or username)
-    if (myProf) {
-        if (profileId === 'main' || !profileId || profileId === myProf.studentId || profileId === myProf.username) {
-            return myProf;
         }
     }
 
@@ -756,7 +766,7 @@ export const getActiveProfileDetails = (specificProfileId) => {
     if (matched) return matched;
 
     // 4. Default fallbacks
-    if (myProf) return myProf;
+    if (myProf) return { ...myProf, isFriend: false };
     if (friends.length > 0) {
         return {
             ...friends[0],
@@ -771,24 +781,58 @@ export const getActiveProfileDetails = (specificProfileId) => {
  * Get all profiles (My Account + all saved friends)
  */
 export const getAllProfiles = () => {
-    const myProfile = getMyProfile();
+    let myProfile = getMyProfile();
     const friends = getSavedFriends();
     const list = [];
     const seenIds = new Set();
 
-    const mySid = (myProfile?.studentId || '').trim();
+    let mySid = (myProfile?.studentId || (typeof window !== 'undefined' ? (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId')) : '') || '').trim();
+
+    // If myProfile was null but friends exist, check if any friend matches primary rememberedId
+    if (!myProfile && mySid) {
+        const matched = (friends || []).find(f => f.studentId === mySid);
+        if (matched) {
+            myProfile = {
+                id: 'main',
+                studentId: mySid,
+                nickname: matched.nickname || 'My Account',
+                password: matched.password || '',
+                hasSavedPassword: Boolean(matched.password)
+            };
+        }
+    }
+
+    // Fallback: If still no myProfile, and there is at least one saved account, promote the first account to Primary
+    if (!myProfile && friends && friends.length > 0) {
+        const first = friends[0];
+        mySid = (first.studentId || first.username || '').trim();
+        myProfile = {
+            id: 'main',
+            studentId: mySid,
+            nickname: first.nickname || 'My Account',
+            password: first.password || '',
+            hasSavedPassword: Boolean(first.password)
+        };
+        try {
+            if (mySid) {
+                localStorage.setItem('original_my_id', mySid);
+                localStorage.setItem('rememberedId', mySid);
+            }
+        } catch { /* ignore */ }
+    }
+
     const matchingFriend = mySid ? (friends || []).find(f => (f.studentId === mySid || f.username === mySid)) : null;
     const myCustom = mySid ? localStorage.getItem(`kl_name_${mySid}`) : null;
     const resolvedMyName = myCustom || (matchingFriend ? (matchingFriend.nickname || matchingFriend.name) : null) || (myProfile?.nickname && myProfile?.nickname !== 'My Account' && myProfile?.nickname !== 'Account' ? myProfile.nickname : null) || mySid || 'Profile';
 
-    if (myProfile && (myProfile.studentId || myProfile.password)) {
+    if (myProfile && (myProfile.studentId || myProfile.password || mySid)) {
         list.push({ ...myProfile, id: 'main', nickname: resolvedMyName, label: resolvedMyName, isFriend: false });
         if (mySid) seenIds.add(mySid);
     }
 
     (friends || []).forEach(f => {
         const sid = (f.studentId || f.username || '').trim();
-        if (sid && seenIds.has(sid)) return;
+        if (sid && (seenIds.has(sid) || sid === mySid)) return;
         if (sid) seenIds.add(sid);
         const savedName = sid ? localStorage.getItem(`kl_name_${sid}`) : null;
         const rawNick = f.nickname && !f.nickname.startsWith('Friend (') ? f.nickname : null;

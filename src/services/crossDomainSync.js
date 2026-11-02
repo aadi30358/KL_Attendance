@@ -51,10 +51,13 @@ export async function publishCrossDomainEvent(type, data = {}) {
     }
 
     // 3. Global Cross-Domain Firestore Engine (< 500ms real-time push to all domains)
-    // Non-blocking fire-and-forget push so mobile callers execute with 0ms lag
-    setDoc(SYNC_DOC_REF, eventPayload, { merge: true }).catch(err => {
-        console.warn('[CrossDomainSync] Publish notice:', err);
-    });
+    // Non-blocking fire-and-forget push for administrative and system broadcasts only
+    // STRICT PRIVACY: NEVER push private student attendance data or login credentials to public sync doc!
+    if (type !== 'ATTENDANCE_UPDATED' && type !== 'LOGIN_EVENT') {
+        setDoc(SYNC_DOC_REF, eventPayload, { merge: true }).catch(err => {
+            console.warn('[CrossDomainSync] Publish notice:', err);
+        });
+    }
 
     return eventPayload;
 }
@@ -107,13 +110,16 @@ export function subscribeCrossDomainSync(callback) {
         broadcastChannel.addEventListener('message', onBcMessage);
     }
 
-    // 3. Real-time Firestore onSnapshot (Cross-domain bridge)
+    // 3. Real-time Firestore onSnapshot (Cross-domain bridge for config/announcements)
     let unsubFirestore = null;
     try {
         unsubFirestore = onSnapshot(SYNC_DOC_REF, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
-                handleEvent(data);
+                // Strictly ignore any legacy attendance events from Firestore
+                if (data && data.type !== 'ATTENDANCE_UPDATED' && data.type !== 'LOGIN_EVENT') {
+                    handleEvent(data);
+                }
             }
         }, (err) => {
             console.warn('[CrossDomainSync] Firestore listener notice:', err);

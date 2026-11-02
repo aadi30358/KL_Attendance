@@ -455,7 +455,7 @@ export default function ErpSidebar({
                 onSuccess={(verifiedProfile) => {
                     const prof = verifiedProfile || captchaTarget;
                     setCaptchaTarget(null);
-                    handleSwitchProfile(prof);
+                    handleSwitchProfile(prof, true);
                     navigate('/attendance-register');
                 }}
             />

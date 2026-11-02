@@ -285,12 +285,15 @@ export function calculateAttendanceDiff(oldSubjects, newSubjects, currentStudent
         const effectiveConductedDiff = totalCompConductedDiff > 0 ? totalCompConductedDiff : Math.max(0, rawConductedDiff);
         const effectiveAttendedDiff = totalCompAttendedDiff > 0 ? totalCompAttendedDiff : Math.max(0, rawAttendedDiff);
 
-        const hasAnyChange = componentChanges.length > 0 || (effectiveConductedDiff > 0 || effectiveAttendedDiff > 0);
+        // REAL-TIME IN-CLASS GUARD: A single period or 2-period lab block changes conducted/attended by at most 2.
+        // Large jumps (> 2) represent bulk initial syncs, semester switches, or cache loads, not live faculty marks!
+        const isLiveMark = (effectiveConductedDiff <= 2 && effectiveAttendedDiff <= 2);
+        const hasAnyChange = isLiveMark && (componentChanges.length > 0 || (effectiveConductedDiff > 0 || effectiveAttendedDiff > 0));
 
         if (hasAnyChange) {
             // Priority: An absence is detected if any component was absent, or conducted increased without full attendance
             const wasCourseAbsent = anyCompAbsent || (effectiveConductedDiff > 0 && effectiveAttendedDiff === 0) || (effectiveConductedDiff > effectiveAttendedDiff);
-            const wasCoursePresent = anyCompPresent || effectiveAttendedDiff > 0;
+            const wasCoursePresent = !wasCourseAbsent && (anyCompPresent || effectiveAttendedDiff > 0);
 
             changes.push({
                 code: newSubj.code,
@@ -319,10 +322,10 @@ export function calculateAttendanceDiff(oldSubjects, newSubjects, currentStudent
 
         if (targetChange.componentChanges && targetChange.componentChanges.length > 0) {
             const parts = targetChange.componentChanges.map(comp => {
-                if (comp.wasAbsent && comp.attendedDiff === 0) {
+                if (comp.wasAbsent) {
                     return `${comp.name}: +${comp.conductedDiff} Absent`;
                 }
-                if (comp.wasPresent && comp.conductedDiff === comp.attendedDiff) {
+                if (comp.wasPresent) {
                     return `${comp.name}: +${comp.attendedDiff} Present`;
                 }
                 return `${comp.name}: +${comp.attendedDiff}P / +${comp.conductedDiff}C`;
@@ -331,9 +334,9 @@ export function calculateAttendanceDiff(oldSubjects, newSubjects, currentStudent
             const actionPrefix = isAbsentAlert ? '⚠️ Marked ABSENT in' : '🎉 Marked PRESENT in';
             summaryBanner = `${actionPrefix} ${titleOrCode} (${parts.join(', ')}): Now ${targetChange.newPct}%`;
         } else {
-            const statusText = targetChange.wasAbsent && targetChange.attendedDiff === 0
+            const statusText = isAbsentAlert
                 ? `+${targetChange.conductedDiff} Absent`
-                : (targetChange.attendedDiff > 0 ? `+${targetChange.attendedDiff} Present` : `+${targetChange.conductedDiff} Conducted`);
+                : `+${targetChange.attendedDiff} Present`;
             const actionPrefix = isAbsentAlert ? '⚠️ Marked ABSENT in' : '🎉 Marked PRESENT in';
             summaryBanner = `${actionPrefix} ${titleOrCode}: ${statusText} • Now ${targetChange.newPct}%`;
         }

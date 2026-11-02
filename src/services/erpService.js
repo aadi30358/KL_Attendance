@@ -267,16 +267,19 @@ export const prewarmCaptcha = async (force = false) => {
 
     prewarmPromise = (async () => {
         try {
+            const timeoutSignal = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(8000) : undefined;
             let resp = await fetch(`${apiBase || ''}/api/session-init`, {
                 cache: 'no-store',
-                headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+                headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+                signal: timeoutSignal
             }).catch(() => null);
 
             if (!resp || !resp.ok) {
                 if (apiBase !== FALLBACK_ERP_BASE && typeof window !== 'undefined') {
                     resp = await fetch(`${FALLBACK_ERP_BASE}/api/session-init`, {
                         cache: 'no-store',
-                        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+                        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+                        signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(8000) : undefined
                     }).catch(() => null);
                 }
             }
@@ -371,7 +374,8 @@ export const erpService = {
         try {
             const resp = await fetch(`${apiBase || ''}/api/session-init`, {
                 cache: 'no-store',
-                headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+                headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(8000) : undefined
             });
             if (resp.ok) {
                 const data = await resp.json().catch(() => null);
@@ -401,7 +405,8 @@ export const erpService = {
             try {
                 const resp = await fetch(`${FALLBACK_ERP_BASE}/api/session-init`, {
                     cache: 'no-store',
-                    headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+                    headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+                    signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(8000) : undefined
                 });
                 if (resp.ok) {
                     const data = await resp.json().catch(() => null);
