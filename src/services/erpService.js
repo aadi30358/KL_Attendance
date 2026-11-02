@@ -401,7 +401,7 @@ export const erpService = {
         }
 
         // 2. Production fallback via Cloudflare edge if relative was not available
-        if (apiBase !== FALLBACK_ERP_BASE && typeof window !== 'undefined' && (window.location.hostname.includes('.web.app') || window.location.hostname.includes('firebaseapp.com'))) {
+        if (apiBase !== FALLBACK_ERP_BASE && typeof window !== 'undefined' && !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)) {
             try {
                 const resp = await fetch(`${FALLBACK_ERP_BASE}/api/session-init`, {
                     cache: 'no-store',
@@ -563,7 +563,7 @@ export const erpService = {
         }
 
         // Fallback to Cloudflare edge if relative failed in production
-        if (apiBase !== FALLBACK_ERP_BASE && typeof window !== 'undefined' && (window.location.hostname.includes('.web.app') || window.location.hostname.includes('firebaseapp.com'))) {
+        if (apiBase !== FALLBACK_ERP_BASE && typeof window !== 'undefined' && !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)) {
             try {
                 const resp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
                     headers: reqHeaders
