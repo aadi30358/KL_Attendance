@@ -254,7 +254,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                                 localStorage.setItem(`attendanceLastUpdated_${studentId}`, String(Date.now()));
                             } catch { /* ignore storage error */ }
                             window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
-                                detail: { studentId, data }
+                                detail: { studentId, data, year: targetYear, sem: targetSem }
                             }));
                             window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
                                 detail: { studentId }

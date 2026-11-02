@@ -368,6 +368,7 @@ const AttendanceRegister = () => {
     const location = useLocation();
     const subjectsRef = useRef(subjects);
     subjectsRef.current = subjects;
+    const sessionAttendanceBaselines = useRef(new Map());
     const hasRestoredCacheRef = useRef(false);
 
     // Listen for "Change Selection" from Navbar or cross-component reset
@@ -435,6 +436,8 @@ const AttendanceRegister = () => {
             try {
                 const parsed = JSON.parse(scopedRaw);
                 if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
+                    const baseKey = `${targetId}_${normYear}_${normSem}`;
+                    sessionAttendanceBaselines.current.set(baseKey, parsed.attendance_data);
                     setSubjects(parsed.attendance_data);
                     setShowDashboard(true);
                     setYear(normYear);
@@ -460,6 +463,8 @@ const AttendanceRegister = () => {
                         erpService.fetchAttendance(queryYear, fetchSemester, targetId)
                             .then(freshCourses => {
                                 if (Array.isArray(freshCourses) && freshCourses.length > 0) {
+                                    const freshKey = `${targetId}_${normYear}_${normSem}`;
+                                    sessionAttendanceBaselines.current.set(freshKey, freshCourses);
                                     setSubjects(freshCourses);
                                     setLastUpdated(Date.now());
                                     const payload = JSON.stringify({
@@ -511,6 +516,8 @@ const AttendanceRegister = () => {
             const finalCourses = Array.isArray(data) ? data : [];
             const finalYear = normYear;
             const finalSem = normSem;
+            const baseKey = `${targetId}_${finalYear}_${finalSem}`;
+            sessionAttendanceBaselines.current.set(baseKey, finalCourses);
 
             setSubjects(finalCourses);
             setShowDashboard(true);
@@ -654,6 +661,9 @@ const AttendanceRegister = () => {
             
             setActiveId(newId);
             setActiveProfile(newProfile);
+            setAttendanceNotification(null);
+            setRecentlyUpdatedCodes(new Set());
+            setJustCheckedNotice(null);
             setSessionStatus('active');
             setFetchError(null);
             setDebugHtml(null);
@@ -945,13 +955,53 @@ const AttendanceRegister = () => {
         const unsub = subscribeCrossDomainSync((event) => {
             if (event?.type === 'ATTENDANCE_UPDATED' && event.data) {
                 const targetSid = activeId || localStorage.getItem('activeErpUser');
-                if (event.data.studentId && targetSid && event.data.studentId !== targetSid) {
+                if (event.data.studentId && targetSid && String(event.data.studentId).trim() !== String(targetSid).trim()) {
                     return; // event was for a different student
                 }
                 const updatedCourses = event.data.data || event.data.attendance_data;
                 if (Array.isArray(updatedCourses) && updatedCourses.length > 0) {
-                    const prev = subjectsRef.current || subjects;
-                    const diff = calculateAttendanceDiff(prev, updatedCourses);
+                    const normY = normalizeAcademicYear(year);
+                    const normS = normalizeSemester(semester);
+                    const key = `${targetSid}_${normY}_${normS}`;
+                    const prev = sessionAttendanceBaselines.current.get(key);
+
+                    if (prev && prev.length > 0 && prev !== updatedCourses) {
+                        const diff = calculateAttendanceDiff(prev, updatedCourses, targetSid, targetSid);
+                        if (diff.hasChanges) {
+                            playAttendanceChime(diff.isAbsent);
+                            setAttendanceNotification({
+                                show: true,
+                                changes: diff.changes,
+                                summary: diff.summaryBanner,
+                                isAbsent: diff.isAbsent,
+                                timestamp: Date.now()
+                            });
+                            const codes = new Set(diff.changes.map(c => c.code));
+                            setRecentlyUpdatedCodes(codes);
+                            setTimeout(() => setRecentlyUpdatedCodes(new Set()), 25000);
+                        }
+                    }
+                    sessionAttendanceBaselines.current.set(key, updatedCourses);
+                    setSubjects(updatedCourses);
+                    setLastUpdated(event.data.timestamp || Date.now());
+                }
+            }
+        });
+
+        // 4. Local Window Event Listener (0ms for same-window updates)
+        const onLocalUpdate = (e) => {
+            const detail = e.detail;
+            const targetSid = activeId || localStorage.getItem('activeErpUser');
+            if (detail?.studentId && targetSid && String(detail.studentId).trim() !== String(targetSid).trim()) return;
+            const updated = detail?.data || detail?.attendance_data;
+            if (Array.isArray(updated) && updated.length > 0) {
+                const normY = normalizeAcademicYear(year);
+                const normS = normalizeSemester(semester);
+                const key = `${targetSid}_${normY}_${normS}`;
+                const prev = sessionAttendanceBaselines.current.get(key);
+
+                if (prev && prev.length > 0 && prev !== updated) {
+                    const diff = calculateAttendanceDiff(prev, updated, targetSid, targetSid);
                     if (diff.hasChanges) {
                         playAttendanceChime(diff.isAbsent);
                         setAttendanceNotification({
@@ -965,34 +1015,8 @@ const AttendanceRegister = () => {
                         setRecentlyUpdatedCodes(codes);
                         setTimeout(() => setRecentlyUpdatedCodes(new Set()), 25000);
                     }
-                    setSubjects(updatedCourses);
-                    setLastUpdated(event.data.timestamp || Date.now());
                 }
-            }
-        });
-
-        // 4. Local Window Event Listener (0ms for same-window updates)
-        const onLocalUpdate = (e) => {
-            const detail = e.detail;
-            const targetSid = activeId || localStorage.getItem('activeErpUser');
-            if (detail?.studentId && targetSid && detail.studentId !== targetSid) return;
-            const updated = detail?.data || detail?.attendance_data;
-            if (Array.isArray(updated) && updated.length > 0) {
-                const prev = subjectsRef.current || subjects;
-                const diff = calculateAttendanceDiff(prev, updated);
-                if (diff.hasChanges) {
-                    playAttendanceChime(diff.isAbsent);
-                    setAttendanceNotification({
-                        show: true,
-                        changes: diff.changes,
-                        summary: diff.summaryBanner,
-                        isAbsent: diff.isAbsent,
-                        timestamp: Date.now()
-                    });
-                    const codes = new Set(diff.changes.map(c => c.code));
-                    setRecentlyUpdatedCodes(codes);
-                    setTimeout(() => setRecentlyUpdatedCodes(new Set()), 25000);
-                }
+                sessionAttendanceBaselines.current.set(key, updated);
                 setSubjects(updated);
                 setLastUpdated(Date.now());
             }
@@ -1004,7 +1028,7 @@ const AttendanceRegister = () => {
             unsub();
             window.removeEventListener('kl_attendance_updated', onLocalUpdate);
         };
-    }, [activeId, subjects]);
+    }, [activeId, subjects, year, semester]);
 
     // Manual or automatic attendance refresh with diff detection and audio alert
     const handleRefresh = async (isSilent = false) => {
@@ -1023,28 +1047,36 @@ const AttendanceRegister = () => {
             const targetStudent = activeId || localStorage.getItem('activeErpUser') || '';
             const data = await erpService.fetchAttendance(normY, normS, targetStudent);
             if (Array.isArray(data) && data.length > 0) {
-                const prev = subjectsRef.current || subjects;
-                const diff = calculateAttendanceDiff(prev, data);
+                const key = `${targetStudent}_${normY}_${normS}`;
+                const prev = sessionAttendanceBaselines.current.get(key);
 
-                if (diff.hasChanges) {
-                    playAttendanceChime(diff.isAbsent);
-                    setAttendanceNotification({
-                        show: true,
-                        changes: diff.changes,
-                        summary: diff.summaryBanner,
-                        isAbsent: diff.isAbsent,
-                        timestamp: Date.now()
-                    });
-                    const codes = new Set(diff.changes.map(c => c.code));
-                    setRecentlyUpdatedCodes(codes);
-                    setTimeout(() => {
-                        setRecentlyUpdatedCodes(new Set());
-                    }, 25000);
+                if (prev && prev.length > 0) {
+                    const diff = calculateAttendanceDiff(prev, data, targetStudent, targetStudent);
+
+                    if (diff.hasChanges) {
+                        playAttendanceChime(diff.isAbsent);
+                        setAttendanceNotification({
+                            show: true,
+                            changes: diff.changes,
+                            summary: diff.summaryBanner,
+                            isAbsent: diff.isAbsent,
+                            timestamp: Date.now()
+                        });
+                        const codes = new Set(diff.changes.map(c => c.code));
+                        setRecentlyUpdatedCodes(codes);
+                        setTimeout(() => {
+                            setRecentlyUpdatedCodes(new Set());
+                        }, 25000);
+                    } else if (!isSilent) {
+                        setJustCheckedNotice('All caught up · No new attendance marks found');
+                        setTimeout(() => setJustCheckedNotice(null), 4000);
+                    }
                 } else if (!isSilent) {
-                    setJustCheckedNotice('All caught up · No new attendance marks found');
+                    setJustCheckedNotice('Attendance verified live from university ERP');
                     setTimeout(() => setJustCheckedNotice(null), 4000);
                 }
 
+                sessionAttendanceBaselines.current.set(key, data);
                 setSubjects(data);
                 const payload = JSON.stringify({ 
                     attendance_data: data,
@@ -1716,6 +1748,8 @@ const AttendanceRegister = () => {
                     onClose={() => setTargetFriendForCaptcha(null)}
                     onSuccess={(authFriend) => {
                         setTargetFriendForCaptcha(null);
+                        setAttendanceNotification(null);
+                        setRecentlyUpdatedCodes(new Set());
                         const sid = authFriend?.studentId || authFriend?.id || activeId;
                         setActiveId(sid);
                         setActiveProfile(authFriend || getActiveProfileDetails(sid));
@@ -1825,6 +1859,8 @@ const AttendanceRegister = () => {
                                             value={normalizeAcademicYear(year)}
                                             onChange={e => {
                                                 const norm = normalizeAcademicYear(e.target.value);
+                                                setAttendanceNotification(null);
+                                                setRecentlyUpdatedCodes(new Set());
                                                 setYear(norm);
                                                 if (activeId) {
                                                     localStorage.setItem(`manualYear_${activeId}`, norm);
@@ -1873,6 +1909,8 @@ const AttendanceRegister = () => {
                                             value={normalizeSemester(semester)}
                                             onChange={e => {
                                                 const norm = normalizeSemester(e.target.value);
+                                                setAttendanceNotification(null);
+                                                setRecentlyUpdatedCodes(new Set());
                                                 setSemester(norm);
                                                 if (activeId) {
                                                     localStorage.setItem(`manualSem_${activeId}`, norm);
@@ -1994,6 +2032,8 @@ const AttendanceRegister = () => {
                 onClose={() => setTargetFriendForCaptcha(null)}
                 onSuccess={(authFriend) => {
                     setTargetFriendForCaptcha(null);
+                    setAttendanceNotification(null);
+                    setRecentlyUpdatedCodes(new Set());
                     const sid = authFriend?.studentId || authFriend?.id || activeId;
                     setActiveId(sid);
                     setActiveProfile(authFriend || getActiveProfileDetails(sid));

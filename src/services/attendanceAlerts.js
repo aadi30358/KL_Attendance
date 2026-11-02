@@ -194,11 +194,17 @@ export function playAttendanceChime(isAbsent = false) {
 }
 
 /**
- * Compares old attendance list vs new attendance list.
- * Identifies courses that received new attendance marks (Present or Absent).
+ * Compares old attendance list vs new attendance list with deep component-level accuracy.
+ * Identifies courses that received new attendance marks (Present, Absent, or Component-level change).
+ * Strictly guards against cross-student diffs.
  */
-export function calculateAttendanceDiff(oldSubjects, newSubjects) {
-    if (!Array.isArray(oldSubjects) || !Array.isArray(newSubjects) || oldSubjects.length === 0) {
+export function calculateAttendanceDiff(oldSubjects, newSubjects, currentStudentId = null, previousStudentId = null) {
+    // 1. Strict student isolation: Never diff across different students
+    if (currentStudentId && previousStudentId && String(currentStudentId).trim() !== String(previousStudentId).trim()) {
+        return { hasChanges: false, changes: [], isAbsent: false, summaryBanner: '' };
+    }
+
+    if (!Array.isArray(oldSubjects) || !Array.isArray(newSubjects) || oldSubjects.length === 0 || newSubjects.length === 0) {
         return { hasChanges: false, changes: [], isAbsent: false, summaryBanner: '' };
     }
 
@@ -213,7 +219,51 @@ export function calculateAttendanceDiff(oldSubjects, newSubjects) {
         const oldSubj = oldMap.get(newSubj.code);
         if (!oldSubj) return;
 
-        const parseCounts = (subj) => {
+        // 2. Component-level diffing (Lecture, Practical, Skill, Tutorial)
+        const oldComponents = oldSubj.components && typeof oldSubj.components === 'object' ? oldSubj.components : {};
+        const newComponents = newSubj.components && typeof newSubj.components === 'object' ? newSubj.components : {};
+
+        const allCompNames = Array.from(new Set([
+            ...Object.keys(oldComponents),
+            ...Object.keys(newComponents)
+        ]));
+
+        const componentChanges = [];
+        let anyCompAbsent = false;
+        let anyCompPresent = false;
+        let totalCompConductedDiff = 0;
+        let totalCompAttendedDiff = 0;
+
+        allCompNames.forEach(compName => {
+            const oldC = oldComponents[compName] || { conducted: 0, attended: 0 };
+            const newC = newComponents[compName] || { conducted: 0, attended: 0 };
+
+            const cDiff = (Number(newC.conducted) || 0) - (Number(oldC.conducted) || 0);
+            const aDiff = (Number(newC.attended) || 0) - (Number(oldC.attended) || 0);
+
+            if (cDiff > 0 || aDiff > 0) {
+                totalCompConductedDiff += Math.max(0, cDiff);
+                totalCompAttendedDiff += Math.max(0, aDiff);
+
+                const wasCompAbsent = cDiff > 0 && aDiff === 0;
+                const wasCompPresent = aDiff > 0;
+
+                if (wasCompAbsent) anyCompAbsent = true;
+                if (wasCompPresent) anyCompPresent = true;
+                if (cDiff > aDiff && aDiff > 0) anyCompAbsent = true; // Partial absence in this component
+
+                componentChanges.push({
+                    name: compName,
+                    conductedDiff: Math.max(0, cDiff),
+                    attendedDiff: Math.max(0, aDiff),
+                    wasAbsent: wasCompAbsent || (cDiff > aDiff),
+                    wasPresent: wasCompPresent
+                });
+            }
+        });
+
+        // 3. Fallback to raw aggregated counts if component breakdown was identical or empty
+        const parseRawCounts = (subj) => {
             if (subj.rawConducted !== undefined && subj.rawAttended !== undefined) {
                 return { conducted: Number(subj.rawConducted) || 0, attended: Number(subj.rawAttended) || 0 };
             }
@@ -224,51 +274,69 @@ export function calculateAttendanceDiff(oldSubjects, newSubjects) {
                     conducted: parseInt(parts[1], 10) || 0
                 };
             }
-            if (subj.components && typeof subj.components === 'object') {
-                let c = 0, a = 0;
-                Object.values(subj.components).forEach(comp => {
-                    c += Number(comp.conducted || comp.totalConducted || 0);
-                    a += Number(comp.attended || 0);
-                });
-                if (c > 0) return { conducted: c, attended: a };
-            }
             return { conducted: 0, attended: 0 };
         };
 
-        const oldCounts = parseCounts(oldSubj);
-        const newCounts = parseCounts(newSubj);
+        const oldRaw = parseRawCounts(oldSubj);
+        const newRaw = parseRawCounts(newSubj);
+        const rawConductedDiff = newRaw.conducted - oldRaw.conducted;
+        const rawAttendedDiff = newRaw.attended - oldRaw.attended;
 
-        if (oldCounts.conducted === 0 && newCounts.conducted === 0) return;
+        const effectiveConductedDiff = totalCompConductedDiff > 0 ? totalCompConductedDiff : Math.max(0, rawConductedDiff);
+        const effectiveAttendedDiff = totalCompAttendedDiff > 0 ? totalCompAttendedDiff : Math.max(0, rawAttendedDiff);
 
-        const conductedDiff = newCounts.conducted - oldCounts.conducted;
-        const attendedDiff = newCounts.attended - oldCounts.attended;
+        const hasAnyChange = componentChanges.length > 0 || (effectiveConductedDiff > 0 || effectiveAttendedDiff > 0);
 
-        // Trigger when an attendance mark actually occurred
-        if (conductedDiff > 0 || attendedDiff > 0) {
-            const wasAbsent = conductedDiff > 0 && attendedDiff === 0;
+        if (hasAnyChange) {
+            // Priority: An absence is detected if any component was absent, or conducted increased without full attendance
+            const wasCourseAbsent = anyCompAbsent || (effectiveConductedDiff > 0 && effectiveAttendedDiff === 0) || (effectiveConductedDiff > effectiveAttendedDiff);
+            const wasCoursePresent = anyCompPresent || effectiveAttendedDiff > 0;
+
             changes.push({
                 code: newSubj.code,
                 title: newSubj.title,
-                conductedDiff: Math.max(0, conductedDiff),
-                attendedDiff: Math.max(0, attendedDiff),
+                conductedDiff: effectiveConductedDiff,
+                attendedDiff: effectiveAttendedDiff,
                 oldPct: oldSubj.percent,
                 newPct: newSubj.percent,
-                wasAttended: attendedDiff > 0,
-                wasAbsent
+                wasAttended: wasCoursePresent,
+                wasAbsent: wasCourseAbsent,
+                componentChanges
             });
         }
     });
 
     let summaryBanner = '';
     let isAbsentAlert = false;
+
     if (changes.length > 0) {
-        const first = changes[0];
-        isAbsentAlert = Boolean(first.wasAbsent);
-        const statusText = first.attendedDiff > 0
-            ? `+${first.attendedDiff} Present`
-            : `+${first.conductedDiff} Absent`;
-        const actionPrefix = isAbsentAlert ? '⚠️ Marked ABSENT in' : '🎉 Marked PRESENT in';
-        summaryBanner = `${actionPrefix} ${first.title || first.code}: ${statusText} • Now ${first.newPct}%`;
+        // Absence takes utmost priority so student is immediately warned
+        const firstAbsent = changes.find(c => c.wasAbsent);
+        const targetChange = firstAbsent || changes[0];
+        isAbsentAlert = Boolean(targetChange.wasAbsent);
+
+        const titleOrCode = targetChange.title || targetChange.code;
+
+        if (targetChange.componentChanges && targetChange.componentChanges.length > 0) {
+            const parts = targetChange.componentChanges.map(comp => {
+                if (comp.wasAbsent && comp.attendedDiff === 0) {
+                    return `${comp.name}: +${comp.conductedDiff} Absent`;
+                }
+                if (comp.wasPresent && comp.conductedDiff === comp.attendedDiff) {
+                    return `${comp.name}: +${comp.attendedDiff} Present`;
+                }
+                return `${comp.name}: +${comp.attendedDiff}P / +${comp.conductedDiff}C`;
+            });
+
+            const actionPrefix = isAbsentAlert ? '⚠️ Marked ABSENT in' : '🎉 Marked PRESENT in';
+            summaryBanner = `${actionPrefix} ${titleOrCode} (${parts.join(', ')}): Now ${targetChange.newPct}%`;
+        } else {
+            const statusText = targetChange.wasAbsent && targetChange.attendedDiff === 0
+                ? `+${targetChange.conductedDiff} Absent`
+                : (targetChange.attendedDiff > 0 ? `+${targetChange.attendedDiff} Present` : `+${targetChange.conductedDiff} Conducted`);
+            const actionPrefix = isAbsentAlert ? '⚠️ Marked ABSENT in' : '🎉 Marked PRESENT in';
+            summaryBanner = `${actionPrefix} ${titleOrCode}: ${statusText} • Now ${targetChange.newPct}%`;
+        }
     }
 
     return {

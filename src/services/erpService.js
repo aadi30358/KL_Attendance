@@ -1259,6 +1259,16 @@ export const erpService = {
             return 1;
         };
 
+        const normalizeComponentName = (rawType) => {
+            if (!rawType || rawType === 'N/A' || rawType === 'Unknown') return 'Classes';
+            const t = String(rawType).trim().toLowerCase();
+            if (t.includes('skill') || t === 's') return 'Skill';
+            if (t.includes('practical') || t.includes('lab') || t === 'p') return 'Practical';
+            if (t.includes('lecture') || t === 'l') return 'Lecture';
+            if (t.includes('tutorial') || t.includes('theory') || t === 't') return 'Tutorial';
+            return rawType.trim();
+        };
+
         const tables = doc.querySelectorAll('table');
 
         tables.forEach(table => {
@@ -1268,16 +1278,23 @@ export const erpService = {
             let conductedIdx = 8;
             let attendedIdx = 9;
 
-            // Detect headers if available
-            const ths = Array.from(table.querySelectorAll('th'));
-            if (ths.length >= 4) {
-                ths.forEach((th, idx) => {
+            // Detect headers if available (from <th> or first row cells)
+            let headerCells = Array.from(table.querySelectorAll('th'));
+            if (headerCells.length < 4) {
+                const firstRow = table.querySelector('tr');
+                if (firstRow) {
+                    headerCells = Array.from(firstRow.querySelectorAll('td, th'));
+                }
+            }
+
+            if (headerCells.length >= 4) {
+                headerCells.forEach((th, idx) => {
                     const txt = th.textContent.trim().toLowerCase();
                     if (txt.includes('code')) codeIdx = idx;
                     else if (txt.includes('title') || txt.includes('name') || txt.includes('course')) titleIdx = idx;
                     else if (txt.includes('ltps') || txt.includes('component') || txt.includes('type')) ltpsIdx = idx;
                     else if (txt.includes('conducted')) conductedIdx = idx;
-                    else if (txt.includes('attended') || txt.includes('present')) attendedIdx = idx;
+                    else if ((txt.includes('attended') || txt.includes('present')) && !txt.includes('absent')) attendedIdx = idx;
                 });
             }
 
@@ -1298,8 +1315,8 @@ export const erpService = {
                 if (!code || code.length < 3 || code.toLowerCase().includes('code')) {
                     for (let i = 0; i < cols.length; i++) {
                         const cellText = cols[i].textContent.trim();
-                        // Alphanumeric course code pattern (e.g., 23CS2101, 24AD01HF)
-                        if (/^[0-9]{2}[A-Za-z]{2,5}[0-9A-Za-z]+$/.test(cellText)) {
+                        // Alphanumeric course code pattern (e.g., 23CS2101, 24AD01HF, 25CS2103E-S)
+                        if (/^[0-9]{2}[A-Za-z]{2,5}[0-9A-Za-z]+([-_/][LPTS])?$/i.test(cellText)) {
                             code = cellText;
                             if (cols[i + 1]) title = cols[i + 1].textContent.trim();
                             if (cols[i + 2]) ltps = cols[i + 2].textContent.trim();
@@ -1311,13 +1328,21 @@ export const erpService = {
                 if (!code || !title) return;
                 if (code.toLowerCase() === 'course code' || code.toLowerCase() === 'code') return;
 
+                // Strip component suffix if appended to course code (e.g., 25CS2103E-S -> 25CS2103E)
+                // and deduce LTPS if missing
+                let baseCode = code.replace(/[-_/]\s*[LPTS]$/i, '').trim();
+                if ((!ltps || ltps === 'N/A' || ltps === 'Unknown') && /[-_/]\s*([LPTS])$/i.test(code)) {
+                    ltps = code.match(/[-_/]\s*([LPTS])$/i)[1].toUpperCase();
+                }
+                const normalizedCode = baseCode || code;
+
                 // Extract conducted and attended numbers
                 let rawConducted = 0;
                 let rawAttended = 0;
 
                 if (cols[conductedIdx] && cols[attendedIdx]) {
-                    rawConducted = parseInt(cols[conductedIdx].textContent.trim() || '0', 10) || 0;
-                    rawAttended = parseInt(cols[attendedIdx].textContent.trim() || '0', 10) || 0;
+                    rawConducted = parseInt(cols[conductedIdx].textContent.trim().replace(/[^\d]/g, '') || '0', 10) || 0;
+                    rawAttended = parseInt(cols[attendedIdx].textContent.trim().replace(/[^\d]/g, '') || '0', 10) || 0;
                 }
 
                 // Fallback: look for "Attended/Conducted" format in any column
@@ -1326,8 +1351,8 @@ export const erpService = {
                         const t = cols[i].textContent.trim();
                         if (t.includes('/')) {
                             const parts = t.split('/');
-                            const a = parseInt(parts[0], 10);
-                            const c = parseInt(parts[1], 10);
+                            const a = parseInt(parts[0].replace(/[^\d]/g, ''), 10);
+                            const c = parseInt(parts[1].replace(/[^\d]/g, ''), 10);
                             if (!isNaN(a) && !isNaN(c) && c > 0) {
                                 rawAttended = a;
                                 rawConducted = c;
@@ -1337,10 +1362,10 @@ export const erpService = {
                     }
                 }
 
-                const weight = getWeight(ltps);
+                const componentName = normalizeComponentName(ltps);
+                const weight = getWeight(componentName);
                 const conducted = rawConducted * weight;
                 const attended = rawAttended * weight;
-                const componentName = ltps !== 'N/A' && ltps !== '' ? ltps : 'Unknown';
                 const componentPercent = rawConducted > 0 ? parseFloat(((rawAttended / rawConducted) * 100).toFixed(2)) : 0;
                 const componentData = {
                     conducted: rawConducted,
@@ -1348,11 +1373,11 @@ export const erpService = {
                     percent: componentPercent
                 };
 
-                if (!subjectMap.has(code)) {
-                    subjectMap.set(code, {
-                        code,
+                if (!subjectMap.has(normalizedCode)) {
+                    subjectMap.set(normalizedCode, {
+                        code: normalizedCode,
                         title,
-                        ltpsArray: ltps !== 'N/A' && ltps !== '' ? [ltps] : [],
+                        ltpsArray: componentName !== 'Classes' ? [componentName] : [],
                         components: { [componentName]: componentData },
                         totalConducted: conducted,
                         totalAttended: attended,
@@ -1360,9 +1385,9 @@ export const erpService = {
                         rawAttended
                     });
                 } else {
-                    const existing = subjectMap.get(code);
-                    if (ltps !== 'N/A' && ltps !== '' && !existing.ltpsArray.includes(ltps)) {
-                        existing.ltpsArray.push(ltps);
+                    const existing = subjectMap.get(normalizedCode);
+                    if (componentName !== 'Classes' && !existing.ltpsArray.includes(componentName)) {
+                        existing.ltpsArray.push(componentName);
                     }
 
                     if (existing.components[componentName]) {
@@ -1414,6 +1439,8 @@ export const erpService = {
                 ltps: subj.ltpsArray.length > 0 ? subj.ltpsArray.join(' + ') : 'N/A',
                 components: subj.components,
                 attended: `${subj.rawAttended}/${subj.rawConducted}`,
+                rawAttended: subj.rawAttended,
+                rawConducted: subj.rawConducted,
                 percent: parseFloat(percent)
             };
         });
