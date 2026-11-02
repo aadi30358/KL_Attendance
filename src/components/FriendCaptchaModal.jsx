@@ -269,13 +269,17 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 throw new Error('The verification code is incorrect. Please check the captcha.');
             }
         } catch (err) {
-            console.error('Friend login failed:', err);
+            console.warn('Friend login notice:', err?.message || err);
             const msg = String(err?.message || err || 'The verification code is incorrect. Please check the captcha.');
             const lowerMsg = msg.toLowerCase();
             if (lowerMsg.includes('signal') || lowerMsg.includes('timed out') || lowerMsg.includes('timeout') || lowerMsg.includes('abort')) {
                 setError('ERP server response took longer than expected. Please enter the new captcha to try again.');
             } else if (lowerMsg.includes('verification code') || lowerMsg.includes('captcha')) {
                 setError('The verification code is incorrect. Please check the captcha.');
+            } else if (lowerMsg.includes('unable to verify') || lowerMsg.includes('session rejected') || lowerMsg.includes('session expired') || lowerMsg.includes('http 400') || lowerMsg.includes('http 403')) {
+                setError('Session expired or invalid captcha. Please enter the new captcha code.');
+            } else if (lowerMsg.includes('incorrect') || lowerMsg.includes('password') || lowerMsg.includes('username')) {
+                setError('Incorrect Student ID, Password, or Captcha. Please check and try again.');
             } else {
                 setError(msg);
             }

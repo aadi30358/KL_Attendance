@@ -320,7 +320,7 @@ const Login = () => {
             }
         } catch (err) {
             if (refreshId !== initCounterRef.current) return;
-            console.error("Failed to refresh captcha", err);
+            console.warn("Failed to refresh captcha notice:", err?.message || err);
             setError("Failed to load captcha. Please click refresh.");
         } finally {
             if (refreshId === initCounterRef.current) {
@@ -361,7 +361,7 @@ const Login = () => {
                     refreshCaptcha();
                 }
             } catch (err) {
-                console.error("Failed to init login", err);
+                console.warn("Failed to init login notice:", err?.message || err);
                 if (isMounted && initId === initCounterRef.current) {
                     refreshCaptcha();
                 }
@@ -547,13 +547,17 @@ const Login = () => {
                 throw new Error("Incorrect Captcha, Student ID, or Password. Please try again.");
             }
         } catch (err) {
-            console.error("Login attempt failed:", err);
+            console.warn("Login attempt notice:", err?.message || err);
             const msg = String(err?.message || err || "Login failed. Please check the captcha code.");
             const lowerMsg = msg.toLowerCase();
             if (lowerMsg.includes('signal') || lowerMsg.includes('timed out') || lowerMsg.includes('timeout') || lowerMsg.includes('abort')) {
                 setError("ERP server response took longer than expected. Please enter the new captcha to try again.");
             } else if (lowerMsg.includes('verification code') || lowerMsg.includes('captcha')) {
                 setError("The verification code is incorrect. Please check the captcha.");
+            } else if (lowerMsg.includes('unable to verify') || lowerMsg.includes('session rejected') || lowerMsg.includes('session expired') || lowerMsg.includes('http 400') || lowerMsg.includes('http 403')) {
+                setError("Session expired or invalid captcha. Please enter the new captcha code.");
+            } else if (lowerMsg.includes('incorrect') || lowerMsg.includes('password') || lowerMsg.includes('username')) {
+                setError("Incorrect Student ID, Password, or Captcha. Please check and try again.");
             } else {
                 setError(msg);
             }

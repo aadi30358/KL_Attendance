@@ -413,7 +413,9 @@ export const erpService = {
                         }
                         return {
                             csrfToken: data.csrfToken,
-                            captchaUrl: data.captchaUrl
+                            captchaUrl: data.captchaUrl,
+                            dataUrl: data.captchaUrl,
+                            blob: null
                         };
                     }
                 }
@@ -465,7 +467,14 @@ export const erpService = {
             }
         }
 
-        return { csrfToken, captchaBlob };
+        const initialCaptchaUrl = captchaBlob ? URL.createObjectURL(captchaBlob) : null;
+        return {
+            csrfToken,
+            captchaBlob,
+            blob: captchaBlob,
+            captchaUrl: initialCaptchaUrl,
+            dataUrl: initialCaptchaUrl
+        };
     },
 
     // Refresh captcha directly via ERP endpoint
@@ -559,7 +568,7 @@ export const erpService = {
                         if (data.csrfToken) {
                             setStoredCsrfToken(data.csrfToken);
                         }
-                        return { dataUrl: data.captchaUrl, csrfToken: data.csrfToken };
+                        return { captchaUrl: data.captchaUrl, dataUrl: data.captchaUrl, csrfToken: data.csrfToken, blob: null };
                     }
                 }
             } catch (e) {
@@ -667,18 +676,28 @@ export const erpService = {
                     }
                 }
                 if (data.error) {
-                    if (data.error.toLowerCase().includes('incorrect') || data.error.toLowerCase().includes('verification code') || data.error.toLowerCase().includes('password')) {
-                        throw new Error(data.error);
-                    }
+                    throw new Error(data.error);
                 }
+                throw new Error("Incorrect Student ID, Password, or Captcha.");
             }
         } catch (fastErr) {
             const errMsg = String(fastErr?.message || '');
-            if (errMsg.toLowerCase().includes('incorrect') || errMsg.toLowerCase().includes('verification code')) {
+            const lowerErr = errMsg.toLowerCase();
+            // If the error came from the ERP response (incorrect credentials, captcha, validation error, etc.), throw it directly to the user
+            if (
+                lowerErr.includes('incorrect') || 
+                lowerErr.includes('verification') || 
+                lowerErr.includes('captcha') || 
+                lowerErr.includes('password') || 
+                lowerErr.includes('username') ||
+                lowerErr.includes('unable to verify') ||
+                lowerErr.includes('rejected') ||
+                lowerErr.includes('expired')
+            ) {
                 throw fastErr;
             }
             // For any timeout, abort, or network issue with /api/fast-login, silently fall back to direct ERP login
-            console.warn('[ERP] fast-login attempt bypassed, proceeding to direct ERP login:', errMsg);
+            console.warn('[ERP] fast-login network bypass, proceeding to direct ERP login:', errMsg);
         }
 
         // 2. Direct POST to /index.php?r=site%2Flogin fallback
@@ -705,7 +724,8 @@ export const erpService = {
             headers,
             body: formData.toString(),
             credentials: 'include',
-            cache: 'no-store'
+            cache: 'no-store',
+            signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(25000) : undefined
         });
 
         let html = await response.text();
@@ -720,9 +740,9 @@ export const erpService = {
                 throw new Error(alertText);
             }
             if (response.status === 403 || response.status === 400) {
-                throw new Error("Captcha or session expired. Please refresh the captcha and try again.");
+                throw new Error("Incorrect Captcha, Student ID, or Password. Please try again.");
             }
-            throw new Error(`Login session rejected (HTTP ${response.status}). Please refresh captcha and try again.`);
+            throw new Error("Unable to log in to ERP. Please refresh the captcha and try again.");
         }
 
         const parser = new DOMParser();
