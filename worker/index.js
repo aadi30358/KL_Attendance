@@ -33,40 +33,18 @@ function parseCookieHeader(rawCookies) {
     const map = new Map();
     if (!rawCookies) return map;
     const items = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
-    const IGNORED = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned']);
-
     for (const item of items) {
-        if (!item || typeof item !== 'string') continue;
-        const parts = item.split(';');
-        for (let part of parts) {
-            part = part.trim();
-            if (!part) continue;
-
-            if (part.includes(',')) {
-                const subParts = part.split(',');
-                for (let sub of subParts) {
-                    sub = sub.trim();
-                    const eqIdx = sub.indexOf('=');
-                    if (eqIdx > 0) {
-                        const key = sub.slice(0, eqIdx).trim();
-                        const val = sub.slice(eqIdx + 1).trim();
-                        if (key && !IGNORED.has(key.toLowerCase())) {
-                            map.set(key, val);
-                        }
-                    }
-                }
-                continue;
-            }
-
-            const eqIdx = part.indexOf('=');
-            if (eqIdx > 0) {
-                const key = part.slice(0, eqIdx).trim();
-                const val = part.slice(eqIdx + 1).trim();
-                if (key && !IGNORED.has(key.toLowerCase())) {
-                    map.set(key, val);
+        if (!item) continue;
+        item.split(';').forEach(p => {
+            const [k, ...v] = p.split('=');
+            if (k && k.trim()) {
+                const key = k.trim();
+                const lower = key.toLowerCase();
+                if (!['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned'].includes(lower)) {
+                    map.set(key, v.join('=').trim());
                 }
             }
-        }
+        });
     }
     return map;
 }
@@ -147,8 +125,9 @@ export default {
                                   html.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
                 const csrfToken = csrfMatch ? csrfMatch[1] : '';
 
-                const capMatch = html.match(/id="loginFormCaptcha-image"\s+src="([^"]+)"/i) ||
-                                 html.match(/src="([^"]+)"\s+id="loginFormCaptcha-image"/i);
+                const capMatch = html.match(/id=["'](?:loginFormCaptcha-image|loginform-verifycode-image)["'][^>]+src=["']([^"']+)["']/i) ||
+                                 html.match(/src=["']([^"']+)["'][^>]+id=["'](?:loginFormCaptcha-image|loginform-verifycode-image)["']/i) ||
+                                 html.match(/src=["']([^"']*site(?:%2F|\/)captcha[^"']*)["']/i);
                 let captchaDataUrl = '';
 
                 if (capMatch) {
@@ -177,6 +156,8 @@ export default {
                     success: true,
                     csrfToken,
                     captchaUrl: captchaDataUrl,
+                    dataUrl: captchaDataUrl,
+                    captchaDataUrl,
                     cookies: allCookies
                 }), {
                     headers: {
@@ -253,26 +234,6 @@ export default {
                     targetImg = im ? im[1].replace(/&amp;/g, '&') : '/index.php?r=site%2Fcaptcha';
                 }
 
-                // If CSRF is still missing, fetch index.php with current cookies to grab genuine CSRF
-                if (!freshCsrf && currentCookies) {
-                    try {
-                        const initResp = await fetch(`${ERP_BASE}/index.php`, {
-                            headers: {
-                                'Cookie': currentCookies,
-                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                                'Referer': `${ERP_BASE}/`
-                            },
-                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                        });
-                        const initHtml = await initResp.text();
-                        const cm = initHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
-                                   initHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
-                                   initHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
-                                   initHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
-                        if (cm) freshCsrf = cm[1];
-                    } catch { /* ignore */ }
-                }
-
                 const imgUrl = targetImg.startsWith('http') ? targetImg : `${ERP_BASE}${targetImg.startsWith('/') ? '' : '/'}${targetImg}`;
                 const imgResp = await fetch(imgUrl, {
                     headers: {
@@ -330,10 +291,10 @@ export default {
                     });
                 }
 
-                let effectiveCsrf = csrfToken || request.headers.get('x-csrf-token') || '';
+                let effectiveCsrf = csrfToken;
                 let clientCookies = serializeCookieMap(cookieMap);
 
-                // If CSRF is missing, quickly grab it using current cookies without clobbering session
+                // If CSRF is missing, quickly grab it using current cookies
                 if (!effectiveCsrf && clientCookies) {
                     try {
                         const initResp = await fetch(`${ERP_BASE}/index.php`, {
@@ -344,6 +305,9 @@ export default {
                             },
                             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
                         });
+                        const scList = initResp.headers.getSetCookie ? initResp.headers.getSetCookie() : [initResp.headers.get('set-cookie')].filter(Boolean);
+                        parseCookieHeader(scList).forEach((v, k) => cookieMap.set(k, v));
+                        clientCookies = serializeCookieMap(cookieMap);
                         const initHtml = await initResp.text();
                         const m = initHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
                                   initHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
@@ -458,21 +422,23 @@ export default {
                     });
                 }
 
-                // If ERP returned 200 without redirect, inspect specific field error containers
+                // If ERP returned 200 without redirect, inspect body for validation error
                 const respText = await loginResp.text();
+                const isIncorrectCap = respText.includes('The verification code is incorrect') ||
+                                       respText.includes('Verification code is incorrect') ||
+                                       respText.includes('field-loginFormCaptcha has-error') ||
+                                       respText.includes('field-loginform-captcha has-error') ||
+                                       respText.includes('Verification code cannot be blank');
 
-                // Specific container help-blocks (never match raw script options at the bottom of the page!)
-                const capBlockMatch = respText.match(/class=["'][^"']*(?:field-loginFormCaptcha|field-loginform-captcha)[^"']*["'][\s\S]*?<div[^>]*class=["'][^"']*help-block[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
-                const capError = capBlockMatch ? capBlockMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-                const isIncorrectCap = capError.length > 0;
+                const isIncorrectUser = !isIncorrectCap && (
+                    respText.includes('field-loginFormPasswordID required has-error') ||
+                    respText.includes('field-loginform-password has-error') ||
+                    respText.includes('floating-label field-loginFormPasswordID required has-error')
+                );
 
-                const pwdBlockMatch = respText.match(/class=["'][^"']*(?:field-loginFormPasswordID|field-loginform-password|field-loginFormUserNameID|field-loginform-username)[^"']*["'][\s\S]*?<div[^>]*class=["'][^"']*help-block[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
-                const pwdError = pwdBlockMatch ? pwdBlockMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-                const isIncorrectUser = pwdError.length > 0 || respText.includes('class="help-block">Incorrect username or password.') || respText.includes('Incorrect username or password');
-
-                let errorMsg = 'Login failed. Please verify your credentials and try again.';
+                let errorMsg = 'The verification code is incorrect. Please check the captcha.';
                 if (isIncorrectUser) {
-                    errorMsg = 'Incorrect Student ID or Password. Please check and re-enter your password.';
+                    errorMsg = 'Incorrect Student ID or Password.';
                 } else if (isIncorrectCap) {
                     errorMsg = 'The verification code is incorrect. Please check the captcha.';
                 } else if (respText.includes('Unable to verify your data submission')) {
@@ -482,7 +448,8 @@ export default {
                 return new Response(JSON.stringify({
                     success: false,
                     error: errorMsg,
-                    isPasswordError: Boolean(isIncorrectUser),
+                    isCaptchaError: !isIncorrectUser,
+                    isPasswordError: isIncorrectUser,
                     cookies: allCookies
                 }), {
                     status: 401,

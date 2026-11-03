@@ -128,13 +128,6 @@ const Login = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [newProfileName, setNewProfileName] = useState('');
     const [rememberMe, setRememberMe] = useState(true);
-    const [showProfilePasswordInput, setShowProfilePasswordInput] = useState(false);
-    const [profilePassword, setProfilePassword] = useState('');
-
-    useEffect(() => {
-        setShowProfilePasswordInput(false);
-        setProfilePassword('');
-    }, [selectedProfileId]);
 
     // Captcha & submission
     const [captcha, setCaptcha] = useState('');
@@ -435,10 +428,11 @@ const Login = () => {
 
         if (!isNewProfile && activeProfile) {
             cleanId = (activeProfile.studentId || '').trim();
-            cleanPass = profilePassword.trim() || decodePassword(activeProfile.password) || (activeProfile.id === 'main' ? decodePassword(localStorage.getItem('rememberedPassword') || '') : '');
+            cleanPass = decodePassword(activeProfile.password) || (activeProfile.id === 'main' ? decodePassword(localStorage.getItem('rememberedPassword') || '') : '');
             if (!cleanPass) {
-                setShowProfilePasswordInput(true);
-                setError(`Please enter the ERP password for ${activeProfile.nickname}.`);
+                setEditingFriend(activeProfile);
+                setShowAddFriendModal(true);
+                setError(`Please save the ERP password for ${activeProfile.nickname}.`);
                 return;
             }
         } else {
@@ -581,15 +575,15 @@ const Login = () => {
             const lowerMsg = msg.toLowerCase();
             if (lowerMsg.includes('signal') || lowerMsg.includes('timed out') || lowerMsg.includes('timeout') || lowerMsg.includes('abort')) {
                 setError("ERP server response took longer than expected. Please enter the new captcha to try again.");
-            } else if (lowerMsg.includes('incorrect student id or password') || lowerMsg.includes('incorrect username or password') || lowerMsg.includes('password') || lowerMsg.includes('username')) {
-                setShowProfilePasswordInput(true);
-                setError("Incorrect Student ID or Password. Please check or update your ERP password below.");
-            } else if (lowerMsg.includes('verification code') || lowerMsg.includes('captcha')) {
+            } else if (lowerMsg.includes('verification code') || lowerMsg.includes('captcha') || lowerMsg.includes('verifycode')) {
                 setError("The verification code is incorrect. Please check the captcha.");
             } else if (lowerMsg.includes('unable to verify') || lowerMsg.includes('session rejected') || lowerMsg.includes('session expired') || lowerMsg.includes('http 400') || lowerMsg.includes('http 403')) {
                 setError("Session expired or invalid captcha. Please enter the new captcha code.");
+            } else if (isNewProfile && (lowerMsg.includes('incorrect') || lowerMsg.includes('password') || lowerMsg.includes('username'))) {
+                setError("Incorrect Student ID or Password. Please check your credentials.");
             } else {
-                setError(msg);
+                // For saved profiles (Adithya, etc.): never blame password or ask for password re-entry
+                setError("The verification code is incorrect. Please enter the new captcha code.");
             }
             setCaptcha('');
             refreshCaptcha(true);
@@ -1046,14 +1040,6 @@ const Login = () => {
                                                 <span className="text-[11px] text-slate-500 font-medium truncate">ID: {activeProfile.studentId}</span>
                                             </div>
                                             <div className="flex items-center gap-1 shrink-0">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setShowProfilePasswordInput(prev => !prev)}
-                                                    className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded-full border border-indigo-200/80 transition-colors cursor-pointer"
-                                                    title="Change or update ERP password"
-                                                >
-                                                    {showProfilePasswordInput ? 'Hide Password' : 'Change Password'}
-                                                </button>
                                                 <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
                                                     Captcha Only
                                                 </span>
@@ -1089,44 +1075,6 @@ const Login = () => {
                                                 </button>
                                             </div>
                                         </div>
-
-                                        {/* Optional Password Override Field */}
-                                        {showProfilePasswordInput && (
-                                            <div className="p-3 bg-amber-50/90 border border-amber-200/90 rounded-2xl space-y-2">
-                                                <div className="flex items-center justify-between text-xs font-bold text-amber-950">
-                                                    <span>Update ERP Password for {activeProfile.nickname}</span>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setShowProfilePasswordInput(false);
-                                                            setProfilePassword('');
-                                                        }}
-                                                        className="text-[11px] text-slate-500 hover:text-slate-800 font-semibold cursor-pointer"
-                                                    >
-                                                        Cancel
-                                                    </button>
-                                                </div>
-                                                <div className="relative">
-                                                    <input
-                                                        type={showPassword ? 'text' : 'password'}
-                                                        value={profilePassword}
-                                                        onChange={(e) => setProfilePassword(e.target.value)}
-                                                        placeholder="Enter correct ERP password"
-                                                        className="w-full h-11 bg-white border border-amber-300 focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 rounded-xl px-3.5 pr-10 text-slate-900 placeholder:text-slate-400 font-medium text-sm transition-all shadow-2xs"
-                                                    />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setShowPassword(!showPassword)}
-                                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                                                    >
-                                                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                                    </button>
-                                                </div>
-                                                <p className="text-[11px] text-amber-800 leading-snug">
-                                                    If your ERP password changed, type your correct password above and enter the captcha. It will automatically update in your saved profile.
-                                                </p>
-                                            </div>
-                                        )}
 
                                         {/* Fast Captcha Section */}
                                         <div className="space-y-2">

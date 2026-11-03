@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { ShieldCheck, RefreshCcw, Loader2, X, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { ShieldCheck, RefreshCcw, Loader2, X, AlertCircle } from 'lucide-react';
 import { erpService, isVerifiedErpDashboard } from '../services/erpService';
-import { decodePassword, encodePassword, setActiveProfileId, saveMyProfile, saveFriend, getSavedFriends, getMyProfile } from '../services/friendsService';
+import { decodePassword, setActiveProfileId, saveMyProfile, saveFriend, getSavedFriends, getMyProfile } from '../services/friendsService';
 import { fetchLiveErpGrades } from '../services/gradesService';
 import { fetchLiveErpTimetable } from '../services/timetableService';
 import { useMaintenance } from '../services/useMaintenance';
@@ -20,8 +20,6 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
     const [captchaUrl, setCaptchaUrl] = useState('');
     const [csrfToken, setCsrfToken] = useState('');
     const [manualPassword, setManualPassword] = useState('');
-    const [showManualPassword, setShowManualPassword] = useState(false);
-    const [showPasswordText, setShowPasswordText] = useState(false);
     const [loadingCaptcha, setLoadingCaptcha] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
@@ -57,7 +55,6 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             const res = await erpService.refreshCaptcha(studentId);
             if (res?.cookies) {
                 captchaCookiesRef.current = res.cookies;
-                try { sessionStorage.setItem('kl_captcha_cookies', res.cookies); } catch { /* ignore */ }
             }
             const resolvedUrl = res?.captchaUrl || res?.dataUrl || (res?.blob ? URL.createObjectURL(res.blob) : null) || (res?.captchaBlob ? URL.createObjectURL(res.captchaBlob) : null);
             if (resolvedUrl) {
@@ -87,8 +84,6 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         setCaptcha('');
         setError('');
         setManualPassword('');
-        setShowManualPassword(false);
-        setShowPasswordText(false);
 
         let isMounted = true;
         const loadInitial = async () => {
@@ -98,7 +93,6 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 if (!isMounted) return;
                 if (res?.cookies) {
                     captchaCookiesRef.current = res.cookies;
-                    try { sessionStorage.setItem('kl_captcha_cookies', res.cookies); } catch { /* ignore */ }
                 }
                 if (res?.csrfToken) {
                     setCsrfToken(res.csrfToken);
@@ -149,7 +143,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             return;
         }
 
-        const rawPassword = (showManualPassword && manualPassword.trim()) ? manualPassword.trim() : (manualPassword.trim() || savedPassword);
+        const rawPassword = savedPassword || manualPassword.trim();
         const activeToken = csrfTokenRef.current || erpService.getStoredCsrfToken() || csrfToken || '';
 
         if (!studentId) {
@@ -158,7 +152,6 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         }
 
         if (!rawPassword) {
-            setShowManualPassword(true);
             setError('Please enter the ERP password.');
             return;
         }
@@ -167,7 +160,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         setError('');
 
         try {
-            const boundCookies = captchaCookiesRef.current || (typeof window !== 'undefined' ? sessionStorage.getItem('kl_captcha_cookies') : '') || '';
+            const boundCookies = captchaCookiesRef.current || '';
             const loginResult = await erpService.login(studentId, rawPassword, cleanCaptcha, activeToken, boundCookies);
 
             if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, studentId)) {
@@ -189,7 +182,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     setErpUser(studentId);
                 }
 
-                // If password was manually entered or updated, auto-save so user never has to re-type
+                // If password was manually entered, auto-save so user never has to re-type
                 if (manualPassword.trim()) {
                     if (friend.id === 'main') {
                         saveMyProfile({
@@ -197,7 +190,6 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                             studentId,
                             password: manualPassword.trim()
                         });
-                        try { localStorage.setItem('rememberedPassword', encodePassword(manualPassword.trim())); } catch { /* ignore */ }
                     } else {
                         saveFriend({
                             id: friend.id,
@@ -283,21 +275,20 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     fetchLiveErpGrades(studentId)
                 ]).catch(() => {});
             } else {
-                throw new Error('Login failed. Please verify your credentials and try again.');
+                throw new Error('The verification code is incorrect. Please check the captcha.');
             }
         } catch (err) {
             console.warn('Friend login notice:', err?.message || err);
-            const msg = String(err?.message || err || 'Login failed. Please verify your credentials and try again.');
+            const msg = String(err?.message || err || 'The verification code is incorrect. Please check the captcha.');
             const lowerMsg = msg.toLowerCase();
             if (lowerMsg.includes('signal') || lowerMsg.includes('timed out') || lowerMsg.includes('timeout') || lowerMsg.includes('abort')) {
                 setError('ERP server response took longer than expected. Please enter the new captcha to try again.');
-            } else if (lowerMsg.includes('incorrect student id or password') || lowerMsg.includes('incorrect username or password') || lowerMsg.includes('password') || lowerMsg.includes('username')) {
-                setShowManualPassword(true);
-                setError('Incorrect Student ID or Password. Please update your ERP password below.');
             } else if (lowerMsg.includes('verification code') || lowerMsg.includes('captcha')) {
                 setError('The verification code is incorrect. Please check the captcha.');
             } else if (lowerMsg.includes('unable to verify') || lowerMsg.includes('session rejected') || lowerMsg.includes('session expired') || lowerMsg.includes('http 400') || lowerMsg.includes('http 403')) {
                 setError('Session expired or invalid captcha. Please enter the new captcha code.');
+            } else if (lowerMsg.includes('incorrect') || lowerMsg.includes('password') || lowerMsg.includes('username')) {
+                setError('Incorrect Student ID, Password, or Captcha. Please check and try again.');
             } else {
                 setError(msg);
             }
@@ -344,38 +335,15 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 </div>
 
                 {/* Auto-filled Notice */}
-                {savedPassword && !showManualPassword ? (
-                    <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 flex items-center justify-between text-emerald-800 text-xs font-bold">
-                        <div className="flex items-center gap-2">
-                            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                            <span>ID & Password saved. Enter Captcha only.</span>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowManualPassword(true)}
-                            className="text-[11px] text-indigo-700 underline font-black ml-2 shrink-0 cursor-pointer hover:text-indigo-900"
-                        >
-                            Change
-                        </button>
+                {savedPassword ? (
+                    <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 flex items-center gap-2 text-emerald-800 text-xs font-bold">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>ID & Password saved. Enter Captcha only.</span>
                     </div>
                 ) : (
-                    <div className="mb-3 bg-indigo-50 border border-indigo-200 rounded-xl py-2 px-3 flex items-center justify-between text-indigo-800 text-xs font-bold">
-                        <div className="flex items-center gap-2">
-                            <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
-                            <span>{savedPassword ? 'Update saved ERP password below' : 'Enter Password & Captcha to authenticate.'}</span>
-                        </div>
-                        {savedPassword && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setShowManualPassword(false);
-                                    setManualPassword('');
-                                }}
-                                className="text-[11px] text-slate-500 underline font-semibold ml-2 shrink-0 cursor-pointer hover:text-slate-700"
-                            >
-                                Cancel
-                            </button>
-                        )}
+                    <div className="mb-3 bg-indigo-50 border border-indigo-200 rounded-xl py-2 px-3 flex items-center gap-2 text-indigo-800 text-xs font-bold">
+                        <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span>Enter Password & Captcha to authenticate.</span>
                     </div>
                 )}
 
@@ -393,29 +361,20 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 )}
 
                 <form onSubmit={handleLogin} className="space-y-4">
-                    {/* Manual Password field (shown if password not saved or user clicked Change) */}
-                    {(!savedPassword || showManualPassword) && (
+                    {/* Manual Password field (shown if password not saved) */}
+                    {!savedPassword && (
                         <div className="space-y-1.5">
                             <label className="text-[11px] font-black uppercase tracking-wider text-slate-600 block">
-                                ERP Password {showManualPassword ? '(Update)' : ''}
+                                ERP Password
                             </label>
-                            <div className="relative">
-                                <input
-                                    type={showPasswordText ? "text" : "password"}
-                                    value={manualPassword}
-                                    onChange={(e) => setManualPassword(e.target.value)}
-                                    placeholder="Enter your ERP password"
-                                    autoComplete="current-password"
-                                    className="w-full bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-xl py-2.5 px-4 pr-10 text-slate-900 font-bold text-sm transition-all"
-                                />
-                                <button
-                                    type="button"
-                                    onClick={() => setShowPasswordText(prev => !prev)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                                >
-                                    {showPasswordText ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                                </button>
-                            </div>
+                            <input
+                                type="password"
+                                value={manualPassword}
+                                onChange={(e) => setManualPassword(e.target.value)}
+                                placeholder="Enter your ERP password"
+                                autoComplete="current-password"
+                                className="w-full bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-xl py-2.5 px-4 text-slate-900 font-bold text-sm transition-all"
+                            />
                         </div>
                     )}
                     {/* Captcha Display & Refresh */}
