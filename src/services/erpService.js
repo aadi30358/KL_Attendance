@@ -181,6 +181,40 @@ export function isVerifiedErpDashboard(html, username = '') {
 
 const IGNORED_COOKIE_ATTRS = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned']);
 
+function parseCookieSegments(rawStr, targetMap) {
+    if (!rawStr || typeof rawStr !== 'string') return;
+    const parts = rawStr.split(';');
+    for (let part of parts) {
+        part = part.trim();
+        if (!part) continue;
+
+        if (part.includes(',')) {
+            const subParts = part.split(',');
+            for (let sub of subParts) {
+                sub = sub.trim();
+                const eqIdx = sub.indexOf('=');
+                if (eqIdx > 0) {
+                    const key = sub.slice(0, eqIdx).trim();
+                    const val = sub.slice(eqIdx + 1).trim();
+                    if (key && !IGNORED_COOKIE_ATTRS.has(key.toLowerCase())) {
+                        targetMap.set(key, val);
+                    }
+                }
+            }
+            continue;
+        }
+
+        const eqIdx = part.indexOf('=');
+        if (eqIdx > 0) {
+            const key = part.slice(0, eqIdx).trim();
+            const val = part.slice(eqIdx + 1).trim();
+            if (key && !IGNORED_COOKIE_ATTRS.has(key.toLowerCase())) {
+                targetMap.set(key, val);
+            }
+        }
+    }
+}
+
 export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true, studentId = null } = {}) => {
     try {
         if (!response) return;
@@ -189,22 +223,9 @@ export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true, s
             const existing = getStoredErpCookies(studentId);
             const cookieMap = new Map();
             if (existing && !forceAuthUpdate) {
-                existing.split(';').forEach(pair => {
-                    const [k, ...v] = pair.split('=');
-                    if (k && k.trim() && !IGNORED_COOKIE_ATTRS.has(k.trim().toLowerCase())) {
-                        cookieMap.set(k.trim(), v.join('=').trim());
-                    }
-                });
+                parseCookieSegments(existing, cookieMap);
             }
-            newCookies.split(';').forEach(pair => {
-                const [k, ...v] = pair.split('=');
-                if (k && k.trim()) {
-                    const key = k.trim();
-                    if (IGNORED_COOKIE_ATTRS.has(key.toLowerCase())) return;
-                    const val = v.join('=').trim();
-                    cookieMap.set(key, val);
-                }
-            });
+            parseCookieSegments(newCookies, cookieMap);
             const merged = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
             setStoredErpCookies(merged, studentId);
             try { sessionStorage.setItem('kl_captcha_cookies', merged); } catch { /* ignore */ }
