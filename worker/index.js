@@ -231,6 +231,26 @@ export default {
                     targetImg = im ? im[1].replace(/&amp;/g, '&') : '/index.php?r=site%2Fcaptcha';
                 }
 
+                // If CSRF is still missing, fetch index.php with current cookies to grab genuine CSRF
+                if (!freshCsrf && currentCookies) {
+                    try {
+                        const initResp = await fetch(`${ERP_BASE}/index.php`, {
+                            headers: {
+                                'Cookie': currentCookies,
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                'Referer': `${ERP_BASE}/`
+                            },
+                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                        });
+                        const initHtml = await initResp.text();
+                        const cm = initHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
+                                   initHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                                   initHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                                   initHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+                        if (cm) freshCsrf = cm[1];
+                    } catch { /* ignore */ }
+                }
+
                 const imgUrl = targetImg.startsWith('http') ? targetImg : `${ERP_BASE}${targetImg.startsWith('/') ? '' : '/'}${targetImg}`;
                 const imgResp = await fetch(imgUrl, {
                     headers: {
@@ -288,10 +308,10 @@ export default {
                     });
                 }
 
-                let effectiveCsrf = csrfToken;
+                let effectiveCsrf = csrfToken || request.headers.get('x-csrf-token') || '';
                 let clientCookies = serializeCookieMap(cookieMap);
 
-                // If CSRF is missing, quickly grab it using current cookies
+                // If CSRF is missing, quickly grab it using current cookies without clobbering session
                 if (!effectiveCsrf && clientCookies) {
                     try {
                         const initResp = await fetch(`${ERP_BASE}/index.php`, {
@@ -302,9 +322,6 @@ export default {
                             },
                             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
                         });
-                        const scList = initResp.headers.getSetCookie ? initResp.headers.getSetCookie() : [initResp.headers.get('set-cookie')].filter(Boolean);
-                        parseCookieHeader(scList).forEach((v, k) => cookieMap.set(k, v));
-                        clientCookies = serializeCookieMap(cookieMap);
                         const initHtml = await initResp.text();
                         const m = initHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
                                   initHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||

@@ -55,6 +55,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             const res = await erpService.refreshCaptcha(studentId);
             if (res?.cookies) {
                 captchaCookiesRef.current = res.cookies;
+                try { sessionStorage.setItem('kl_captcha_cookies', res.cookies); } catch { /* ignore */ }
             }
             const resolvedUrl = res?.captchaUrl || res?.dataUrl || (res?.blob ? URL.createObjectURL(res.blob) : null) || (res?.captchaBlob ? URL.createObjectURL(res.captchaBlob) : null);
             if (resolvedUrl) {
@@ -93,6 +94,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 if (!isMounted) return;
                 if (res?.cookies) {
                     captchaCookiesRef.current = res.cookies;
+                    try { sessionStorage.setItem('kl_captcha_cookies', res.cookies); } catch { /* ignore */ }
                 }
                 if (res?.csrfToken) {
                     setCsrfToken(res.csrfToken);
@@ -160,7 +162,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         setError('');
 
         try {
-            const boundCookies = captchaCookiesRef.current || '';
+            const boundCookies = captchaCookiesRef.current || (typeof window !== 'undefined' ? sessionStorage.getItem('kl_captcha_cookies') : '') || '';
             const loginResult = await erpService.login(studentId, rawPassword, cleanCaptcha, activeToken, boundCookies);
 
             if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, studentId)) {

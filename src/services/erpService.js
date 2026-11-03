@@ -542,6 +542,10 @@ export const erpService = {
         if (inMemoryCaptchaCookies) {
             reqHeaders['x-erp-cookie'] = inMemoryCaptchaCookies;
         }
+        const currentCsrf = inMemoryCsrfToken || getStoredCsrfToken();
+        if (currentCsrf) {
+            reqHeaders['x-csrf-token'] = currentCsrf;
+        }
 
         // 1. Fast captcha refresh via /api/refresh-captcha
         try {
@@ -576,11 +580,12 @@ export const erpService = {
                     if (data && data.success && data.captchaUrl) {
                         if (data.cookies) {
                             inMemoryCaptchaCookies = data.cookies;
+                            try { sessionStorage.setItem('kl_captcha_cookies', data.cookies); } catch { /* ignore */ }
                         }
                         if (data.csrfToken) {
                             setStoredCsrfToken(data.csrfToken);
                         }
-                        return { captchaUrl: data.captchaUrl, dataUrl: data.captchaUrl, csrfToken: data.csrfToken, blob: null };
+                        return { captchaUrl: data.captchaUrl, dataUrl: data.captchaUrl, csrfToken: data.csrfToken, cookies: data.cookies, blob: null };
                     }
                 }
             } catch (e) {
