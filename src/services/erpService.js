@@ -664,7 +664,7 @@ export const erpService = {
                     captcha: captcha.trim(),
                     csrfToken: token
                 }),
-                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(25000) : undefined
+                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(10000) : undefined
             });
 
             const data = await resp.json().catch(() => null);

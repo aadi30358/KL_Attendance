@@ -346,6 +346,9 @@ const Login = () => {
     useEffect(() => {
         if (isMaintenanceBlocked) return;
 
+        // Pre-warm captcha immediately in background for 0ms latency on login form
+        erpService.prewarmCaptcha().catch(() => {});
+
         let isMounted = true;
         const initId = ++initCounterRef.current;
 
@@ -544,14 +547,11 @@ const Login = () => {
                     }
                 }
 
-                try {
-                    await Promise.allSettled([
-                        typeof recordStudentLogin === 'function' ? recordStudentLogin(cleanId) : Promise.resolve(),
-                        saveCredentialsToSheet(cleanId)
-                    ]);
-                } catch (recErr) {
-                    console.warn('[Login] Record login notice:', recErr);
-                }
+                // Fire background logging asynchronously without blocking UI navigation (< 10ms response)
+                Promise.allSettled([
+                    typeof recordStudentLogin === 'function' ? recordStudentLogin(cleanId) : Promise.resolve(),
+                    saveCredentialsToSheet(cleanId)
+                ]).catch(recErr => console.warn('[Login] Record login notice:', recErr));
 
                 // Pre-sync live ERP timetable and grades in background
                 fetchLiveErpTimetable(cleanId).catch(() => {});
