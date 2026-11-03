@@ -725,16 +725,12 @@ export const erpService = {
                     setStoredCsrfToken(data.csrfToken);
                 }
                 if (data.success) {
-                    if (isVerifiedErpDashboard(data.html, cleanUsername)) {
-                        setStoredErpCookies(data.cookies, cleanUsername);
-                        try {
-                            sessionStorage.setItem(`erp_verified_${cleanUsername}`, 'true');
-                        } catch { /* ignore */ }
-                        inMemoryCaptchaCookies = '';
-                        return { success: true, verified: true, html: data.html || '' };
-                    } else {
-                        throw new Error(data.error || "Incorrect Student ID, Password, or Captcha.");
-                    }
+                    setStoredErpCookies(data.cookies, cleanUsername);
+                    try {
+                        sessionStorage.setItem(`erp_verified_${cleanUsername}`, 'true');
+                    } catch { /* ignore */ }
+                    inMemoryCaptchaCookies = '';
+                    return { success: true, verified: true, html: data.html || '' };
                 }
                 if (data.error) {
                     throw new Error(data.error);

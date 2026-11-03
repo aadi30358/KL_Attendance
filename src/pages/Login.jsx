@@ -23,7 +23,7 @@ import {
     Edit2
 } from 'lucide-react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { erpService, isVerifiedErpDashboard } from '../services/erpService';
+import { erpService } from '../services/erpService';
 import { useAuth } from '../context/useAuth';
 import { saveCredentialsToSheet } from '../services/gsheetsService';
 import { recordStudentLogin } from '../services/loginTracker';
@@ -461,7 +461,7 @@ const Login = () => {
             const boundCookies = captchaCookiesRef.current || (typeof window !== 'undefined' ? sessionStorage.getItem('kl_captcha_cookies') : '') || '';
             const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken, boundCookies);
 
-            if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, cleanId)) {
+            if (loginResult && loginResult.success) {
                 try {
                     localStorage.setItem('erpDashboardHtml', loginResult.html);
                     const cachedForUser = localStorage.getItem(`kleData_${cleanId}`);

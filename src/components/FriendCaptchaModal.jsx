@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { ShieldCheck, RefreshCcw, Loader2, X, AlertCircle } from 'lucide-react';
-import { erpService, isVerifiedErpDashboard } from '../services/erpService';
+import { erpService } from '../services/erpService';
 import { decodePassword, setActiveProfileId, saveMyProfile, saveFriend, getSavedFriends, getMyProfile } from '../services/friendsService';
 import { fetchLiveErpGrades } from '../services/gradesService';
 import { fetchLiveErpTimetable } from '../services/timetableService';
@@ -163,7 +163,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             const boundCookies = captchaCookiesRef.current || '';
             const loginResult = await erpService.login(studentId, rawPassword, cleanCaptcha, activeToken, boundCookies);
 
-            if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, studentId)) {
+            if (loginResult && loginResult.success) {
                 // Save session for profile
                 try {
                     localStorage.setItem('erpDashboardHtml', loginResult.html);

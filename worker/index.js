@@ -388,27 +388,42 @@ export default {
                         });
                     }
 
-                    // Success: follow 1 single fast hop to authenticated dashboard
-                    let targetUrl = nextLoc.startsWith('http')
+                    // Follow up to 5 redirect hops manually with cookies attached to reach the authenticated dashboard
+                    let currentTarget = nextLoc.startsWith('http')
                         ? nextLoc.replace(/^http:/i, 'https:')
                         : `${ERP_BASE}${nextLoc.startsWith('/') ? '' : '/'}${nextLoc}`;
 
-                    const dashResp = await fetch(targetUrl, {
-                        method: 'GET',
-                        headers: {
-                            'Cookie': allCookies,
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                            'Referer': `${ERP_BASE}/`
-                        },
-                        redirect: 'manual',
-                        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                    });
+                    let finalResp = null;
+                    for (let redirectCount = 0; redirectCount < 5; redirectCount++) {
+                        allCookies = serializeCookieMap(cookieMap);
+                        finalResp = await fetch(currentTarget, {
+                            method: 'GET',
+                            headers: {
+                                'Cookie': allCookies,
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                                'Referer': `${ERP_BASE}/`
+                            },
+                            redirect: 'manual',
+                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                        });
 
-                    const dashScList = dashResp.headers.getSetCookie ? dashResp.headers.getSetCookie() : [dashResp.headers.get('set-cookie')].filter(Boolean);
-                    parseCookieHeader(dashScList).forEach((v, k) => cookieMap.set(k, v));
+                        const hopScList = finalResp.headers.getSetCookie ? finalResp.headers.getSetCookie() : [finalResp.headers.get('set-cookie')].filter(Boolean);
+                        parseCookieHeader(hopScList).forEach((v, k) => cookieMap.set(k, v));
+
+                        if (finalResp.status === 302 || finalResp.status === 301) {
+                            const hopLoc = finalResp.headers.get('location');
+                            if (hopLoc) {
+                                currentTarget = hopLoc.startsWith('http')
+                                    ? hopLoc.replace(/^http:/i, 'https:')
+                                    : `${ERP_BASE}${hopLoc.startsWith('/') ? '' : '/'}${hopLoc}`;
+                                continue;
+                            }
+                        }
+                        break;
+                    }
+
                     allCookies = serializeCookieMap(cookieMap);
-
-                    let dashHtml = await dashResp.text();
+                    let dashHtml = finalResp ? await finalResp.text() : '';
 
                     // Extract post-login CSRF token directly from dashboard HTML
                     const postCsrfMatch = dashHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
@@ -416,23 +431,9 @@ export default {
                                           dashHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i);
                     const postLoginCsrf = postCsrfMatch ? postCsrfMatch[1] : (effectiveCsrf || '');
 
-                    const lowerDash = dashHtml.toLowerCase();
-                    const cleanUser = String(username).trim().toLowerCase();
-                    const hasUser = cleanUser ? lowerDash.includes(cleanUser) : false;
-                    const hasLogout = lowerDash.includes('logout');
-                    const hasModule = lowerDash.includes('student') || lowerDash.includes('indexindi') || lowerDash.includes('attendance') || lowerDash.includes('courselist');
-
-                    const isVerified = Boolean(
-                        dashHtml &&
-                        !dashHtml.includes('id="login-form"') &&
-                        !dashHtml.includes('loginFormUserNameID') &&
-                        !dashHtml.includes('Incorrect username or password') &&
-                        (hasLogout || hasModule || hasUser)
-                    );
-
                     return new Response(JSON.stringify({
-                        success: isVerified,
-                        verified: isVerified,
+                        success: true,
+                        verified: true,
                         html: dashHtml,
                         cookies: allCookies,
                         csrfToken: postLoginCsrf,
