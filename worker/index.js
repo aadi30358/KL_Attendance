@@ -458,14 +458,31 @@ export default {
                     });
                 }
 
-                // If ERP returned 200 without redirect, inspect body for validation error
+                // If ERP returned 200 without redirect, inspect specific field error containers
                 const respText = await loginResp.text();
-                const isIncorrectCap = respText.includes('Verification code is incorrect') || respText.includes('captcha');
-                const isIncorrectUser = respText.includes('Incorrect username or password');
+
+                // Specific container help-blocks (never match raw script options at the bottom of the page!)
+                const capBlockMatch = respText.match(/class=["'][^"']*(?:field-loginFormCaptcha|field-loginform-captcha)[^"']*["'][\s\S]*?<div[^>]*class=["'][^"']*help-block[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+                const capError = capBlockMatch ? capBlockMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+                const isIncorrectCap = capError.length > 0;
+
+                const pwdBlockMatch = respText.match(/class=["'][^"']*(?:field-loginFormPasswordID|field-loginform-password|field-loginFormUserNameID|field-loginform-username)[^"']*["'][\s\S]*?<div[^>]*class=["'][^"']*help-block[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+                const pwdError = pwdBlockMatch ? pwdBlockMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+                const isIncorrectUser = pwdError.length > 0 || respText.includes('class="help-block">Incorrect username or password.') || respText.includes('Incorrect username or password');
+
+                let errorMsg = 'Login failed. Please verify your credentials and try again.';
+                if (isIncorrectUser) {
+                    errorMsg = 'Incorrect Student ID or Password. Please check and re-enter your password.';
+                } else if (isIncorrectCap) {
+                    errorMsg = 'The verification code is incorrect. Please check the captcha.';
+                } else if (respText.includes('Unable to verify your data submission')) {
+                    errorMsg = 'Session expired. Please enter the new captcha.';
+                }
 
                 return new Response(JSON.stringify({
                     success: false,
-                    error: isIncorrectCap ? 'The Captcha code is incorrect. Please re-enter.' : (isIncorrectUser ? 'Incorrect Student ID or Password.' : 'Login failed. Please verify your credentials and try again.'),
+                    error: errorMsg,
+                    isPasswordError: Boolean(isIncorrectUser),
                     cookies: allCookies
                 }), {
                     status: 401,
