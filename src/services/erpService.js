@@ -179,7 +179,53 @@ export function isVerifiedErpDashboard(html, username = '') {
     return Boolean(hasLogout || hasStudentModule);
 }
 
-const IGNORED_COOKIE_ATTRS = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned']);
+const IGNORED_COOKIE_ATTRS = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned', 'priority']);
+
+export function parseCookieStringToMap(rawCookies, targetMap = new Map()) {
+    if (!rawCookies) return targetMap;
+    const items = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
+    for (const item of items) {
+        if (!item || typeof item !== 'string') continue;
+        const parts = item.split(';');
+        for (let part of parts) {
+            part = part.trim();
+            if (!part) continue;
+
+            if (part.includes(',')) {
+                const subParts = part.split(',');
+                for (let sub of subParts) {
+                    sub = sub.trim();
+                    const eqIdx = sub.indexOf('=');
+                    if (eqIdx > 0) {
+                        const key = sub.slice(0, eqIdx).trim();
+                        const val = sub.slice(eqIdx + 1).trim();
+                        if (key && !IGNORED_COOKIE_ATTRS.has(key.toLowerCase())) {
+                            targetMap.set(key, val);
+                        }
+                    }
+                }
+                continue;
+            }
+
+            const eqIdx = part.indexOf('=');
+            if (eqIdx > 0) {
+                const key = part.slice(0, eqIdx).trim();
+                const val = part.slice(eqIdx + 1).trim();
+                if (key && !IGNORED_COOKIE_ATTRS.has(key.toLowerCase())) {
+                    targetMap.set(key, val);
+                }
+            }
+        }
+    }
+    return targetMap;
+}
+
+export function mergeCookies(existing, incoming) {
+    const map = new Map();
+    parseCookieStringToMap(existing, map);
+    parseCookieStringToMap(incoming, map);
+    return Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+}
 
 export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true, studentId = null } = {}) => {
     try {
@@ -189,22 +235,9 @@ export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true, s
             const existing = getStoredErpCookies(studentId);
             const cookieMap = new Map();
             if (existing && !forceAuthUpdate) {
-                existing.split(';').forEach(pair => {
-                    const [k, ...v] = pair.split('=');
-                    if (k && k.trim() && !IGNORED_COOKIE_ATTRS.has(k.trim().toLowerCase())) {
-                        cookieMap.set(k.trim(), v.join('=').trim());
-                    }
-                });
+                parseCookieStringToMap(existing, cookieMap);
             }
-            newCookies.split(';').forEach(pair => {
-                const [k, ...v] = pair.split('=');
-                if (k && k.trim()) {
-                    const key = k.trim();
-                    if (IGNORED_COOKIE_ATTRS.has(key.toLowerCase())) return;
-                    const val = v.join('=').trim();
-                    cookieMap.set(key, val);
-                }
-            });
+            parseCookieStringToMap(newCookies, cookieMap);
             const merged = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
             setStoredErpCookies(merged, studentId);
             try { sessionStorage.setItem('kl_captcha_cookies', merged); } catch { /* ignore */ }
@@ -384,20 +417,19 @@ export const erpService = {
 
                 if (data && data.success && activeCsrf && activeCookies) {
                     if (!resolvedImg) {
-                        // High-speed recovery: fetch captcha image using the exact session cookies
+                        // High-speed direct recovery: fetch captcha image using the exact session cookies
                         try {
-                            const refResp = await fetch(`${apiBase || ''}/api/refresh-captcha`, {
+                            const imgResp = await fetch(`${apiBase || ''}/index.php?r=site%2Fcaptcha`, {
                                 headers: {
                                     'Cache-Control': 'no-cache',
-                                    'x-erp-cookie': activeCookies,
-                                    'x-csrf-token': activeCsrf
+                                    'x-erp-cookie': activeCookies
                                 }
                             });
-                            if (refResp.ok) {
-                                const refData = await refResp.json().catch(() => null);
-                                resolvedImg = refData?.captchaUrl || refData?.captchaDataUrl || refData?.dataUrl;
-                                if (refData?.cookies) activeCookies = refData.cookies;
-                                if (refData?.csrfToken) activeCsrf = refData.csrfToken;
+                            if (imgResp.ok) {
+                                const blob = await imgResp.blob();
+                                resolvedImg = URL.createObjectURL(blob);
+                                const imgSc = imgResp.headers?.get?.('x-set-erp-cookie') || imgResp.headers?.get?.('set-cookie');
+                                if (imgSc) activeCookies = mergeCookies(activeCookies, imgSc);
                             }
                         } catch {
                             // ignore
@@ -439,18 +471,17 @@ export const erpService = {
                     if (data && data.success && activeCsrf && activeCookies) {
                         if (!resolvedImg) {
                             try {
-                                const refResp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
+                                const imgResp = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=site%2Fcaptcha`, {
                                     headers: {
                                         'Cache-Control': 'no-cache',
-                                        'x-erp-cookie': activeCookies,
-                                        'x-csrf-token': activeCsrf
+                                        'x-erp-cookie': activeCookies
                                     }
                                 });
-                                if (refResp.ok) {
-                                    const refData = await refResp.json().catch(() => null);
-                                    resolvedImg = refData?.captchaUrl || refData?.captchaDataUrl || refData?.dataUrl;
-                                    if (refData?.cookies) activeCookies = refData.cookies;
-                                    if (refData?.csrfToken) activeCsrf = refData.csrfToken;
+                                if (imgResp.ok) {
+                                    const blob = await imgResp.blob();
+                                    resolvedImg = URL.createObjectURL(blob);
+                                    const imgSc = imgResp.headers?.get?.('x-set-erp-cookie') || imgResp.headers?.get?.('set-cookie');
+                                    if (imgSc) activeCookies = mergeCookies(activeCookies, imgSc);
                                 }
                             } catch {
                                 // ignore
@@ -489,7 +520,7 @@ export const erpService = {
 
         let html = await response.text();
         const sc = response.headers?.get?.('x-set-erp-cookie') || response.headers?.get?.('set-cookie');
-        if (sc) inMemoryCaptchaCookies = sc;
+        if (sc) inMemoryCaptchaCookies = mergeCookies(inMemoryCaptchaCookies, sc);
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
@@ -511,7 +542,7 @@ export const erpService = {
                 });
                 if (imgResp.ok) {
                     const imgSc = imgResp.headers?.get?.('x-set-erp-cookie') || imgResp.headers?.get?.('set-cookie');
-                    if (imgSc) inMemoryCaptchaCookies = imgSc;
+                    if (imgSc) inMemoryCaptchaCookies = mergeCookies(inMemoryCaptchaCookies, imgSc);
                     captchaBlob = await imgResp.blob();
                 }
             } catch (e) {
@@ -595,16 +626,36 @@ export const erpService = {
             });
             if (resp.ok) {
                 const data = await resp.json().catch(() => null);
-                const resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
-                if (data && data.success && resolvedImg) {
-                    if (data.cookies) {
-                        inMemoryCaptchaCookies = data.cookies;
-                        try { sessionStorage.setItem('kl_captcha_cookies', data.cookies); } catch { /* ignore */ }
+                let resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
+                let activeCookies = data?.cookies || inMemoryCaptchaCookies || '';
+                let activeCsrf = data?.csrfToken || inMemoryCsrfToken || '';
+
+                if (data && data.success) {
+                    if (!resolvedImg && activeCookies) {
+                        try {
+                            const imgResp = await fetch(`${apiBase || ''}/index.php?r=site%2Fcaptcha`, {
+                                headers: {
+                                    'Cache-Control': 'no-cache',
+                                    'x-erp-cookie': activeCookies
+                                }
+                            });
+                            if (imgResp.ok) {
+                                const blob = await imgResp.blob();
+                                resolvedImg = URL.createObjectURL(blob);
+                                const imgSc = imgResp.headers?.get?.('x-set-erp-cookie') || imgResp.headers?.get?.('set-cookie');
+                                if (imgSc) activeCookies = mergeCookies(activeCookies, imgSc);
+                            }
+                        } catch {
+                            // ignore
+                        }
                     }
-                    if (data.csrfToken) {
-                        setStoredCsrfToken(data.csrfToken);
+
+                    if (resolvedImg) {
+                        inMemoryCaptchaCookies = activeCookies;
+                        try { sessionStorage.setItem('kl_captcha_cookies', activeCookies); } catch { /* ignore */ }
+                        if (activeCsrf) setStoredCsrfToken(activeCsrf);
+                        return { captchaUrl: resolvedImg, dataUrl: resolvedImg, csrfToken: activeCsrf, cookies: activeCookies, blob: null };
                     }
-                    return { captchaUrl: resolvedImg, dataUrl: resolvedImg, csrfToken: data.csrfToken, cookies: data.cookies, blob: null };
                 }
             }
         } catch (e) {
@@ -619,16 +670,36 @@ export const erpService = {
                 });
                 if (resp.ok) {
                     const data = await resp.json().catch(() => null);
-                    const resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
-                    if (data && data.success && resolvedImg) {
-                        if (data.cookies) {
-                            inMemoryCaptchaCookies = data.cookies;
+                    let resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
+                    let activeCookies = data?.cookies || inMemoryCaptchaCookies || '';
+                    let activeCsrf = data?.csrfToken || inMemoryCsrfToken || '';
+
+                    if (data && data.success) {
+                        if (!resolvedImg && activeCookies) {
+                            try {
+                                const imgResp = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=site%2Fcaptcha`, {
+                                    headers: {
+                                        'Cache-Control': 'no-cache',
+                                        'x-erp-cookie': activeCookies
+                                    }
+                                });
+                                if (imgResp.ok) {
+                                    const blob = await imgResp.blob();
+                                    resolvedImg = URL.createObjectURL(blob);
+                                    const imgSc = imgResp.headers?.get?.('x-set-erp-cookie') || imgResp.headers?.get?.('set-cookie');
+                                    if (imgSc) activeCookies = mergeCookies(activeCookies, imgSc);
+                                }
+                            } catch {
+                                // ignore
+                            }
                         }
-                        if (data.csrfToken) {
-                            setStoredCsrfToken(data.csrfToken);
+
+                        if (resolvedImg) {
+                            inMemoryCaptchaCookies = activeCookies;
+                            try { sessionStorage.setItem('kl_captcha_cookies', activeCookies); } catch { /* ignore */ }
+                            if (activeCsrf) setStoredCsrfToken(activeCsrf);
+                            return { captchaUrl: resolvedImg, dataUrl: resolvedImg, csrfToken: activeCsrf, cookies: activeCookies, blob: null };
                         }
-                        try { if (data.cookies) sessionStorage.setItem('kl_captcha_cookies', data.cookies); } catch { /* ignore */ }
-                        return { captchaUrl: resolvedImg, dataUrl: resolvedImg, csrfToken: data.csrfToken, cookies: data.cookies, blob: null };
                     }
                 }
             } catch (e) {
@@ -648,7 +719,7 @@ export const erpService = {
                 }
             });
             const sc = refreshResp.headers?.get?.('x-set-erp-cookie') || refreshResp.headers?.get?.('set-cookie');
-            if (sc) inMemoryCaptchaCookies = sc;
+            if (sc) inMemoryCaptchaCookies = mergeCookies(inMemoryCaptchaCookies, sc);
 
             const refreshData = await refreshResp.json().catch(() => null);
             let imgUrl = refreshData?.url || `/index.php?r=site%2Fcaptcha&v=${Math.random()}`;
@@ -666,7 +737,7 @@ export const erpService = {
                 }
             });
             const imgSc = imgResp.headers?.get?.('x-set-erp-cookie') || imgResp.headers?.get?.('set-cookie');
-            if (imgSc) inMemoryCaptchaCookies = imgSc;
+            if (imgSc) inMemoryCaptchaCookies = mergeCookies(inMemoryCaptchaCookies, imgSc);
             const blob = await imgResp.blob();
             const objectUrl = URL.createObjectURL(blob);
             return {

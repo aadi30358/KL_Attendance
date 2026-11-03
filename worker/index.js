@@ -33,18 +33,40 @@ function parseCookieHeader(rawCookies) {
     const map = new Map();
     if (!rawCookies) return map;
     const items = Array.isArray(rawCookies) ? rawCookies : [rawCookies];
+    const IGNORED = new Set(['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned', 'priority']);
+
     for (const item of items) {
-        if (!item) continue;
-        item.split(';').forEach(p => {
-            const [k, ...v] = p.split('=');
-            if (k && k.trim()) {
-                const key = k.trim();
-                const lower = key.toLowerCase();
-                if (!['path', 'expires', 'max-age', 'domain', 'samesite', 'secure', 'httponly', 'partitioned'].includes(lower)) {
-                    map.set(key, v.join('=').trim());
+        if (!item || typeof item !== 'string') continue;
+        const parts = item.split(';');
+        for (let part of parts) {
+            part = part.trim();
+            if (!part) continue;
+
+            if (part.includes(',')) {
+                const subParts = part.split(',');
+                for (let sub of subParts) {
+                    sub = sub.trim();
+                    const eqIdx = sub.indexOf('=');
+                    if (eqIdx > 0) {
+                        const key = sub.slice(0, eqIdx).trim();
+                        const val = sub.slice(eqIdx + 1).trim();
+                        if (key && !IGNORED.has(key.toLowerCase())) {
+                            map.set(key, val);
+                        }
+                    }
+                }
+                continue;
+            }
+
+            const eqIdx = part.indexOf('=');
+            if (eqIdx > 0) {
+                const key = part.slice(0, eqIdx).trim();
+                const val = part.slice(eqIdx + 1).trim();
+                if (key && !IGNORED.has(key.toLowerCase())) {
+                    map.set(key, val);
                 }
             }
-        });
+        }
     }
     return map;
 }
