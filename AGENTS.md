@@ -57,3 +57,11 @@ Refer to [.agents/rules/erp_stability.md](file:///.agents/rules/erp_stability.md
     - Cloudflare Edge Worker CORS must never set `Access-Control-Allow-Origin: *` when credentials are included; resolve from `Referer` or fall back to production origin (`klattendancecalculator.web.app`) to prevent strict WebKit CORS failures.
     - Instagram In-App Browser (IAB) assistant banner provides direct Android intent to open in Chrome and clear iOS instructions for Safari.
     - Captcha cookies must be mirrored defensively in `sessionStorage` (`kl_captcha_cookies`) to prevent in-app browser memory clearing from dropping the captcha session.
+
+13. **Bulletproof ERP Cookie & Captcha Lifecycle**:
+    - Comma-aware cookie parser (`parseCookieStringToMap` / `parseCookieHeader`) must handle comma-separated `Set-Cookie` strings so `_csrf` and `SERVERID` are never dropped.
+    - In `erpService.js`, cookies must ALWAYS be merged with `mergeCookies(existing, incoming)`, never replaced (`inMemoryCaptchaCookies = sc` destroys previous session cookies).
+    - If `/api/session-init` returns an empty `captchaUrl`, `erpService` instantly recovers the captcha image directly via `/index.php?r=site%2Fcaptcha` using the exact session cookies in < 120ms without regenerating a second session.
+    - Saved profiles remain strictly **Captcha Only** without sudden password fields; password updates are accessed via the ✏️ edit icon.
+    - `/api/fast-login` follows up to 5 redirect hops with accumulated cookies to reach the authenticated dashboard (`site/indexindi`).
+

@@ -131,3 +131,25 @@ This document establishes the permanent, non-negotiable architectural rules, sta
   - Provide a direct Android intent link to open in Google Chrome (`intent://...#Intent;scheme=https;package=com.android.chrome;end`) and clear iOS guidance for Safari to ensure password autofill works seamlessly.
 - **Defensive Captcha Cookie Mirroring**:
   - Mirror captcha cookies in `sessionStorage` (`kl_captcha_cookies`) so ephemeral in-app browser memory loss never invalidates the captcha session.
+
+---
+
+## 13. Bulletproof ERP Session Cookie & Captcha Lifecycle Invariants
+- **Comma-Aware Cookie Parsing**:
+  - KLU ERP combines multiple `Set-Cookie` headers into a comma-joined string (`PHPSESSID=..., _csrf=..., SERVERID=...`).
+  - The cookie parser in both `worker/index.js` and `erpService.js` must explicitly handle both arrays and comma-separated Set-Cookie strings.
+  - NEVER split purely on `;` without comma awareness; doing so drops `_csrf` and `SERVERID`, causing Yii2 CSRF verification to fail, regenerates the session, and invalidates the user's captcha code ("The verification code is incorrect").
+- **Merge Cookies, Never Overwrite**:
+  - In `src/services/erpService.js`, incoming cookies from responses must ALWAYS be merged into existing cookies using `mergeCookies(existing, incoming)`.
+  - NEVER assign `inMemoryCaptchaCookies = sc` directly, which overwrites the entire cookie jar with partial cookies and deletes `PHPSESSID` or `_csrf`.
+- **Direct Captcha Recovery (Self-Healing Session)**:
+  - When `/api/session-init` returns a valid session with cookies and CSRF but empty `captchaUrl`, `erpService.getInitialState()` and `refreshCaptcha()` must immediately fetch the captcha image via `/index.php?r=site%2Fcaptcha` using the exact session cookies in < 120ms.
+  - NEVER fall through to fetching `index.php` a second time, which creates an unnecessary second session and causes cookie/captcha mismatches.
+- **Saved Profiles Strictly Captcha-Only**:
+  - Saved accounts must strictly remain in **Captcha Only** mode.
+  - Do NOT display sudden password entry cards or replace the captcha flow on saved profiles.
+  - Password updates are managed via the dedicated edit pencil icon (`Edit2`) next to the profile badge.
+- **Multi-Hop 302 Redirect Following**:
+  - In `worker/index.js` (`/api/fast-login`), follow up to 5 redirect hops manually with accumulated cookies to reach the authenticated student portal (`/index.php?r=site%2Findexindi`).
+  - Stopping after a single 302 redirect leaves an empty response body and fails session verification.
+
