@@ -955,9 +955,10 @@ export default {
                 const crResp = finalResp || { ok: false, status: 500 };
                 const isLoginForm = crHtml.includes('id="login-form"') || crHtml.includes('loginFormUserNameID');
                 const hasTable = crHtml.includes('<table') || crHtml.includes('grid-view') || crHtml.includes('Course Code') || crHtml.includes('Course Title') || crHtml.includes('L-T-P-S');
+                const hasEmpty = crHtml.includes('class="empty"') || crHtml.includes('No results found');
 
                 return new Response(JSON.stringify({
-                    success: (crResp.ok || hasTable) && !isLoginForm,
+                    success: (crResp.ok || hasTable || hasEmpty) && !isLoginForm,
                     status: crResp.status,
                     latencyMs: Date.now() - startTime,
                     html: crHtml,
@@ -968,7 +969,8 @@ export default {
                     selectedSemText,
                     availableYears,
                     availableSemesters,
-                    sessionExpired: isLoginForm
+                    sessionExpired: isLoginForm,
+                    empty: hasEmpty || !hasTable
                 }), {
                     headers: {
                         ...cors,

@@ -159,17 +159,29 @@ export default function ClassTimetable({
 
     const getStudentCourses = useCallback((id) => {
         if (!id) return [];
-        if (id === studentId && Array.isArray(erpCourses) && erpCourses.length > 0) return erpCourses;
+        if (id === studentId && Array.isArray(erpCourses)) return erpCourses;
         try {
+            const scopedKey = `kleData_${id}_${currentYear}_${currentSem}`;
+            const scopedRaw = localStorage.getItem(scopedKey);
+            if (scopedRaw) {
+                const p = JSON.parse(scopedRaw);
+                if (p.empty || (Array.isArray(p.attendance_data) && p.attendance_data.length === 0)) return [];
+                if (Array.isArray(p.attendance_data) && p.attendance_data.length > 0) return p.attendance_data;
+            }
             const raw = localStorage.getItem(`kleData_${id}`) || (id === primaryMyId ? localStorage.getItem('kleData') : null);
             if (raw) {
                 const p = JSON.parse(raw);
-                const list = p.attendance_data || p.data || (Array.isArray(p) ? p : []);
-                if (Array.isArray(list) && list.length > 0) return list;
+                if (p.year && p.semester &&
+                    normalizeAcademicYear(p.year) === currentYear &&
+                    normalizeSemester(p.semester) === normalizeSemester(currentSem)) {
+                    if (p.empty || (Array.isArray(p.attendance_data) && p.attendance_data.length === 0)) return [];
+                    const list = p.attendance_data || p.data || (Array.isArray(p) ? p : []);
+                    if (Array.isArray(list) && list.length > 0) return list;
+                }
             }
         } catch { /* ignore */ }
         return [];
-    }, [studentId, erpCourses, primaryMyId]);
+    }, [studentId, erpCourses, primaryMyId, currentYear, currentSem]);
 
     const [timetable, setTimetable] = useState(() => getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem));
 

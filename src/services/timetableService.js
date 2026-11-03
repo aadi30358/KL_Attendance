@@ -856,13 +856,6 @@ export function getAnyStoredCourses(studentId) {
         if (studentId) {
             keysToTry.push(`kleData_${studentId}`);
         }
-        keysToTry.push('kleData');
-        for (let i = 0; i < localStorage.length; i++) {
-            const k = localStorage.key(i);
-            if (k && k.startsWith('kleData_') && !keysToTry.includes(k)) {
-                keysToTry.push(k);
-            }
-        }
         for (const k of keysToTry) {
             const raw = localStorage.getItem(k);
             if (!raw) continue;
@@ -1420,9 +1413,21 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         } catch { /* ignore */ }
     }
 
-    // 4d. Fall back to curriculum ONLY IF student has an active ERP session
+    // 4d. Fall back to curriculum ONLY IF student has an active ERP session AND semester is not explicitly empty
     let isCurriculumFallback = false;
     if (coursesToUse.length === 0) {
+        if (typeof window !== 'undefined') {
+            const scopedKey = `kleData_${targetId}_${cleanYear}_${cleanSem}`;
+            const scopedRaw = localStorage.getItem(scopedKey);
+            if (scopedRaw) {
+                try {
+                    const parsed = JSON.parse(scopedRaw);
+                    if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                        return {};
+                    }
+                } catch { /* ignore */ }
+            }
+        }
         if (!hasActiveErpSession(targetId)) {
             return null;
         }

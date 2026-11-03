@@ -259,12 +259,38 @@ const AttendanceRegister = () => {
     const [subjects, setSubjects] = useState(() => {
         if (!activeId) return [];
         try {
-            const cached = localStorage.getItem(`kleData_${activeId}`) || ((activeId && activeId === localStorage.getItem('rememberedId')) ? localStorage.getItem('kleData') : null);
+            const manualYear = localStorage.getItem(`manualYear_${activeId}`);
+            const savedYear = localStorage.getItem(`activeYear_${activeId}`);
+            const manualSem = localStorage.getItem(`manualSem_${activeId}`);
+            const savedSem = localStorage.getItem(`activeSem_${activeId}`);
+            const present = getPresentAcademicYearAndSem(activeId);
+            const initY = normalizeAcademicYear(manualYear || savedYear || present.year);
+            const initS = normalizeSemester(manualSem || savedSem || present.sem);
+
+            const scopedKey = `kleData_${activeId}_${initY}_${initS}`;
+            const scopedRaw = localStorage.getItem(scopedKey);
+            if (scopedRaw) {
+                const parsed = JSON.parse(scopedRaw);
+                if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                    return [];
+                }
+                if (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
+                    return parsed.attendance_data;
+                }
+            }
+
+            const cached = localStorage.getItem(`kleData_${activeId}`) || ((activeId === localStorage.getItem('rememberedId')) ? localStorage.getItem('kleData') : null);
             if (cached) {
                 const parsed = JSON.parse(cached);
-                const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
-                if (Array.isArray(list) && list.length > 0) {
-                    return list;
+                if (parsed.year && parsed.semester &&
+                    normalizeAcademicYear(parsed.year) === initY &&
+                    normalizeSemester(parsed.semester) === initS) {
+                    if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                        return [];
+                    }
+                    if (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
+                        return parsed.attendance_data;
+                    }
                 }
             }
         } catch { /* ignore */ }
@@ -435,6 +461,58 @@ const AttendanceRegister = () => {
         if (scopedRaw) {
             try {
                 const parsed = JSON.parse(scopedRaw);
+                // If this semester is confirmed empty, show empty state immediately and NEVER fall back to other semesters
+                if (parsed.empty || (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length === 0)) {
+                    setSubjects([]);
+                    setShowDashboard(true);
+                    setYear(normYear);
+                    setSemester(normSem);
+                    setLoading(false);
+                    setFetchError(null);
+                    setDebugHtml(null);
+                    setLastUpdated(parsed.timestamp || Date.now());
+                    setSessionStatus('active');
+
+                    if (targetId) {
+                        try {
+                            localStorage.setItem(`activeYear_${targetId}`, normYear);
+                            localStorage.setItem(`activeSem_${targetId}`, normSem);
+                            localStorage.setItem(`manualYear_${targetId}`, normYear);
+                            localStorage.setItem(`manualSem_${targetId}`, normSem);
+                            localStorage.setItem(`kleData_${targetId}`, scopedRaw);
+                        } catch { /* ignore */ }
+                    }
+
+                    // Background silent revalidation if active ERP session exists
+                    if (hasActiveErpSession(targetId)) {
+                        erpService.fetchAttendance(queryYear, fetchSemester, targetId)
+                            .then(freshCourses => {
+                                const freshList = Array.isArray(freshCourses) ? freshCourses : [];
+                                if (freshList.length > 0) {
+                                    const freshKey = `${targetId}_${normYear}_${normSem}`;
+                                    sessionAttendanceBaselines.current.set(freshKey, freshList);
+                                    const currentActive = localStorage.getItem('activeErpUser');
+                                    if (!currentActive || String(currentActive).trim() === String(targetId).trim()) {
+                                        setSubjects(freshList);
+                                        setLastUpdated(Date.now());
+                                    }
+                                    const payload = JSON.stringify({
+                                        attendance_data: freshList,
+                                        year: normYear,
+                                        semester: normSem,
+                                        timestamp: Date.now()
+                                    });
+                                    try {
+                                        if (scopedKey) localStorage.setItem(scopedKey, payload);
+                                        if (targetId) localStorage.setItem(`kleData_${targetId}`, payload);
+                                    } catch { /* ignore */ }
+                                }
+                            })
+                            .catch(() => {});
+                    }
+                    return;
+                }
+
                 if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
                     const baseKey = `${targetId}_${normYear}_${normSem}`;
                     sessionAttendanceBaselines.current.set(baseKey, parsed.attendance_data);
@@ -608,25 +686,37 @@ const AttendanceRegister = () => {
                     console.warn('[Storage] Quota exceeded or private browsing:', storageErr);
                 }
             } else {
-                // If 0 courses found for selected year & semester, check if scoped cache exists
-                const scopedKey = targetId ? `kleData_${targetId}_${finalYear}_${finalSem}` : null;
-                const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
-                if (scopedRaw) {
-                    try {
-                        const parsed = JSON.parse(scopedRaw);
-                        if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
-                            setSubjects(parsed.attendance_data);
-                            setShowDashboard(true);
-                            setYear(finalYear);
-                            setSemester(finalSem);
-                            return;
-                        }
-                    } catch { /* ignore */ }
-                }
-
-                // Show clean empty state without crashing or looping into other semesters
+                // Strict Semester Isolation: When 0 courses found for selected year & semester,
+                // do NOT resurrect old courses from other semesters or stale cache!
                 setSubjects([]);
                 setShowDashboard(true);
+                const emptyPayload = JSON.stringify({
+                    attendance_data: [],
+                    year: finalYear,
+                    semester: finalSem,
+                    timestamp: Date.now(),
+                    empty: true
+                });
+                try {
+                    const scopedKey = targetId ? `kleData_${targetId}_${finalYear}_${finalSem}` : null;
+                    if (scopedKey) {
+                        localStorage.setItem(scopedKey, emptyPayload);
+                    }
+                    if (targetId) {
+                        localStorage.setItem(`kleData_${targetId}`, emptyPayload);
+                        localStorage.setItem(`activeYear_${targetId}`, finalYear);
+                        localStorage.setItem(`activeSem_${targetId}`, finalSem);
+                        localStorage.setItem(`manualYear_${targetId}`, finalYear);
+                        localStorage.setItem(`manualSem_${targetId}`, finalSem);
+                        localStorage.setItem(`attendanceLastUpdated_${targetId}`, String(Date.now()));
+                    }
+                    window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
+                        detail: { studentId: targetId, year: finalYear, sem: finalSem, data: [] }
+                    }));
+                    window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                        detail: { studentId: targetId, year: finalYear, sem: finalSem }
+                    }));
+                } catch { /* ignore storage error */ }
             }
         } catch (error) {
             console.warn('[ERP] Attendance query notice:', error.message);
@@ -775,27 +865,54 @@ const AttendanceRegister = () => {
         const savedYear = activeId ? (localStorage.getItem(`activeYear_${activeId}`) || localStorage.getItem(`manualYear_${activeId}`)) : null;
         const savedSem = activeId ? (localStorage.getItem(`activeSem_${activeId}`) || localStorage.getItem(`manualSem_${activeId}`)) : null;
         const present = getPresentAcademicYearAndSem(activeId);
-        const initY = savedYear || present.year;
-        const initS = savedSem || present.sem;
+        const initY = normalizeAcademicYear(savedYear || present.year);
+        const initS = normalizeSemester(savedSem || present.sem);
         const scopedKey = activeId ? `kleData_${activeId}_${initY}_${initS}` : null;
         const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
-        const cachedRaw = scopedRaw || localStorage.getItem(storageKey);
 
         setYear(initY);
         setSemester(initS);
 
-        if (cachedRaw) {
+        let restoredCourses = null;
+        let isRestoredEmpty = false;
+
+        if (scopedRaw) {
             try {
-                const parsed = JSON.parse(cachedRaw);
-                if (parsed.attendance_data && Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
-                    setSubjects(parsed.attendance_data);
-                    setShowDashboard(true);
-                    if (savedYear) setYear(savedYear);
-                    if (savedSem) setSemester(savedSem);
+                const parsed = JSON.parse(scopedRaw);
+                if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                    isRestoredEmpty = true;
+                    restoredCourses = [];
+                } else if (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
+                    restoredCourses = parsed.attendance_data;
                 }
-            } catch {
-                // ignore
+            } catch { /* ignore */ }
+        }
+
+        if (restoredCourses === null && !isRestoredEmpty) {
+            const rawStorage = localStorage.getItem(storageKey);
+            if (rawStorage) {
+                try {
+                    const parsed = JSON.parse(rawStorage);
+                    if (parsed.year && parsed.semester &&
+                        normalizeAcademicYear(parsed.year) === initY &&
+                        normalizeSemester(parsed.semester) === initS) {
+                        if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                            isRestoredEmpty = true;
+                            restoredCourses = [];
+                        } else if (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
+                            restoredCourses = parsed.attendance_data;
+                        }
+                    }
+                } catch { /* ignore */ }
             }
+        }
+
+        if (isRestoredEmpty) {
+            setSubjects([]);
+            setShowDashboard(true);
+        } else if (restoredCourses && restoredCourses.length > 0) {
+            setSubjects(restoredCourses);
+            setShowDashboard(true);
         } else if (hasActiveErpSession(activeId)) {
             handleSearch(initY, initS, activeId);
         } else {
@@ -1269,27 +1386,70 @@ const AttendanceRegister = () => {
                             if (newId) {
                                 setActiveId(newId);
                                 setActiveProfile(profile);
-                                try {
+
+                                // Resolve target year and semester for this student
+                                const profYear = localStorage.getItem(`manualYear_${newId}`) || localStorage.getItem(`activeYear_${newId}`) || year;
+                                const profSem = localStorage.getItem(`manualSem_${newId}`) || localStorage.getItem(`activeSem_${newId}`) || semester;
+                                const normY = normalizeAcademicYear(profYear);
+                                const normS = normalizeSemester(profSem);
+                                setYear(normY);
+                                setSemester(normS);
+
+                                const scopedKey = `kleData_${newId}_${normY}_${normS}`;
+                                const scopedRaw = localStorage.getItem(scopedKey);
+                                let foundCourses = null;
+                                let isConfirmedEmpty = false;
+
+                                if (scopedRaw) {
+                                    try {
+                                        const parsed = JSON.parse(scopedRaw);
+                                        if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                                            isConfirmedEmpty = true;
+                                            foundCourses = [];
+                                        } else if (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
+                                            foundCourses = parsed.attendance_data;
+                                        }
+                                    } catch { /* ignore */ }
+                                }
+
+                                if (foundCourses === null && !isConfirmedEmpty) {
                                     const rememberedId = typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : null;
                                     const isPrimary = newId === rememberedId;
                                     const cached = localStorage.getItem(`kleData_${newId}`) || (isPrimary ? localStorage.getItem('kleData') : null);
                                     if (cached) {
-                                        const parsed = JSON.parse(cached);
-                                        const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
-                                        if (Array.isArray(list) && list.length > 0) {
-                                            setSubjects(list);
-                                            setShowDashboard(true);
-                                        } else {
-                                            setSubjects([]);
-                                            setShowDashboard(false);
-                                        }
+                                        try {
+                                            const parsed = JSON.parse(cached);
+                                            if (parsed.year && parsed.semester &&
+                                                normalizeAcademicYear(parsed.year) === normY &&
+                                                normalizeSemester(parsed.semester) === normS) {
+                                                if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                                                    isConfirmedEmpty = true;
+                                                    foundCourses = [];
+                                                } else if (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
+                                                    foundCourses = parsed.attendance_data;
+                                                }
+                                            }
+                                        } catch { /* ignore */ }
+                                    }
+                                }
+
+                                if (isConfirmedEmpty) {
+                                    // Confirmed empty for this semester: show clean empty state, NEVER show other data!
+                                    setSubjects([]);
+                                    setShowDashboard(true);
+                                    setLastUpdated(Date.now());
+                                } else if (foundCourses && foundCourses.length > 0) {
+                                    setSubjects(foundCourses);
+                                    setShowDashboard(true);
+                                    const lastUp = localStorage.getItem(`attendanceLastUpdated_${newId}`);
+                                    if (lastUp) setLastUpdated(Number(lastUp));
+                                } else {
+                                    setSubjects([]);
+                                    if (hasActiveErpSession(newId)) {
+                                        handleSearch(normY, normS, newId);
                                     } else {
-                                        setSubjects([]);
                                         setShowDashboard(false);
                                     }
-                                } catch { 
-                                    setSubjects([]);
-                                    setShowDashboard(false);
                                 }
                             }
                         }}

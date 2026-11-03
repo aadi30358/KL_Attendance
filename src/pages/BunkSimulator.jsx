@@ -45,21 +45,38 @@ const COMP_SHORT_NAMES = {
 const getStoredErpSubjects = () => {
     try {
         const activeId = localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId');
-        const rememberedId = localStorage.getItem('rememberedId');
-        const keysToTry = [];
-        if (activeId) keysToTry.push(`kleData_${activeId}`);
-        if (!activeId || activeId === rememberedId) {
-            keysToTry.push('kleData');
+        if (!activeId) return [];
+        const actYear = localStorage.getItem(`manualYear_${activeId}`) || localStorage.getItem(`activeYear_${activeId}`);
+        const actSem = localStorage.getItem(`manualSem_${activeId}`) || localStorage.getItem(`activeSem_${activeId}`);
+
+        if (actYear && actSem) {
+            const scopedKey = `kleData_${activeId}_${actYear}_${actSem}`;
+            const scopedRaw = localStorage.getItem(scopedKey);
+            if (scopedRaw) {
+                const parsed = JSON.parse(scopedRaw);
+                if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                    return [];
+                }
+                if (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
+                    return parsed.attendance_data;
+                }
+            }
         }
 
-        for (const key of keysToTry) {
-            const raw = localStorage.getItem(key);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                const list = parsed.attendance_data || parsed.data || [];
-                if (Array.isArray(list) && list.length > 0) {
-                    return list;
+        const raw = localStorage.getItem(`kleData_${activeId}`);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (actYear && actSem && parsed.year && parsed.semester) {
+                if (parsed.year !== actYear || parsed.semester !== actSem) {
+                    return [];
                 }
+            }
+            if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                return [];
+            }
+            const list = parsed.attendance_data || parsed.data || [];
+            if (Array.isArray(list) && list.length > 0) {
+                return list;
             }
         }
     } catch {

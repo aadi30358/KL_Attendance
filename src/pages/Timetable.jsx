@@ -52,17 +52,34 @@ export default function Timetable() {
 
     const erpCourses = useMemo(() => {
         try {
+            const scopedKey = activeId ? `kleData_${activeId}_${selectedYear}_${selectedSem}` : null;
+            const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
+            if (scopedRaw) {
+                const parsed = JSON.parse(scopedRaw);
+                if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                    return [];
+                }
+                if (Array.isArray(parsed.attendance_data)) return parsed.attendance_data;
+            }
+
             const cached = localStorage.getItem(`kleData_${activeId}`) || (activeId === myProfile?.studentId ? localStorage.getItem('kleData') : null);
             if (cached) {
                 const parsed = JSON.parse(cached);
-                const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
-                if (Array.isArray(list)) return list;
+                if (parsed.year && parsed.semester &&
+                    normalizeAcademicYear(parsed.year) === selectedYear &&
+                    normalizeSemester(parsed.semester) === normalizeSemester(selectedSem)) {
+                    if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                        return [];
+                    }
+                    const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
+                    if (Array.isArray(list)) return list;
+                }
             }
         } catch {
             /* ignore parse error */
         }
         return [];
-    }, [activeId, myProfile?.studentId]);
+    }, [activeId, myProfile?.studentId, selectedYear, selectedSem]);
 
     return (
         <div className="h-full flex flex-col font-sans selection:bg-indigo-500 selection:text-white overflow-hidden">

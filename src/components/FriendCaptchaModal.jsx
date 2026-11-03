@@ -239,37 +239,38 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                         }
                     }),
                     erpService.fetchAttendance(targetYear, targetSem, studentId).then(data => {
-                        if (Array.isArray(data) && data.length > 0) {
-                            const payload = JSON.stringify({
-                                attendance_data: data,
-                                year: targetYear,
-                                semester: targetSem,
-                                timestamp: Date.now()
-                            });
-                            try {
-                                localStorage.setItem(`kleData_${studentId}`, payload);
-                                localStorage.setItem(`kleData_${studentId}_${targetYear}_${targetSem}`, payload);
-                                localStorage.setItem(`activeYear_${studentId}`, targetYear);
-                                localStorage.setItem(`activeSem_${studentId}`, targetSem);
-                                localStorage.setItem(`attendanceLastUpdated_${studentId}`, String(Date.now()));
-                            } catch { /* ignore storage error */ }
-                            window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
-                                detail: { studentId, data, year: targetYear, sem: targetSem }
-                            }));
-                            window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                                detail: { studentId }
-                            }));
-                            window.dispatchEvent(new CustomEvent('kl_active_profile_updated', {
-                                detail: { studentId }
-                            }));
-                            broadcastAttendanceUpdate({
-                                studentId,
-                                year: targetYear,
-                                semester: targetSem,
-                                coursesCount: data.length,
-                                timestamp: Date.now()
-                            }).catch(() => {});
-                        }
+                        const list = Array.isArray(data) ? data : [];
+                        const isZero = list.length === 0;
+                        const payload = JSON.stringify({
+                            attendance_data: list,
+                            year: targetYear,
+                            semester: targetSem,
+                            timestamp: Date.now(),
+                            empty: isZero
+                        });
+                        try {
+                            localStorage.setItem(`kleData_${studentId}`, payload);
+                            localStorage.setItem(`kleData_${studentId}_${targetYear}_${targetSem}`, payload);
+                            localStorage.setItem(`activeYear_${studentId}`, targetYear);
+                            localStorage.setItem(`activeSem_${studentId}`, targetSem);
+                            localStorage.setItem(`attendanceLastUpdated_${studentId}`, String(Date.now()));
+                        } catch { /* ignore storage error */ }
+                        window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
+                            detail: { studentId, data: list, year: targetYear, sem: targetSem }
+                        }));
+                        window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                            detail: { studentId, year: targetYear, sem: targetSem }
+                        }));
+                        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', {
+                            detail: { studentId }
+                        }));
+                        broadcastAttendanceUpdate({
+                            studentId,
+                            year: targetYear,
+                            semester: targetSem,
+                            coursesCount: list.length,
+                            timestamp: Date.now()
+                        }).catch(() => {});
                     }),
                     fetchLiveErpGrades(studentId)
                 ]).catch(() => {});

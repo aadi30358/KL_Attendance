@@ -220,7 +220,10 @@ export default function AddFriendModal({ isOpen, onClose, onFriendSaved, initial
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs font-sans">
+        <div 
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md font-sans"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.85)' }}
+        >
             <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: 10 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
