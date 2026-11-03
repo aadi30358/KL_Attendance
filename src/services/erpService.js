@@ -321,7 +321,7 @@ export const erpService = {
     async getInitialState() {
         const now = Date.now();
 
-        // 1. Instant 0ms return if pre-warmed captcha is ready
+        // 1. Instant return if pre-warmed captcha is ready
         if (prewarmedCaptcha && (now - prewarmedCaptcha.timestamp < 180000)) {
             const consumed = prewarmedCaptcha;
             prewarmedCaptcha = null; // Consume atomically
@@ -331,13 +331,11 @@ export const erpService = {
                 setStoredCsrfToken(consumed.csrfToken);
             }
 
-            // Immediately start pre-warming the NEXT captcha in background for zero lag on refresh
-            setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
-
+            const imgUrl = consumed.captchaUrl || consumed.dataUrl || consumed.captchaDataUrl;
             return {
                 csrfToken: consumed.csrfToken,
-                captchaUrl: consumed.captchaUrl,
-                dataUrl: consumed.captchaUrl,
+                captchaUrl: imgUrl,
+                dataUrl: imgUrl,
                 cookies: consumed.cookies,
                 blob: null
             };
@@ -353,11 +351,11 @@ export const erpService = {
                     if (result.csrfToken) {
                         setStoredCsrfToken(result.csrfToken);
                     }
-                    setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
+                    const imgUrl = result.captchaUrl || result.dataUrl || result.captchaDataUrl;
                     return {
                         csrfToken: result.csrfToken,
-                        captchaUrl: result.captchaUrl,
-                        dataUrl: result.captchaUrl,
+                        captchaUrl: imgUrl,
+                        dataUrl: imgUrl,
                         cookies: result.cookies,
                         blob: null
                     };
@@ -380,7 +378,8 @@ export const erpService = {
             });
             if (resp.ok) {
                 const data = await resp.json().catch(() => null);
-                if (data && data.success && data.csrfToken) {
+                const resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
+                if (data && data.success && data.csrfToken && resolvedImg) {
                     if (data.cookies) {
                         inMemoryCaptchaCookies = data.cookies;
                         try { sessionStorage.setItem('kl_captcha_cookies', data.cookies); } catch { /* ignore */ }
@@ -388,11 +387,10 @@ export const erpService = {
                     if (data.csrfToken) {
                         setStoredCsrfToken(data.csrfToken);
                     }
-                    setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
                     return {
                         csrfToken: data.csrfToken,
-                        captchaUrl: data.captchaUrl,
-                        dataUrl: data.captchaUrl,
+                        captchaUrl: resolvedImg,
+                        dataUrl: resolvedImg,
                         cookies: data.cookies,
                         blob: null
                     };
@@ -412,17 +410,19 @@ export const erpService = {
                 });
                 if (resp.ok) {
                     const data = await resp.json().catch(() => null);
-                    if (data && data.success && data.csrfToken) {
+                    const resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
+                    if (data && data.success && data.csrfToken && resolvedImg) {
                         if (data.cookies) {
                             inMemoryCaptchaCookies = data.cookies;
+                            try { sessionStorage.setItem('kl_captcha_cookies', data.cookies); } catch { /* ignore */ }
                         }
                         if (data.csrfToken) {
                             setStoredCsrfToken(data.csrfToken);
                         }
                         return {
                             csrfToken: data.csrfToken,
-                            captchaUrl: data.captchaUrl,
-                            dataUrl: data.captchaUrl,
+                            captchaUrl: resolvedImg,
+                            dataUrl: resolvedImg,
                             cookies: data.cookies,
                             blob: null
                         };
@@ -491,7 +491,7 @@ export const erpService = {
         void _studentId;
         const now = Date.now();
 
-        // 1. Instant 0ms return if pre-warmed captcha is ready
+        // 1. Instant return if pre-warmed captcha is ready
         if (prewarmedCaptcha && (now - prewarmedCaptcha.timestamp < 180000)) {
             const consumed = prewarmedCaptcha;
             prewarmedCaptcha = null; // Consume atomically
@@ -501,12 +501,10 @@ export const erpService = {
                 setStoredCsrfToken(consumed.csrfToken);
             }
 
-            // Immediately start pre-warming the NEXT captcha in background
-            setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
-
+            const imgUrl = consumed.captchaUrl || consumed.dataUrl || consumed.captchaDataUrl;
             return {
-                captchaUrl: consumed.captchaUrl,
-                dataUrl: consumed.captchaUrl,
+                captchaUrl: imgUrl,
+                dataUrl: imgUrl,
                 csrfToken: consumed.csrfToken,
                 cookies: consumed.cookies,
                 blob: null
@@ -523,10 +521,10 @@ export const erpService = {
                     if (result.csrfToken) {
                         setStoredCsrfToken(result.csrfToken);
                     }
-                    setTimeout(() => { prewarmCaptcha(true).catch(() => {}); }, 400);
+                    const imgUrl = result.captchaUrl || result.dataUrl || result.captchaDataUrl;
                     return {
-                        captchaUrl: result.captchaUrl,
-                        dataUrl: result.captchaUrl,
+                        captchaUrl: imgUrl,
+                        dataUrl: imgUrl,
                         csrfToken: result.csrfToken,
                         cookies: result.cookies,
                         blob: null
@@ -538,7 +536,10 @@ export const erpService = {
         }
 
         const apiBase = getErpBase();
-        const reqHeaders = { 'Cache-Control': 'no-cache' };
+        const reqHeaders = { 
+            'Cache-Control': 'no-cache',
+            ...(inMemoryCsrfToken ? { 'x-csrf-token': inMemoryCsrfToken } : {})
+        };
         if (inMemoryCaptchaCookies) {
             reqHeaders['x-erp-cookie'] = inMemoryCaptchaCookies;
         }
@@ -550,7 +551,8 @@ export const erpService = {
             });
             if (resp.ok) {
                 const data = await resp.json().catch(() => null);
-                if (data && data.success && data.captchaUrl) {
+                const resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
+                if (data && data.success && resolvedImg) {
                     if (data.cookies) {
                         inMemoryCaptchaCookies = data.cookies;
                         try { sessionStorage.setItem('kl_captcha_cookies', data.cookies); } catch { /* ignore */ }
@@ -558,7 +560,7 @@ export const erpService = {
                     if (data.csrfToken) {
                         setStoredCsrfToken(data.csrfToken);
                     }
-                    return { captchaUrl: data.captchaUrl, dataUrl: data.captchaUrl, csrfToken: data.csrfToken, cookies: data.cookies, blob: null };
+                    return { captchaUrl: resolvedImg, dataUrl: resolvedImg, csrfToken: data.csrfToken, cookies: data.cookies, blob: null };
                 }
             }
         } catch (e) {
@@ -573,7 +575,8 @@ export const erpService = {
                 });
                 if (resp.ok) {
                     const data = await resp.json().catch(() => null);
-                    if (data && data.success && data.captchaUrl) {
+                    const resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
+                    if (data && data.success && resolvedImg) {
                         if (data.cookies) {
                             inMemoryCaptchaCookies = data.cookies;
                         }
@@ -581,7 +584,7 @@ export const erpService = {
                             setStoredCsrfToken(data.csrfToken);
                         }
                         try { if (data.cookies) sessionStorage.setItem('kl_captcha_cookies', data.cookies); } catch { /* ignore */ }
-                        return { captchaUrl: data.captchaUrl, dataUrl: data.captchaUrl, csrfToken: data.csrfToken, cookies: data.cookies, blob: null };
+                        return { captchaUrl: resolvedImg, dataUrl: resolvedImg, csrfToken: data.csrfToken, cookies: data.cookies, blob: null };
                     }
                 }
             } catch (e) {
@@ -691,6 +694,9 @@ export const erpService = {
                 }
                 if (data.error) {
                     throw new Error(data.error);
+                }
+                if (data.message) {
+                    throw new Error(data.message);
                 }
                 throw new Error("Incorrect Student ID, Password, or Captcha.");
             }

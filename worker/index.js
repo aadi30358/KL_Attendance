@@ -247,6 +247,28 @@ export default {
                 parseCookieHeader(imgScList).forEach((v, k) => cookieMap.set(k, v));
                 const allCookies = serializeCookieMap(cookieMap);
 
+                // If CSRF is still missing, fetch index.php with current cookies to scrape valid CSRF
+                if (!freshCsrf && allCookies) {
+                    try {
+                        const initResp = await fetch(`${ERP_BASE}/index.php`, {
+                            headers: {
+                                'Cookie': allCookies,
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                'Referer': `${ERP_BASE}/`
+                            },
+                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                        });
+                        const initHtml = await initResp.text();
+                        const cm = initHtml.match(/name="csrf-token"\s+content="([^"]+)"/i) ||
+                                   initHtml.match(/content="([^"]+)"\s+name="csrf-token"/i) ||
+                                   initHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i) ||
+                                   initHtml.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
+                        if (cm) freshCsrf = cm[1];
+                    } catch {
+                        // ignore
+                    }
+                }
+
                 let captchaDataUrl = '';
                 if (imgResp.ok) {
                     const imgBuf = await imgResp.arrayBuffer();
@@ -257,6 +279,8 @@ export default {
                 return new Response(JSON.stringify({
                     success: true,
                     captchaUrl: captchaDataUrl,
+                    dataUrl: captchaDataUrl,
+                    captchaDataUrl,
                     cookies: allCookies,
                     csrfToken: freshCsrf
                 }), {
@@ -325,6 +349,7 @@ export default {
                 formData.append('LoginForm[password]', String(password));
                 formData.append('LoginForm[rememberMe]', '0');
                 formData.append('LoginForm[captcha]', String(captcha).trim());
+                formData.append('LoginForm[verifyCode]', String(captcha).trim());
                 formData.append('LoginForm[qr_code]', '');
                 formData.append('login-button', '');
 
@@ -424,16 +449,17 @@ export default {
 
                 // If ERP returned 200 without redirect, inspect body for validation error
                 const respText = await loginResp.text();
-                const isIncorrectCap = respText.includes('The verification code is incorrect') ||
-                                       respText.includes('Verification code is incorrect') ||
-                                       respText.includes('field-loginFormCaptcha has-error') ||
-                                       respText.includes('field-loginform-captcha has-error') ||
-                                       respText.includes('Verification code cannot be blank');
+                const isIncorrectUser = respText.includes('Incorrect username or password') ||
+                                       respText.includes('field-loginFormPasswordID required has-error') ||
+                                       respText.includes('field-loginform-password has-error') ||
+                                       respText.includes('floating-label field-loginFormPasswordID required has-error');
 
-                const isIncorrectUser = !isIncorrectCap && (
-                    respText.includes('field-loginFormPasswordID required has-error') ||
-                    respText.includes('field-loginform-password has-error') ||
-                    respText.includes('floating-label field-loginFormPasswordID required has-error')
+                const isIncorrectCap = !isIncorrectUser && (
+                    respText.includes('The verification code is incorrect') ||
+                    respText.includes('Verification code is incorrect') ||
+                    respText.includes('field-loginFormCaptcha has-error') ||
+                    respText.includes('field-loginform-captcha has-error') ||
+                    respText.includes('Verification code cannot be blank')
                 );
 
                 let errorMsg = 'The verification code is incorrect. Please check the captcha.';
@@ -448,6 +474,7 @@ export default {
                 return new Response(JSON.stringify({
                     success: false,
                     error: errorMsg,
+                    message: errorMsg,
                     isCaptchaError: !isIncorrectUser,
                     isPasswordError: isIncorrectUser,
                     cookies: allCookies

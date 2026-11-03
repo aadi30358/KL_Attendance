@@ -346,9 +346,6 @@ const Login = () => {
     useEffect(() => {
         if (isMaintenanceBlocked) return;
 
-        // Pre-warm captcha immediately in background for 0ms latency on login form
-        erpService.prewarmCaptcha().catch(() => {});
-
         let isMounted = true;
         const initId = ++initCounterRef.current;
 
@@ -575,15 +572,18 @@ const Login = () => {
             const lowerMsg = msg.toLowerCase();
             if (lowerMsg.includes('signal') || lowerMsg.includes('timed out') || lowerMsg.includes('timeout') || lowerMsg.includes('abort')) {
                 setError("ERP server response took longer than expected. Please enter the new captcha to try again.");
+            } else if (lowerMsg.includes('password') || lowerMsg.includes('incorrect username') || lowerMsg.includes('student id')) {
+                if (!isNewProfile && activeProfile) {
+                    setError(`Incorrect ERP password for ${activeProfile.nickname || 'account'}. Tap the edit icon to update your saved password.`);
+                } else {
+                    setError("Incorrect Student ID or Password. Please check your credentials.");
+                }
             } else if (lowerMsg.includes('verification code') || lowerMsg.includes('captcha') || lowerMsg.includes('verifycode')) {
                 setError("The verification code is incorrect. Please check the captcha.");
             } else if (lowerMsg.includes('unable to verify') || lowerMsg.includes('session rejected') || lowerMsg.includes('session expired') || lowerMsg.includes('http 400') || lowerMsg.includes('http 403')) {
                 setError("Session expired or invalid captcha. Please enter the new captcha code.");
-            } else if (isNewProfile && (lowerMsg.includes('incorrect') || lowerMsg.includes('password') || lowerMsg.includes('username'))) {
-                setError("Incorrect Student ID or Password. Please check your credentials.");
             } else {
-                // For saved profiles (Adithya, etc.): never blame password or ask for password re-entry
-                setError("The verification code is incorrect. Please enter the new captcha code.");
+                setError(msg || "The verification code is incorrect. Please check the captcha.");
             }
             setCaptcha('');
             refreshCaptcha(true);
@@ -1043,19 +1043,17 @@ const Login = () => {
                                                 <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
                                                     Captcha Only
                                                 </span>
-                                                {activeProfile.isFriend && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setEditingFriend(activeProfile);
-                                                            setShowAddFriendModal(true);
-                                                        }}
-                                                        className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
-                                                        title="Edit details"
-                                                    >
-                                                        <Edit2 className="w-3.5 h-3.5" />
-                                                    </button>
-                                                )}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setEditingFriend(activeProfile);
+                                                        setShowAddFriendModal(true);
+                                                    }}
+                                                    className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                                                    title="Edit ERP password / details"
+                                                >
+                                                    <Edit2 className="w-3.5 h-3.5" />
+                                                </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => {
