@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck, CalendarDays, ArrowRight, AlertTriangle } from 'lucide-react';
+import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck, CalendarDays, ArrowRight, AlertTriangle, LogOut } from 'lucide-react';
 import { erpService, hasActiveErpSession } from '../services/erpService';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -1163,23 +1163,22 @@ const AttendanceRegister = () => {
 
     const handleLogoutAction = async (reason = 'manual') => {
         try {
+            sessionStorage.setItem('kl_user_logged_out', 'true');
             if (reason === 'session_expired') {
                 sessionStorage.setItem('kl_logout_reason', 'session_expired');
             } else if (reason === 'inactivity') {
                 sessionStorage.setItem('kl_logout_reason', 'inactivity');
             }
             await logout();
-            // Preserve cached attendance (kleData_*, activeYear_*, etc.) permanently
-            // Data is only wiped when user explicitly deletes via Delete Profile
             localStorage.removeItem('activeErpUser');
             localStorage.removeItem('erpDashboardHtml');
             sessionStorage.removeItem('erp_authenticated');
             sessionStorage.removeItem('adminLoggedOut');
             window.dispatchEvent(new Event('storage'));
-            navigate('/login');
+            navigate('/login', { replace: true, state: { loggedOut: true } });
         } catch (e) {
             console.error(e);
-            navigate('/login');
+            navigate('/login', { replace: true, state: { loggedOut: true } });
         }
     };
 
@@ -1237,8 +1236,17 @@ const AttendanceRegister = () => {
                             </span>
                         </div>
 
-                        {/* Right Column: Back to Home */}
+                        {/* Right Column: Direct Logout & Back to Home */}
                         <div className="flex items-center gap-2 z-10 ml-auto">
+                            <button
+                                type="button"
+                                onClick={() => handleLogoutAction('manual')}
+                                className="text-xs font-black uppercase tracking-wider bg-rose-500/20 hover:bg-rose-500/35 active:scale-95 text-white px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs border border-rose-400/30 cursor-pointer"
+                                title="Direct Logout"
+                            >
+                                <LogOut className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Logout</span>
+                            </button>
                             <Link
                                 to="/"
                                 className="text-xs font-black uppercase tracking-wider bg-white/15 hover:bg-white/25 active:scale-95 text-white px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 shadow-2xs border border-white/20"

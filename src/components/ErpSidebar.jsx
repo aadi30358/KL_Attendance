@@ -15,7 +15,8 @@ import {
     Calculator,
     Calendar,
     Award,
-    Trash2
+    Trash2,
+    LogOut
 } from 'lucide-react';
 import { 
     getAllProfiles,
@@ -408,12 +409,33 @@ export default function ErpSidebar({
                 </div>
             </div>
 
-            {/* Bottom Footer Info */}
-            <div className="p-2.5 bg-slate-50/70 border-t border-slate-100 text-center shrink-0">
-                <p className="text-[10px] text-slate-400 font-medium flex items-center justify-center gap-1">
+            {/* Bottom Footer Info & Direct Logout */}
+            <div className="p-2.5 bg-slate-50/70 border-t border-slate-100 flex items-center justify-between gap-2 shrink-0">
+                <p className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
                     <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                    <span>Credentials secured in browser</span>
+                    <span>Secured</span>
                 </p>
+                <button
+                    type="button"
+                    onClick={async () => {
+                        try {
+                            sessionStorage.setItem('kl_user_logged_out', 'true');
+                            clearStoredErpCookies();
+                            localStorage.removeItem('activeErpUser');
+                            localStorage.removeItem('erpDashboardHtml');
+                            sessionStorage.removeItem('erp_authenticated');
+                            window.dispatchEvent(new Event('storage'));
+                            navigate('/login', { replace: true, state: { loggedOut: true } });
+                        } catch {
+                            navigate('/login', { replace: true, state: { loggedOut: true } });
+                        }
+                    }}
+                    className="text-[10px] font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer border border-transparent hover:border-rose-200"
+                    title="Direct Logout"
+                >
+                    <LogOut className="w-3 h-3 text-rose-600" />
+                    <span>Logout</span>
+                </button>
             </div>
 
             {/* Full Friends & Profiles Manager Modal */}

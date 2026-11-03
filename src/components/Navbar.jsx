@@ -27,22 +27,22 @@ const Navbar = () => {
 
     const handleLogout = async () => {
         try {
+            sessionStorage.setItem('kl_user_logged_out', 'true');
             await logout();
             if (typeof setErpUser === 'function') {
                 setErpUser(null);
             }
-            // Preserve offline attendance data permanently
             localStorage.removeItem('activeErpUser');
             localStorage.removeItem('erpDashboardHtml');
             sessionStorage.removeItem('erp_authenticated');
             sessionStorage.removeItem('adminLoggedOut');
             window.dispatchEvent(new Event('storage'));
             setIsOpen(false);
-            navigate('/login');
+            navigate('/login', { replace: true, state: { loggedOut: true } });
         } catch (error) {
             console.error("Logout failed:", error);
             setIsOpen(false);
-            navigate('/login');
+            navigate('/login', { replace: true, state: { loggedOut: true } });
         }
     };
 

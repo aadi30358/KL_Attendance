@@ -211,22 +211,29 @@ const Login = () => {
         };
     }, [selectedProfileId]);
 
-    // Auto-redirect to Attendance Register (page with Odd Sem & Year) if logged in or saved ERP data exists
+    // Auto-redirect to Attendance Register (page with Odd Sem & Year) ONLY if an active ERP session exists
     useEffect(() => {
         try {
-            const html = localStorage.getItem('erpDashboardHtml');
-            const activeUser = localStorage.getItem('activeErpUser');
-            const hasSavedData = Boolean(
-                (activeUser && localStorage.getItem(`kleData_${activeUser}`)) ||
-                localStorage.getItem('kleData')
-            );
-            const hasActiveSession = Boolean(html && !html.includes('site-error') && !html.includes('id="login-form"'));
-
-            // Don't auto-redirect if explicitly switching profiles or logging in another account
             const isExplicitSwitch = Boolean(location.state?.studentId || location.state?.profileId || location.state?.switchAccount);
+            const isDirectLoggedOut = Boolean(location.state?.loggedOut || sessionStorage.getItem('kl_user_logged_out') === 'true');
             const logoutReason = sessionStorage.getItem('kl_logout_reason');
 
-            if ((hasActiveSession || hasSavedData) && !isExplicitSwitch && !logoutReason) {
+            // If user explicitly logged out, NEVER auto-redirect to attendance register
+            if (isDirectLoggedOut) {
+                return;
+            }
+
+            const html = localStorage.getItem('erpDashboardHtml');
+            const activeUser = localStorage.getItem('activeErpUser');
+            const hasActiveSession = Boolean(
+                html && 
+                !html.includes('site-error') && 
+                !html.includes('id="login-form"') && 
+                activeUser
+            );
+
+            // Auto-redirect ONLY if an active ERP session is currently valid
+            if (hasActiveSession && !isExplicitSwitch && !logoutReason) {
                 navigate('/attendance-register', { replace: true });
             }
         } catch {
@@ -557,6 +564,7 @@ const Login = () => {
                 broadcastAttendanceUpdate({ studentId: cleanId, timestamp: Date.now() }).catch(() => {});
 
                 // Always open Attendance Register first so real registered courses are fetched
+                try { sessionStorage.removeItem('kl_user_logged_out'); } catch { /* ignore */ }
                 navigate('/attendance-register');
             } else {
                 throw new Error("Incorrect Captcha, Student ID, or Password. Please try again.");

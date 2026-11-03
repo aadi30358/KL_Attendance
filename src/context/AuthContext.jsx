@@ -27,10 +27,14 @@ export function AuthProvider({ children }) {
         return signInWithPopup(auth, provider);
     }
 
-    // Comprehensive synchronous and async logout: Ends active session, preserves saved data
+    // Comprehensive synchronous and async logout: Directly ends active session, preserves saved data
     async function logout(studentId = null) {
-        const targetId = studentId || erpUser || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
+        const targetId = studentId || erpUser || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '';
         
+        try {
+            sessionStorage.setItem('kl_user_logged_out', 'true');
+        } catch { /* ignore */ }
+
         try {
             if (targetId) {
                 fetch(`/api/user-data/${encodeURIComponent(targetId)}/logout`, {
@@ -42,7 +46,7 @@ export function AuthProvider({ children }) {
 
         try {
             if (typeof erpService?.clearStoredErpCookies === 'function') {
-                erpService.clearStoredErpCookies();
+                erpService.clearStoredErpCookies(targetId);
             }
         } catch (e) {
             console.warn("[Auth] Cookie cleanup:", e);
@@ -53,14 +57,22 @@ export function AuthProvider({ children }) {
         sessionStorage.removeItem('erp_authenticated');
         sessionStorage.removeItem('admin_token');
         sessionStorage.removeItem('manual_sem_reset');
+        sessionStorage.removeItem('kl_captcha_cookies');
         if (targetId) {
             sessionStorage.removeItem(`erp_verified_${targetId}`);
+            try {
+                localStorage.removeItem(`erp_cookie_${targetId}`);
+            } catch { /* ignore */ }
         }
 
         // Clear in-memory / session credentials while preserving saved timetable, CGPA, and attendance
         localStorage.removeItem('erpDashboardHtml');
         localStorage.removeItem('sessionCookie');
         localStorage.removeItem('isAdminAuthenticated');
+        localStorage.removeItem('activeErpUser');
+
+        setErpUser(null);
+        setCurrentUser(null);
 
         // Notify app components that live ERP session ended while preserving saved records
         if (typeof window !== 'undefined') {
