@@ -478,7 +478,7 @@ const BunkSimulator = () => {
     };
 
     return (
-        <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+        <div className="h-full flex flex-col font-sans selection:bg-indigo-500 selection:text-white overflow-hidden">
             <SEO
                 title="Bunk Simulator | KL Attendance Calculator"
                 description="Simulate bunking classes using official KL University LTPS weights. Calculate how much your attendance drops before you bunk."
@@ -534,14 +534,14 @@ const BunkSimulator = () => {
             </header>
 
             {/* Page Body: Left Sidebar + Bunk Simulator View */}
-            <div className="flex-1 flex overflow-hidden relative">
+            <div className="flex-1 flex overflow-hidden min-h-0 relative">
                 <ErpSidebar
                     isOpen={sidebarOpen}
                     onToggle={() => setSidebarOpen(false)}
                     activePage="bunk"
                 />
 
-                <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 font-sans">
+                <main className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-6 lg:p-8 font-sans">
                     <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 pointer-events-none" />
 
                     <div className="max-w-5xl mx-auto space-y-8">

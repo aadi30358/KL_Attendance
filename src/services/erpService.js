@@ -207,6 +207,7 @@ export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true, s
             });
             const merged = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
             setStoredErpCookies(merged, studentId);
+            try { sessionStorage.setItem('kl_captcha_cookies', merged); } catch { /* ignore */ }
         }
     } catch (e) {
         console.warn("[ERP] Failed to persist cookies:", e);
@@ -382,6 +383,7 @@ export const erpService = {
                 if (data && data.success && data.csrfToken) {
                     if (data.cookies) {
                         inMemoryCaptchaCookies = data.cookies;
+                        try { sessionStorage.setItem('kl_captcha_cookies', data.cookies); } catch { /* ignore */ }
                     }
                     if (data.csrfToken) {
                         setStoredCsrfToken(data.csrfToken);
@@ -551,6 +553,7 @@ export const erpService = {
                 if (data && data.success && data.captchaUrl) {
                     if (data.cookies) {
                         inMemoryCaptchaCookies = data.cookies;
+                        try { sessionStorage.setItem('kl_captcha_cookies', data.cookies); } catch { /* ignore */ }
                     }
                     if (data.csrfToken) {
                         setStoredCsrfToken(data.csrfToken);
@@ -644,7 +647,7 @@ export const erpService = {
         }
 
         const cleanUsername = username.trim();
-        const activeCaptchaCookie = boundCookies || inMemoryCaptchaCookies || inMemoryErpCookies;
+        const activeCaptchaCookie = boundCookies || inMemoryCaptchaCookies || (typeof window !== 'undefined' ? sessionStorage.getItem('kl_captcha_cookies') : '') || inMemoryErpCookies;
 
         // 1. Try high-performance /api/fast-login endpoint first
         try {

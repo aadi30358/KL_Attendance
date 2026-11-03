@@ -65,7 +65,7 @@ export default function Timetable() {
     }, [activeId, myProfile?.studentId]);
 
     return (
-        <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+        <div className="h-full flex flex-col font-sans selection:bg-indigo-500 selection:text-white overflow-hidden">
             <Helmet>
                 <title>Class Timetable | KL Attendance Calculator</title>
                 <meta name="description" content="Official KL University live class timetable and schedule." />
@@ -123,7 +123,7 @@ export default function Timetable() {
             </header>
 
             {/* Page Body: Left Sidebar + Timetable View */}
-            <div className="flex-1 flex overflow-hidden relative">
+            <div className="flex-1 flex overflow-hidden min-h-0 relative">
                 <ErpSidebar
                     isOpen={sidebarOpen}
                     onToggle={() => setSidebarOpen(false)}
@@ -138,7 +138,7 @@ export default function Timetable() {
                     }}
                 />
 
-                <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 font-sans">
+                <main className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-6 lg:p-8 font-sans">
                     <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 pointer-events-none" />
 
                     <div className="max-w-7xl mx-auto">

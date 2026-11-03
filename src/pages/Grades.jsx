@@ -533,7 +533,7 @@ export default function Grades() {
 
 
     return (
-        <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+        <div className="h-full flex flex-col font-sans selection:bg-indigo-500 selection:text-white overflow-hidden">
             <Helmet>
                 <title>Grades & CGPA | KL Attendance Calculator</title>
                 <meta name="description" content="Calculate and simulate official KLU semester grades, SGPA and CGPA performance breakdown with real credit points." />
@@ -589,7 +589,7 @@ export default function Grades() {
             </header>
 
             {/* Page Body: Left Sidebar + Grades View */}
-            <div className="flex-1 flex overflow-hidden relative">
+            <div className="flex-1 flex overflow-hidden min-h-0 relative">
                 <ErpSidebar
                     isOpen={sidebarOpen}
                     onToggle={() => setSidebarOpen(false)}
@@ -602,7 +602,7 @@ export default function Grades() {
                     }}
                 />
 
-                <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 font-sans">
+                <main className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-6 lg:p-8 font-sans">
                     <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 pointer-events-none" />
 
                     <div className="max-w-6xl mx-auto space-y-6">

@@ -76,6 +76,13 @@ const SOCIAL_LINKS = [
 const AppWithAuth = () => {
   const location = useLocation();
   const isAdminPage = location.pathname.startsWith('/admin');
+  const isErpPortal = location.pathname === '/login' || 
+                      location.pathname === '/attendance-register' || 
+                      location.pathname === '/timetable' || 
+                      location.pathname === '/grades' || 
+                      location.pathname === '/cgpa' || 
+                      location.pathname === '/bunk-simulator' || 
+                      location.pathname === '/bunk';
 
   // Activate cross-domain instant deployment synchronization
   useDeploymentSync();
@@ -169,10 +176,10 @@ const AppWithAuth = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-900">
+    <div className={isErpPortal ? "h-screen h-[100dvh] bg-[#F4F6F9] font-sans text-slate-900 flex flex-col overflow-hidden selection:bg-indigo-500 selection:text-white" : "min-h-screen bg-slate-50 font-sans text-slate-900 selection:bg-indigo-100 selection:text-indigo-900"}>
       <Navbar />
 
-      <main>
+      <main className={isErpPortal ? "flex-1 min-h-0 flex flex-col overflow-hidden" : ""}>
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Home />} />
@@ -204,31 +211,33 @@ const AppWithAuth = () => {
       <InactivityTracker />
       <Suspense fallback={null}><FeedbackWidget /></Suspense>
 
-      <footer className="w-full py-6 text-center border-t border-slate-200/80 bg-white/60 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2.5">
-          <p className="font-bold text-sm text-slate-500">
-            © 2025, G.Yaswanth Adithya Reddy - 2400030358
-          </p>
-          <div className="flex items-center gap-2 pl-2 sm:border-l sm:border-slate-300">
-            {SOCIAL_LINKS.map((item) => {
-              const Icon = item.icon;
-              return (
-                <a
-                  key={item.name}
-                  href={item.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={item.name}
-                  title={item.name}
-                  className={`p-1.5 rounded-lg text-slate-400 ${item.hoverClass} transition-all duration-200 hover:scale-110 active:scale-95`}
-                >
-                  <Icon className="w-4 h-4" />
-                </a>
-              );
-            })}
+      {!isErpPortal && (
+        <footer className="w-full py-6 text-center border-t border-slate-200/80 bg-white/60 backdrop-blur-md">
+          <div className="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2.5">
+            <p className="font-bold text-sm text-slate-500">
+              © 2025, G.Yaswanth Adithya Reddy - 2400030358
+            </p>
+            <div className="flex items-center gap-2 pl-2 sm:border-l sm:border-slate-300">
+              {SOCIAL_LINKS.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <a
+                    key={item.name}
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={item.name}
+                    title={item.name}
+                    className={`p-1.5 rounded-lg text-slate-400 ${item.hoverClass} transition-all duration-200 hover:scale-110 active:scale-95`}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </a>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+      )}
     </div>
   );
 };

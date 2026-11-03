@@ -1200,7 +1200,7 @@ const AttendanceRegister = () => {
         })();
 
         return (
-            <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+            <div className="h-full flex flex-col font-sans selection:bg-indigo-500 selection:text-white overflow-hidden">
                 {/* KLERP Top Header */}
                 <header className="bg-[#0088cc] text-white px-4 sm:px-6 py-2.5 shadow-md z-40 sticky top-0 shrink-0 w-full select-none border-b border-black/10">
                     <div className="w-full relative flex items-center justify-between min-h-[46px]">
@@ -1251,7 +1251,7 @@ const AttendanceRegister = () => {
                 </header>
 
                 {/* Page Body: Left Sidebar + Scrollable Content Area */}
-                <div className="flex-1 flex overflow-hidden relative">
+                <div className="flex-1 flex overflow-hidden min-h-0 relative">
                     <ErpSidebar
                         isOpen={sidebarOpen}
                         onToggle={() => setSidebarOpen(false)}
@@ -1287,7 +1287,7 @@ const AttendanceRegister = () => {
                         }}
                     />
 
-                    <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 font-sans">
+                    <main className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-6 lg:p-8 font-sans">
                         <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 pointer-events-none" />
 
                         {/* Top Attendance Header */}
@@ -1814,7 +1814,7 @@ const AttendanceRegister = () => {
 
     // ── SELECTION FORM ───────────────────────────────────────────────
     return (
-        <div className="min-h-screen bg-[#F4F6F9] dark:bg-[#0b1120] flex flex-col font-sans selection:bg-indigo-500 selection:text-white transition-colors duration-200">
+        <div className="h-full bg-[#F4F6F9] dark:bg-[#0b1120] flex flex-col font-sans selection:bg-indigo-500 selection:text-white transition-colors duration-200 overflow-hidden">
             {/* KLERP Top Header */}
             <header className="bg-[#0088cc] text-white px-4 sm:px-6 py-2.5 shadow-md z-40 sticky top-0 shrink-0 w-full select-none border-b border-black/10">
                 <div className="w-full relative flex items-center justify-between min-h-[46px]">
@@ -1865,14 +1865,14 @@ const AttendanceRegister = () => {
             </header>
 
             {/* Page Body: Left Sidebar + Centered Selection Card OR Timetable */}
-            <div className="flex-1 flex overflow-hidden relative">
+            <div className="flex-1 flex overflow-hidden min-h-0 relative">
                 <ErpSidebar
                     isOpen={sidebarOpen}
                     onToggle={() => setSidebarOpen(false)}
                     activePage="attendance-register"
                 />
 
-                <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10 flex items-center justify-center relative">
+                <main className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-6 lg:p-10 flex items-center justify-center relative">
                     <div className="w-full max-w-md relative z-10 my-auto">
                         <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ type: 'spring', stiffness: 200, damping: 25 }}
                             className="bg-white/95 dark:bg-[#0c1322] border border-slate-200/90 dark:border-slate-800 rounded-[2.5rem] p-6 sm:p-8 shadow-2xl relative overflow-hidden transform-gpu transition-all duration-300">

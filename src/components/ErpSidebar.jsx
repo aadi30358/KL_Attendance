@@ -248,7 +248,7 @@ export default function ErpSidebar({
             </div>
 
             {/* Scrollable Body - Saved Accounts with balanced, comfortable spacing */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            <div className="flex-1 overflow-y-auto min-h-0 p-3 space-y-3">
                 {/* ERP Maintenance Notice */}
                 {isMaintenance && (
                     <div className="p-3 rounded-2xl bg-amber-50 border-2 border-amber-300 text-amber-950 text-xs shadow-2xs">
@@ -465,7 +465,7 @@ export default function ErpSidebar({
     return (
         <>
             {/* Desktop Docked Sidebar */}
-            <div className="hidden lg:block h-screen sticky top-0 shrink-0 z-30">
+            <div className="hidden lg:block h-full shrink-0 z-30">
                 {sidebarContent}
             </div>
 

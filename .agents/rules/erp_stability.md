@@ -110,3 +110,24 @@ This document establishes the permanent, non-negotiable architectural rules, sta
   - The app must stay enclosed in `<ErrorBoundary>` to catch any runtime exceptions gracefully and offer instant 1-click reload/cache-clear buttons instead of white screens.
 - **Safe Storage Access**:
   - Defensively guard `localStorage.setItem` in `try/catch` to handle iOS Safari private mode or full storage quotas without interrupting execution.
+
+
+---
+
+## 11. Fixed Sidebar & Independent Content Scroll (Zero Double Scrollbars)
+- **Docked Pinned Left Sidebar**:
+  - In all ERP portal layouts (`/attendance-register`, `/timetable`, `/grades`, `/bunk-simulator`, `/login`):
+  - The left sidebar (`ErpSidebar`) must remain 100% fixed on the left (`h-full shrink-0 z-30`), while ONLY the right content area (`<main className="flex-1 overflow-y-auto min-h-0 ...">`) scrolls.
+  - The outer application container takes `h-screen h-[100dvh] flex flex-col overflow-hidden` and suppresses the global website footer so the portal fits the exact viewport without double scrollbars.
+  - Inside `ErpSidebar`, the Saved Accounts list has `flex-1 overflow-y-auto min-h-0` so it scrolls independently if there are many friends, while navigation and footer info remain pinned.
+
+---
+
+## 12. In-App Browser (Instagram) Compatibility & Safe CORS
+- **No Wildcard CORS with Credentials**:
+  - Cloudflare Edge Worker CORS (`getCorsHeaders`) must NEVER set `Access-Control-Allow-Origin: *` when credentials are included. Always resolve from `request.headers.get('Origin')` or `Referer`, and fall back to `'https://klattendancecalculator.web.app'` so strict WebKit (iOS Instagram WebView) does not reject API responses.
+- **Instagram In-App Browser (IAB) Assistant**:
+  - Detect Instagram WebView (`/Instagram|FBAN|FBAV|FB_IAB/i.test(navigator.userAgent)`).
+  - Provide a direct Android intent link to open in Google Chrome (`intent://...#Intent;scheme=https;package=com.android.chrome;end`) and clear iOS guidance for Safari to ensure password autofill works seamlessly.
+- **Defensive Captcha Cookie Mirroring**:
+  - Mirror captcha cookies in `sessionStorage` (`kl_captcha_cookies`) so ephemeral in-app browser memory loss never invalidates the captcha session.

@@ -47,3 +47,13 @@ Refer to [.agents/rules/erp_stability.md](file:///.agents/rules/erp_stability.md
     - Candidate year resolution dynamically computes future ERP session IDs (`29 + (firstYear - 2026)` and `18 + (firstYear - 2026)`).
     - App must remain wrapped in `<ErrorBoundary>` to eliminate white-screen crashes.
     - Storage writes (`localStorage.setItem`) must be defensively wrapped in `try/catch` to handle private browsing and quota limits.
+
+11. **Fixed Sidebar & Independent Right-Side Scroll**:
+    - In the ERP Portal layout (`/attendance-register`, `/timetable`, `/grades`, `/bunk-simulator`, `/login`):
+      The left sidebar (`ErpSidebar`) must remain 100% fixed on the left (`h-full shrink-0`), while ONLY the right content area (`<main className="flex-1 overflow-y-auto min-h-0 ...">`) scrolls.
+      The outer container takes `h-screen h-[100dvh] flex flex-col overflow-hidden` and suppresses the global website footer so the portal fits the exact viewport without double scrollbars.
+
+12. **In-App Browser (Instagram) Compatibility & Safe CORS**:
+    - Cloudflare Edge Worker CORS must never set `Access-Control-Allow-Origin: *` when credentials are included; resolve from `Referer` or fall back to production origin (`klattendancecalculator.web.app`) to prevent strict WebKit CORS failures.
+    - Instagram In-App Browser (IAB) assistant banner provides direct Android intent to open in Chrome and clear iOS instructions for Safari.
+    - Captcha cookies must be mirrored defensively in `sessionStorage` (`kl_captcha_cookies`) to prevent in-app browser memory clearing from dropping the captcha session.

@@ -6,14 +6,26 @@ const ERP_BASE = 'https://newerp.kluniversity.in';
 const FETCH_TIMEOUT_MS = 15000; // 15s safeguard against stalled upstream connections
 
 function getCorsHeaders(request) {
-    const origin = request.headers.get('Origin') || '*';
+    const reqOrigin = request.headers.get('Origin');
+    const referer = request.headers.get('Referer');
+    let origin = reqOrigin;
+    if (!origin && referer) {
+        try {
+            origin = new URL(referer).origin;
+        } catch {
+            origin = null;
+        }
+    }
+    if (!origin || origin === 'null') {
+        origin = 'https://klattendancecalculator.web.app';
+    }
     return {
         'Access-Control-Allow-Origin': origin,
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS, HEAD',
-        'Access-Control-Allow-Headers': 'Content-Type, x-erp-cookie, x-csrf-token, Authorization, Pragma, Cache-Control, X-Requested-With',
+        'Access-Control-Allow-Headers': 'Content-Type, x-erp-cookie, x-csrf-token, Authorization, Pragma, Cache-Control, X-Requested-With, Accept',
         'Access-Control-Allow-Credentials': 'true',
         'Access-Control-Expose-Headers': 'x-set-erp-cookie, set-cookie, Location, Server-Timing',
-        'Access-Control-Max-Age': '86400', // Cache CORS preflights for 24h to eliminate preflight round-trip latency
+        'Access-Control-Max-Age': '86400',
     };
 }
 
@@ -520,7 +532,7 @@ export default {
                     const cleanUser = String(username).trim();
                     const hasUser = cleanUser ? dashHtml.toLowerCase().includes(cleanUser.toLowerCase()) : false;
                     const hasLogout = dashHtml.includes('logout') || dashHtml.includes('site%2Flogout') || dashHtml.includes('site/logout');
-                    const hasModule = dashHtml.includes('student') || dashHtml.includes('indexindi') || dashHtml.includes('attendance') || dashHtml.includes('academicyear');
+                    const hasModule = dashHtml.includes('student') || dashHtml.includes('indexindi') || dashHtml.includes('attendance') || dashHtml.includes('academicyear') || dashHtml.includes('courselist');
 
                     const isVerifiedAuth = Boolean(
                         dashHtml &&
@@ -533,8 +545,7 @@ export default {
                         !dashHtml.includes('LoginForm[') &&
                         !dashHtml.includes('Incorrect username or password') &&
                         !dashHtml.includes('The verification code is incorrect') &&
-                        hasUser &&
-                        (hasLogout || hasModule)
+                        (hasLogout || hasModule || hasUser)
                     );
 
                     if (!isVerifiedAuth) {
@@ -1496,6 +1507,41 @@ export default {
                     error: err.name === 'TimeoutError' ? 'AI request timed out. Please retry.' : err.message
                 }), {
                     status: 504,
+                    headers: { ...cors, 'Content-Type': 'application/json' }
+                });
+            }
+        }
+
+        // 5.9 /index.php proxy fallback for legacy scraping flows
+        if (url.pathname === '/index.php') {
+            try {
+                const targetUrl = `${ERP_BASE}${url.pathname}${url.search}`;
+                const forwardResp = await fetch(targetUrl, {
+                    method: request.method,
+                    headers: {
+                        'Cookie': serializeCookieMap(cookieMap),
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Referer': `${ERP_BASE}/`
+                    },
+                    body: request.method === 'POST' ? await request.text() : undefined,
+                    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                });
+                const scList = forwardResp.headers.getSetCookie ? forwardResp.headers.getSetCookie() : [forwardResp.headers.get('set-cookie')].filter(Boolean);
+                parseCookieHeader(scList).forEach((v, k) => cookieMap.set(k, v));
+                const allCookies = serializeCookieMap(cookieMap);
+                const respText = await forwardResp.text();
+                return new Response(respText, {
+                    status: forwardResp.status,
+                    headers: {
+                        ...cors,
+                        'Content-Type': forwardResp.headers.get('Content-Type') || 'text/html; charset=UTF-8',
+                        'x-set-erp-cookie': allCookies
+                    }
+                });
+            } catch (err) {
+                return new Response(JSON.stringify({ success: false, error: err.message }), {
+                    status: 502,
                     headers: { ...cors, 'Content-Type': 'application/json' }
                 });
             }

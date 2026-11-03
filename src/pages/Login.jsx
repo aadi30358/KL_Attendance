@@ -309,6 +309,7 @@ const Login = () => {
             if (refreshId !== initCounterRef.current) return;
             if (res?.cookies) {
                 captchaCookiesRef.current = res.cookies;
+                try { sessionStorage.setItem('kl_captcha_cookies', res.cookies); } catch { /* ignore */ }
             }
             const resolvedUrl = res?.captchaUrl || res?.dataUrl || (res?.blob ? URL.createObjectURL(res.blob) : null) || (res?.captchaBlob ? URL.createObjectURL(res.captchaBlob) : null);
             if (resolvedUrl) {
@@ -352,6 +353,7 @@ const Login = () => {
 
                 if (res?.cookies) {
                     captchaCookiesRef.current = res.cookies;
+                    try { sessionStorage.setItem('kl_captcha_cookies', res.cookies); } catch { /* ignore */ }
                 }
                 if (res?.csrfToken) {
                     setCsrfToken(res.csrfToken);
@@ -386,6 +388,8 @@ const Login = () => {
     }, [isMaintenanceBlocked, refreshCaptcha]);
 
     // Active profile when not in 'new' mode
+        const isInstagram = typeof navigator !== 'undefined' && /Instagram|FBAN|FBAV|FB_IAB/i.test(navigator.userAgent || '');
+    const isAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
     const isNewProfile = selectedProfileId === 'new';
     const activeProfile = !isNewProfile
         ? (allProfilesList.find(p => p.id === selectedProfileId) || allProfilesList[0] || null)
@@ -447,7 +451,7 @@ const Login = () => {
 
         try {
             const activeToken = csrfTokenRef.current || erpService.getStoredCsrfToken() || csrfToken || '';
-            const boundCookies = captchaCookiesRef.current || '';
+            const boundCookies = captchaCookiesRef.current || (typeof window !== 'undefined' ? sessionStorage.getItem('kl_captcha_cookies') : '') || '';
             const loginResult = await erpService.login(cleanId, cleanPass, cleanCaptcha, activeToken, boundCookies);
 
             if (loginResult && loginResult.success && loginResult.verified && loginResult.html && isVerifiedErpDashboard(loginResult.html, cleanId)) {
@@ -739,7 +743,7 @@ const Login = () => {
     }
 
     return (
-        <div className="min-h-screen bg-[#F4F6F9] flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+        <div className="h-full flex flex-col font-sans selection:bg-indigo-500 selection:text-white overflow-hidden">
             <SEO
                 title="KL Attendance Calculator Portal"
                 description="Sign in to university ERP portal to view live attendance"
@@ -795,7 +799,7 @@ const Login = () => {
             </header>
 
             {/* Page Body: Left Sidebar + Centered Content Area */}
-            <div className="flex-1 flex overflow-hidden relative">
+            <div className="flex-1 flex overflow-hidden min-h-0 relative">
                 {/* Left Sidebar (Image 3 Style with Buddies, Bunk Simulator, LTPS, Absent) */}
                 <ErpSidebar
                     isOpen={sidebarOpen}
@@ -816,7 +820,7 @@ const Login = () => {
                 />
 
                 {/* Main Content Area: Centered, Fit for Screen */}
-                <main className={`flex-1 overflow-y-auto ${activeView === 'timetable' ? 'p-4 sm:p-6 lg:p-8 font-sans' : 'p-4 sm:p-8 lg:p-12 flex items-center justify-center min-h-[calc(100vh-64px)] relative'}`}>
+                <main className={`flex-1 overflow-y-auto min-h-0 ${activeView === 'timetable' ? 'p-4 sm:p-6 lg:p-8 font-sans' : 'p-4 sm:p-8 lg:p-10 flex flex-col items-center justify-start sm:justify-center relative pb-24'}`}>
                     {activeView === 'timetable' ? (
                         <div className="w-full max-w-7xl mx-auto">
                             <ClassTimetable
@@ -865,6 +869,33 @@ const Login = () => {
                                     >
                                         Re-lock
                                     </button>
+                                </div>
+                            )}
+
+                            {/* Instagram In-App Browser Assistant */}
+                            {isInstagram && (
+                                <div className="mb-4 p-3 rounded-2xl bg-gradient-to-r from-pink-50 via-purple-50 to-indigo-50 border border-pink-200/90 text-slate-800 text-xs shadow-2xs relative z-10">
+                                    <div className="flex items-start gap-2.5">
+                                        <span className="text-base shrink-0 select-none">📱</span>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="font-bold text-slate-900 flex flex-wrap items-center justify-between gap-1.5">
+                                                <span>Instagram In-App Browser Detected</span>
+                                                {isAndroid && (
+                                                    <a
+                                                        href={`intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;package=com.android.chrome;end`}
+                                                        className="text-[10px] font-black uppercase tracking-wider bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 rounded-lg transition-all shadow-2xs cursor-pointer inline-flex items-center gap-1 active:scale-95"
+                                                    >
+                                                        Open in Chrome
+                                                    </a>
+                                                )}
+                                            </div>
+                                            <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+                                                {isAndroid
+                                                    ? 'For automatic password autofill & fastest login, tap "Open in Chrome" or tap (•••) at top right.'
+                                                    : 'For automatic password autofill & best experience, tap the three dots (•••) at top right and choose "Open in Safari".'}
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
 
@@ -1048,6 +1079,7 @@ const Login = () => {
                                                         type="text"
                                                         value={captcha}
                                                         onChange={(e) => setCaptcha(e.target.value)}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }}
                                                         placeholder="CAPTCHA"
                                                         autoFocus
                                                         className="w-full h-14 bg-slate-50/80 border border-slate-300 focus:border-indigo-600 focus:bg-white focus:ring-2 focus:ring-indigo-100 rounded-2xl px-4 text-slate-900 placeholder:text-slate-300 focus:outline-none transition-all font-black tracking-widest shadow-2xs uppercase text-lg text-center"
@@ -1125,6 +1157,7 @@ const Login = () => {
                                                 type="text"
                                                 value={idNumber}
                                                 onChange={(e) => setIdNumber(e.target.value)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }}
                                                 placeholder="Enter Student ID"
                                                 className="w-full bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-2xl py-3 px-4 text-slate-900 font-bold text-sm transition-all"
                                             />
@@ -1140,6 +1173,7 @@ const Login = () => {
                                                     type={showPassword ? "text" : "password"}
                                                     value={password}
                                                     onChange={(e) => setPassword(e.target.value)}
+                                                    onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }}
                                                     placeholder="Enter ERP Password"
                                                     className="w-full bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-2xl py-3 pl-4 pr-11 text-slate-900 font-bold text-sm transition-all"
                                                 />
@@ -1164,6 +1198,7 @@ const Login = () => {
                                                         type="text"
                                                         value={captcha}
                                                         onChange={(e) => setCaptcha(e.target.value)}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }}
                                                         placeholder="Enter Captcha"
                                                         className="w-full h-[52px] bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-2xl px-4 text-slate-900 placeholder:text-slate-400 focus:outline-none transition-all font-black tracking-widest shadow-xs uppercase text-lg text-center"
                                                     />
