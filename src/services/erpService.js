@@ -378,22 +378,44 @@ export const erpService = {
             });
             if (resp.ok) {
                 const data = await resp.json().catch(() => null);
-                const resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
-                if (data && data.success && data.csrfToken && resolvedImg) {
-                    if (data.cookies) {
-                        inMemoryCaptchaCookies = data.cookies;
-                        try { sessionStorage.setItem('kl_captcha_cookies', data.cookies); } catch { /* ignore */ }
+                let resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
+                let activeCookies = data?.cookies || '';
+                let activeCsrf = data?.csrfToken || '';
+
+                if (data && data.success && activeCsrf && activeCookies) {
+                    if (!resolvedImg) {
+                        // High-speed recovery: fetch captcha image using the exact session cookies
+                        try {
+                            const refResp = await fetch(`${apiBase || ''}/api/refresh-captcha`, {
+                                headers: {
+                                    'Cache-Control': 'no-cache',
+                                    'x-erp-cookie': activeCookies,
+                                    'x-csrf-token': activeCsrf
+                                }
+                            });
+                            if (refResp.ok) {
+                                const refData = await refResp.json().catch(() => null);
+                                resolvedImg = refData?.captchaUrl || refData?.captchaDataUrl || refData?.dataUrl;
+                                if (refData?.cookies) activeCookies = refData.cookies;
+                                if (refData?.csrfToken) activeCsrf = refData.csrfToken;
+                            }
+                        } catch {
+                            // ignore
+                        }
                     }
-                    if (data.csrfToken) {
-                        setStoredCsrfToken(data.csrfToken);
+
+                    if (resolvedImg) {
+                        inMemoryCaptchaCookies = activeCookies;
+                        try { sessionStorage.setItem('kl_captcha_cookies', activeCookies); } catch { /* ignore */ }
+                        setStoredCsrfToken(activeCsrf);
+                        return {
+                            csrfToken: activeCsrf,
+                            captchaUrl: resolvedImg,
+                            dataUrl: resolvedImg,
+                            cookies: activeCookies,
+                            blob: null
+                        };
                     }
-                    return {
-                        csrfToken: data.csrfToken,
-                        captchaUrl: resolvedImg,
-                        dataUrl: resolvedImg,
-                        cookies: data.cookies,
-                        blob: null
-                    };
                 }
             }
         } catch (e) {
@@ -410,22 +432,43 @@ export const erpService = {
                 });
                 if (resp.ok) {
                     const data = await resp.json().catch(() => null);
-                    const resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
-                    if (data && data.success && data.csrfToken && resolvedImg) {
-                        if (data.cookies) {
-                            inMemoryCaptchaCookies = data.cookies;
-                            try { sessionStorage.setItem('kl_captcha_cookies', data.cookies); } catch { /* ignore */ }
+                    let resolvedImg = data?.captchaUrl || data?.captchaDataUrl || data?.dataUrl;
+                    let activeCookies = data?.cookies || '';
+                    let activeCsrf = data?.csrfToken || '';
+
+                    if (data && data.success && activeCsrf && activeCookies) {
+                        if (!resolvedImg) {
+                            try {
+                                const refResp = await fetch(`${FALLBACK_ERP_BASE}/api/refresh-captcha`, {
+                                    headers: {
+                                        'Cache-Control': 'no-cache',
+                                        'x-erp-cookie': activeCookies,
+                                        'x-csrf-token': activeCsrf
+                                    }
+                                });
+                                if (refResp.ok) {
+                                    const refData = await refResp.json().catch(() => null);
+                                    resolvedImg = refData?.captchaUrl || refData?.captchaDataUrl || refData?.dataUrl;
+                                    if (refData?.cookies) activeCookies = refData.cookies;
+                                    if (refData?.csrfToken) activeCsrf = refData.csrfToken;
+                                }
+                            } catch {
+                                // ignore
+                            }
                         }
-                        if (data.csrfToken) {
-                            setStoredCsrfToken(data.csrfToken);
+
+                        if (resolvedImg) {
+                            inMemoryCaptchaCookies = activeCookies;
+                            try { sessionStorage.setItem('kl_captcha_cookies', activeCookies); } catch { /* ignore */ }
+                            setStoredCsrfToken(activeCsrf);
+                            return {
+                                csrfToken: activeCsrf,
+                                captchaUrl: resolvedImg,
+                                dataUrl: resolvedImg,
+                                cookies: activeCookies,
+                                blob: null
+                            };
                         }
-                        return {
-                            csrfToken: data.csrfToken,
-                            captchaUrl: resolvedImg,
-                            dataUrl: resolvedImg,
-                            cookies: data.cookies,
-                            blob: null
-                        };
                     }
                 }
             } catch (e) {
@@ -482,7 +525,8 @@ export const erpService = {
             captchaBlob,
             blob: captchaBlob,
             captchaUrl: initialCaptchaUrl,
-            dataUrl: initialCaptchaUrl
+            dataUrl: initialCaptchaUrl,
+            cookies: inMemoryCaptchaCookies
         };
     },
 

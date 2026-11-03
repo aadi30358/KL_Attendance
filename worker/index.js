@@ -125,9 +125,9 @@ export default {
                                   html.match(/value="([^"]+)"\s+name="_csrf(?:-frontend)?"/i);
                 const csrfToken = csrfMatch ? csrfMatch[1] : '';
 
-                const capMatch = html.match(/id=["'](?:loginFormCaptcha-image|loginform-verifycode-image)["'][^>]+src=["']([^"']+)["']/i) ||
-                                 html.match(/src=["']([^"']+)["'][^>]+id=["'](?:loginFormCaptcha-image|loginform-verifycode-image)["']/i) ||
-                                 html.match(/src=["']([^"']*site(?:%2F|\/)captcha[^"']*)["']/i);
+                const capMatch = html.match(/src=["']([^"']*(?:site(?:%2F|\/)captcha)[^"']*)["']/i) ||
+                                 html.match(/id=["'](?:loginFormCaptcha-image|loginform-verifycode-image)["'][^>]+src=["']([^"']+)["']/i) ||
+                                 html.match(/src=["']([^"']+)["'][^>]+id=["'](?:loginFormCaptcha-image|loginform-verifycode-image)["']/i);
                 let captchaDataUrl = '';
 
                 if (capMatch) {
