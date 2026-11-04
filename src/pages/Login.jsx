@@ -277,7 +277,7 @@ const Login = () => {
             const reason = sessionStorage.getItem('kl_logout_reason');
             if (reason === 'inactivity') {
                 sessionStorage.removeItem('kl_logout_reason');
-                setLogoutNotice('You have been automatically logged out due to inactivity.');
+                setLogoutNotice('Your session has expired due to inactivity. Please log in again to continue.');
             } else if (reason === 'session_expired') {
                 sessionStorage.removeItem('kl_logout_reason');
                 setLogoutNotice('Your university ERP session timed out due to inactivity. Please sign in again.');
@@ -1101,19 +1101,33 @@ const Login = () => {
                                             initial={{ opacity: 0, scale: 0.95 }}
                                             animate={{ opacity: 1, scale: 1 }}
                                             exit={{ opacity: 0, scale: 0.95 }}
-                                            className="bg-amber-50 border border-amber-200 text-amber-900 p-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-3 shadow-2xs"
+                                            className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-2xl text-xs font-bold flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs"
                                         >
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse shrink-0" />
-                                                <span>{logoutNotice}</span>
+                                            <div className="flex items-start sm:items-center gap-2.5 flex-1">
+                                                <div className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-pulse shrink-0 mt-0.5 sm:mt-0" />
+                                                <span className="leading-relaxed">{logoutNotice}</span>
                                             </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => setLogoutNotice('')}
-                                                className="text-amber-600 hover:text-amber-800 text-xs font-black cursor-pointer px-1"
-                                            >
-                                                ✕
-                                            </button>
+                                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setLogoutNotice('');
+                                                        if (captchaInputRef.current) {
+                                                            captchaInputRef.current.focus();
+                                                        }
+                                                    }}
+                                                    className="px-3 py-1 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white text-[11px] font-black rounded-lg shadow-xs transition-all cursor-pointer whitespace-nowrap"
+                                                >
+                                                    Login Again
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setLogoutNotice('')}
+                                                    className="text-amber-600 hover:text-amber-800 text-xs font-black cursor-pointer px-1"
+                                                >
+                                                    ✕
+                                                </button>
+                                            </div>
                                         </motion.div>
                                     )}
                                 </AnimatePresence>

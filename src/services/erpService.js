@@ -1732,8 +1732,16 @@ export const erpService = {
 
                         // Save permanently to Firestore cloud storage
                         try {
-                            const { saveAttendanceToCloud } = await import('./cloudStorageService');
+                            const { saveAttendanceToCloud, saveTimetableToCloud } = await import('./cloudStorageService.js');
                             await saveAttendanceToCloud(targetStudent, yr, semId, courses);
+
+                            // Also fetch & save semester timetable concurrently in background
+                            const { fetchLiveErpTimetable } = await import('./timetableService.js');
+                            fetchLiveErpTimetable(targetStudent, yr, sem).then(async (ttRes) => {
+                                if (ttRes?.timetable) {
+                                    await saveTimetableToCloud(targetStudent, ttRes.timetable, yr, sem);
+                                }
+                            }).catch(() => {});
                         } catch (cloudErr) {
                             console.warn('[ERP] Firestore attendance persist notice:', cloudErr?.message);
                         }
@@ -1760,6 +1768,17 @@ export const erpService = {
                     semester: r.semester,
                     coursesCount: r.coursesCount
                 }))));
+            } catch { /* ignore */ }
+
+            // Concurrently sync latest CGPA & grades
+            try {
+                const { fetchLiveErpGrades } = await import('./gradesService.js');
+                const { saveCgpaToCloud } = await import('./cloudStorageService.js');
+                fetchLiveErpGrades(targetStudent).then(async (grRes) => {
+                    if (grRes?.courses && grRes.courses.length > 0) {
+                        await saveCgpaToCloud(targetStudent, grRes.courses, grRes.cgpa);
+                    }
+                }).catch(() => {});
             } catch { /* ignore */ }
         }
 

@@ -5,10 +5,10 @@ import { Clock, LogOut, CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 
 // Inactivity Auto-Logout Configuration:
-// Automatic logout after 15 minutes of inactivity with 60-second warning dialog
-const INACTIVITY_LIMIT_MS = 15 * 60 * 1000; // 15 minutes
-const WARNING_WINDOW_MS = 60 * 1000; // 60 seconds warning
-const WARNING_THRESHOLD_MS = INACTIVITY_LIMIT_MS - WARNING_WINDOW_MS; // 14 minutes
+// Automatic logout after 4 minutes (240 seconds) of inactivity with 30-second warning dialog
+const INACTIVITY_LIMIT_MS = 4 * 60 * 1000; // 4 minutes (240 seconds)
+const WARNING_WINDOW_MS = 30 * 1000; // 30 seconds warning
+const WARNING_THRESHOLD_MS = INACTIVITY_LIMIT_MS - WARNING_WINDOW_MS; // 3 minutes 30 seconds (210 seconds)
 
 const getStoredLastActive = () => {
     try {
@@ -29,7 +29,7 @@ export const InactivityTracker = () => {
     const location = useLocation();
 
     const [showWarning, setShowWarning] = useState(false);
-    const [secondsLeft, setSecondsLeft] = useState(60);
+    const [secondsLeft, setSecondsLeft] = useState(30);
 
     const lastActiveRef = useRef(getStoredLastActive());
     const isLoggingOutRef = useRef(false);
@@ -74,7 +74,7 @@ export const InactivityTracker = () => {
         }
         if (showWarning) {
             setShowWarning(false);
-            setSecondsLeft(60);
+            setSecondsLeft(30);
         }
     }, [showWarning]);
 
@@ -103,7 +103,7 @@ export const InactivityTracker = () => {
             }
             if (showWarning) {
                 setShowWarning(false);
-                setSecondsLeft(60);
+                setSecondsLeft(30);
             }
         };
 
@@ -149,7 +149,7 @@ export const InactivityTracker = () => {
             } else {
                 if (showWarning) {
                     setShowWarning(false);
-                    setSecondsLeft(60);
+                    setSecondsLeft(30);
                 }
             }
         }, 1000);

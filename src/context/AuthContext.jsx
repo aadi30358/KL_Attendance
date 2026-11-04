@@ -117,27 +117,30 @@ export function AuthProvider({ children }) {
                     localStorage.setItem('kl_deleted_friends', JSON.stringify(delList));
                 } catch { /* ignore */ }
 
+                const isPrimary = (targetId === localStorage.getItem('rememberedId')) || (targetId === localStorage.getItem('original_my_id'));
                 const keysToRemove = [];
                 for (let i = 0; i < localStorage.length; i++) {
                     const k = localStorage.key(i);
-                    if (k && (k.includes(targetId) || k.startsWith('kl_timetable_') || k.startsWith('kl_grades_') || k.startsWith('cgpa_') || k.startsWith('kleData_'))) {
+                    if (k && k.includes(targetId)) {
                         keysToRemove.push(k);
                     }
                 }
                 keysToRemove.forEach(k => localStorage.removeItem(k));
-                localStorage.removeItem('original_my_id');
-                localStorage.removeItem('rememberedId');
-                localStorage.removeItem('rememberedPassword');
-                localStorage.removeItem('rememberedName');
-                localStorage.removeItem('userCredentials');
-                localStorage.removeItem('userCredentials_enc');
+                if (isPrimary) {
+                    localStorage.removeItem('original_my_id');
+                    localStorage.removeItem('rememberedId');
+                    localStorage.removeItem('rememberedPassword');
+                    localStorage.removeItem('rememberedName');
+                    localStorage.removeItem('userCredentials');
+                    localStorage.removeItem('userCredentials_enc');
+                    localStorage.removeItem('timetable_studentId');
+                    localStorage.removeItem('userProfile');
+                    localStorage.removeItem('kleData');
+                    localStorage.removeItem('cgpa_data');
+                    localStorage.removeItem('grades');
+                }
                 localStorage.removeItem('activeErpUser');
                 localStorage.removeItem('erp_username');
-                localStorage.removeItem('timetable_studentId');
-                localStorage.removeItem('userProfile');
-                localStorage.removeItem('kleData');
-                localStorage.removeItem('cgpa_data');
-                localStorage.removeItem('grades');
             } catch { /* ignore */ }
         }
 

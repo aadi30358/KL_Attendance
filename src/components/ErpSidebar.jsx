@@ -191,19 +191,17 @@ export default function ErpSidebar({
         const sid = profile?.studentId || profile?.username || '';
         const pid = profile?.id || sid;
         const label = profile?.nickname || (pid === 'main' ? 'Primary Account' : 'this account');
-        if (window.confirm(`Are you sure you want to permanently delete ${label} (${sid || pid})?\n\nAll saved timetable, CGPA, and attendance data will be permanently removed.`)) {
+        if (window.confirm(`Are you sure you want to permanently delete ${label} (${sid || pid})?\n\nAll saved timetable, CGPA, and attendance data for this student will be permanently removed.`)) {
             deleteFriend(pid, sid);
             if (sid) {
                 deleteStudentProfileFromCloud(sid).catch(() => {});
+                clearStoredErpCookies(sid);
             }
 
             const remaining = getAllProfiles();
-            const activeUser = localStorage.getItem('activeErpUser');
-            const isCurrentActive = !activeUser || activeUser === sid || activeUser === pid;
-            const isSelf = pid === 'main' || !profile?.isFriend;
 
-            // INVARIANT: When user deletes their active profile, primary profile, or all profiles -> automatically logout
-            if (isSelf || isCurrentActive || remaining.length === 0) {
+            // If no accounts remain in application, redirect to login
+            if (remaining.length === 0) {
                 try {
                     sessionStorage.setItem('kl_user_logged_out', 'true');
                     clearStoredErpCookies(sid);
@@ -214,12 +212,32 @@ export default function ErpSidebar({
                 } catch { /* ignore */ }
 
                 window.dispatchEvent(new Event('storage'));
-                window.dispatchEvent(new CustomEvent('kl_friends_updated', { detail: remaining }));
+                window.dispatchEvent(new CustomEvent('kl_friends_updated', { detail: [] }));
                 window.dispatchEvent(new CustomEvent('kl_active_profile_updated'));
                 navigate('/login', { replace: true, state: { loggedOut: true } });
             } else {
+                // Individual deletion: Remaining student accounts remain completely unaffected!
+                const activeUser = localStorage.getItem('activeErpUser');
+                const wasActiveDeleted = !activeUser || activeUser === sid || activeUser === pid;
+                const nextProfile = wasActiveDeleted ? remaining[0] : (remaining.find(p => p.studentId === activeUser || p.id === activeUser) || remaining[0]);
+                const nextSid = nextProfile?.studentId || nextProfile?.username || '';
+                const nextPid = nextProfile?.id || nextSid;
+
+                if (wasActiveDeleted) {
+                    setActiveProfileId(nextPid, nextSid);
+                    try {
+                        if (nextSid) localStorage.setItem('activeErpUser', nextSid);
+                    } catch { /* ignore */ }
+                }
+
                 setAllProfiles(remaining);
-                setActiveProfile(getActiveProfileDetails());
+                setActiveProfile(getActiveProfileDetails(nextPid));
+                window.dispatchEvent(new Event('storage'));
+                window.dispatchEvent(new CustomEvent('kl_friends_updated', { detail: remaining }));
+                window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { profileId: nextPid, studentId: nextSid } }));
+                if (wasActiveDeleted) {
+                    window.dispatchEvent(new CustomEvent('kl_profile_switched', { detail: { profile: nextProfile, studentId: nextSid } }));
+                }
             }
         }
     };
