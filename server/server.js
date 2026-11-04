@@ -1,4 +1,7 @@
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// Only relax TLS certificate validation in non-production environments if strict TLS is not requested
+if (process.env.NODE_ENV !== 'production' && !process.env.STRICT_TLS) {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
@@ -1443,7 +1446,7 @@ app.post('/api/ai/gemini', aiLimiter, async (req, res) => {
         }
 
         const allowedModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
-        const targetModel = allowedModels.includes(modelName) ? modelName : "gemini-2.0-flash";
+        const targetModel = allowedModels.includes(modelName) ? modelName : "gemini-2.5-flash";
 
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
         const safeSystemInstruction = typeof systemInstruction === 'string' ? systemInstruction.slice(0, 5000) : undefined;

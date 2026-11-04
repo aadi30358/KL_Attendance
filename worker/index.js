@@ -1366,7 +1366,7 @@ export default {
                 }
 
                 const allowedModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
-                const targetModel = allowedModels.includes(modelName) ? modelName : 'gemini-2.0-flash';
+                const targetModel = allowedModels.includes(modelName) ? modelName : 'gemini-2.5-flash';
 
                 const geminiPayload = {
                     contents: formattedContents,
