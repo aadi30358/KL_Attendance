@@ -242,7 +242,10 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
 
                 // Determine target session
                 const defaultStudentYear = (studentId && String(studentId).startsWith('25')) ? '2025-2026' : '2026-2027';
-                const targetYear = localStorage.getItem(`manualYear_${studentId}`) || localStorage.getItem(`activeYear_${studentId}`) || defaultStudentYear;
+                let targetYear = localStorage.getItem(`manualYear_${studentId}`) || localStorage.getItem(`activeYear_${studentId}`) || defaultStudentYear;
+                if (studentId && String(studentId).startsWith('25') && targetYear === '2026-2027') {
+                    targetYear = '2025-2026';
+                }
                 const targetSem = localStorage.getItem(`manualSem_${studentId}`) || localStorage.getItem(`activeSem_${studentId}`) || 'Odd';
 
                 try {
@@ -282,35 +285,39 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     }),
                     erpService.fetchAttendance(targetYear, targetSem, studentId).then(async data => {
                         let list = Array.isArray(data) ? data : [];
-                        let finalYear = targetYear;
+                        let finalYear = data?.discoveredYear || targetYear;
+                        let finalSem = data?.discoveredSem || targetSem;
                         // Auto-fallback if 2026-2027 has no courses (e.g. 2025 batch student)
                         if (list.length === 0 && targetYear === '2026-2027') {
                             const fallbackYear = '2025-2026';
                             const fallbackData = await erpService.fetchAttendance(fallbackYear, targetSem, studentId).catch(() => []);
                             if (Array.isArray(fallbackData) && fallbackData.length > 0) {
                                 list = fallbackData;
-                                finalYear = fallbackYear;
+                                finalYear = fallbackData?.discoveredYear || fallbackYear;
+                                finalSem = fallbackData?.discoveredSem || targetSem;
                             }
                         }
 
-                        const isZero = list.length === 0;
-                        const payload = JSON.stringify({
-                            attendance_data: list,
-                            year: finalYear,
-                            semester: targetSem,
-                            timestamp: Date.now(),
-                            empty: isZero
-                        });
-                        try {
-                            localStorage.setItem(`kleData_${studentId}`, payload);
-                            localStorage.setItem(`kleData_${studentId}_${finalYear}_${targetSem}`, payload);
-                            localStorage.setItem(`activeYear_${studentId}`, finalYear);
-                            localStorage.setItem(`activeSem_${studentId}`, targetSem);
-                            localStorage.setItem(`attendanceLastUpdated_${studentId}`, String(Date.now()));
-                        } catch { /* ignore storage error */ }
-
+                        // INVARIANT: Never overwrite valid existing courses with empty response
                         if (list.length > 0) {
-                            saveAttendanceToCloud(studentId, finalYear, targetSem, list).catch(() => {});
+                            const payload = JSON.stringify({
+                                attendance_data: list,
+                                year: finalYear,
+                                semester: finalSem,
+                                timestamp: Date.now(),
+                                empty: false
+                            });
+                            try {
+                                localStorage.setItem(`kleData_${studentId}`, payload);
+                                localStorage.setItem(`kleData_${studentId}_${finalYear}_${finalSem}`, payload);
+                                localStorage.setItem(`activeYear_${studentId}`, finalYear);
+                                localStorage.setItem(`activeSem_${studentId}`, finalSem);
+                                localStorage.setItem(`manualYear_${studentId}`, finalYear);
+                                localStorage.setItem(`manualSem_${studentId}`, finalSem);
+                                localStorage.setItem(`attendanceLastUpdated_${studentId}`, String(Date.now()));
+                            } catch { /* ignore storage error */ }
+
+                            saveAttendanceToCloud(studentId, finalYear, finalSem, list).catch(() => {});
                         }
 
                         window.dispatchEvent(new CustomEvent('kl_attendance_updated', {

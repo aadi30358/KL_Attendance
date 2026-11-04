@@ -242,9 +242,15 @@ const AttendanceRegister = () => {
 
     const [year, setYear] = useState(() => {
         const manualYear = activeId ? localStorage.getItem(`manualYear_${activeId}`) : null;
-        if (manualYear) return manualYear;
+        if (manualYear) {
+            if (activeId && String(activeId).startsWith('25') && manualYear === '2026-2027') return '2025-2026';
+            return manualYear;
+        }
         const savedYear = activeId ? localStorage.getItem(`activeYear_${activeId}`) : null;
-        if (savedYear) return savedYear;
+        if (savedYear) {
+            if (activeId && String(activeId).startsWith('25') && savedYear === '2026-2027') return '2025-2026';
+            return savedYear;
+        }
         const present = getPresentAcademicYearAndSem(activeId);
         return present.year;
     });
@@ -615,8 +621,14 @@ const AttendanceRegister = () => {
         try {
             const data = await erpService.fetchAttendance(queryYear, fetchSemester, targetId);
             const finalCourses = Array.isArray(data) ? data : [];
-            const finalYear = normYear;
-            const finalSem = normSem;
+            const finalYear = data?.discoveredYear ? normalizeAcademicYear(data.discoveredYear) : normYear;
+            const finalSem = data?.discoveredSem ? normalizeSemester(data.discoveredSem) : normSem;
+            if (data?.discoveredYear && data.discoveredYear !== normYear) {
+                setYear(finalYear);
+            }
+            if (data?.discoveredSem && data.discoveredSem !== normSem) {
+                setSemester(finalSem);
+            }
             const baseKey = `${targetId}_${finalYear}_${finalSem}`;
             sessionAttendanceBaselines.current.set(baseKey, finalCourses);
 
@@ -630,24 +642,40 @@ const AttendanceRegister = () => {
                 setSubjects(finalCourses);
                 setShowDashboard(true);
                 saveAttendanceToCloud(targetId, finalYear, finalSem, finalCourses).catch(() => {});
+                try {
+                    localStorage.setItem(`activeYear_${targetId}`, finalYear);
+                    localStorage.setItem(`activeSem_${targetId}`, finalSem);
+                    localStorage.setItem(`manualYear_${targetId}`, finalYear);
+                    localStorage.setItem(`manualSem_${targetId}`, finalSem);
+                    localStorage.setItem(`kleData_${targetId}`, JSON.stringify({
+                        attendance_data: finalCourses,
+                        year: finalYear,
+                        semester: finalSem,
+                        timestamp: Date.now()
+                    }));
+                } catch { /* ignore */ }
             } else if (normYear === '2026-2027') {
                 // Auto-fallback: If 2026-2027 has no registered courses (e.g. batch 25 student like Harshitha 2500032128), try 2025-2026
                 const fallbackYear = '2025-2026';
                 try {
                     const fallbackData = await erpService.fetchAttendance(fallbackYear, fetchSemester, targetId);
                     if (Array.isArray(fallbackData) && fallbackData.length > 0) {
+                        const discYear = fallbackData?.discoveredYear ? normalizeAcademicYear(fallbackData.discoveredYear) : fallbackYear;
+                        const discSem = fallbackData?.discoveredSem ? normalizeSemester(fallbackData.discoveredSem) : normSem;
                         setSubjects(fallbackData);
                         setShowDashboard(true);
-                        setYear(fallbackYear);
-                        setSemester(normSem);
-                        saveAttendanceToCloud(targetId, fallbackYear, normSem, fallbackData).catch(() => {});
+                        setYear(discYear);
+                        setSemester(discSem);
+                        saveAttendanceToCloud(targetId, discYear, discSem, fallbackData).catch(() => {});
                         try {
-                            localStorage.setItem(`activeYear_${targetId}`, fallbackYear);
-                            localStorage.setItem(`manualYear_${targetId}`, fallbackYear);
+                            localStorage.setItem(`activeYear_${targetId}`, discYear);
+                            localStorage.setItem(`activeSem_${targetId}`, discSem);
+                            localStorage.setItem(`manualYear_${targetId}`, discYear);
+                            localStorage.setItem(`manualSem_${targetId}`, discSem);
                             localStorage.setItem(`kleData_${targetId}`, JSON.stringify({
                                 attendance_data: fallbackData,
-                                year: fallbackYear,
-                                semester: normSem,
+                                year: discYear,
+                                semester: discSem,
                                 timestamp: Date.now()
                             }));
                         } catch { /* ignore */ }
@@ -854,7 +882,10 @@ const AttendanceRegister = () => {
             const savedYear = newId ? (localStorage.getItem(`manualYear_${newId}`) || localStorage.getItem(`activeYear_${newId}`)) : null;
             const savedSem = newId ? (localStorage.getItem(`manualSem_${newId}`) || localStorage.getItem(`activeSem_${newId}`)) : null;
             const defaultStudentYear = (newId && String(newId).startsWith('25')) ? '2025-2026' : (year || '2026-2027');
-            const targetYear = savedYear || defaultStudentYear;
+            let targetYear = savedYear || defaultStudentYear;
+            if (newId && String(newId).startsWith('25') && targetYear === '2026-2027') {
+                targetYear = '2025-2026';
+            }
             const targetSem = savedSem || semester || 'Odd';
 
             setYear(targetYear);

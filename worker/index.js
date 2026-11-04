@@ -678,8 +678,8 @@ export default {
                                 matchedYear = availableYears.find(y => y.val === reqYearId || y.val === reqYearStr);
                             }
 
-                            // 5. If still no match and no year was requested, default to selected or first ERP option
-                            if (!matchedYear && !reqYearStr && !reqYearId) {
+                            // 5. If still no match in availableYears, fall back to ERP's enrolled selected option or first option
+                            if (!matchedYear && availableYears.length > 0) {
                                 matchedYear = availableYears.find(y => y.isSelected) || availableYears[0];
                             }
                         }
@@ -868,6 +868,46 @@ export default {
                         finalResp = crResp;
                         finalHtml = crHtml;
                         usedYearId = testYearId;
+                    }
+                }
+
+                // Auto-fallback: If no courses found in primary semester, test alternate primary semester (Odd <-> Even)
+                if (!foundValidCourses && (erpSelectedYear || resolvedYearId)) {
+                    const altSemId = resolvedSemId === '1' ? '2' : '1';
+                    const activeYId = erpSelectedYear || resolvedYearId;
+                    try {
+                        const altForm = new URLSearchParams();
+                        altForm.append('DynamicModel[academicyear]', String(activeYId));
+                        altForm.append('DynamicModel[semesterid]', String(altSemId));
+                        altForm.append('DynamicModel[academic_year]', String(activeYId));
+                        altForm.append('DynamicModel[semester_id]', String(altSemId));
+                        altForm.append('academicyear', String(activeYId));
+                        altForm.append('semesterid', String(altSemId));
+                        if (currentCsrf) {
+                            altForm.append('_csrf', currentCsrf);
+                            altForm.append('_csrf-frontend', currentCsrf);
+                        }
+                        postHeaders['Cookie'] = currentCookieStr;
+                        const altResp = await fetch(`${ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
+                            method: 'POST',
+                            headers: postHeaders,
+                            body: altForm.toString(),
+                            redirect: 'manual',
+                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                        });
+                        const altHtml = await altResp.text();
+                        const altEmpty = altHtml.includes('class="empty"') || altHtml.includes('No results found');
+                        const altTable = altHtml.includes('<table') || altHtml.includes('grid-view') || altHtml.includes('Course Code');
+                        if (altTable && !altEmpty) {
+                            finalResp = altResp;
+                            finalHtml = altHtml;
+                            usedYearId = activeYId;
+                            resolvedSemId = altSemId;
+                            selectedSemText = altSemId === '2' ? 'Even Semester' : 'Odd Semester';
+                            foundValidCourses = true;
+                        }
+                    } catch (altErr) {
+                        console.warn("[Worker] Alternate semester auto-discovery notice:", altErr.message);
                     }
                 }
 

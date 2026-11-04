@@ -29,25 +29,23 @@ export const hasActiveErpSession = (studentId = null) => {
         const isLoggedOut = sessionStorage.getItem('kl_user_logged_out') === 'true';
         if (isLoggedOut) return false;
 
-        // Session verified check across both sessionStorage and localStorage (multi-tab resilient)
-        const sessionVerified = sessionStorage.getItem(`erp_verified_${cleanId}`) === 'true' ||
-                                localStorage.getItem(`erp_verified_${cleanId}`) === 'true' ||
-                                sessionStorage.getItem('erp_authenticated') === 'true' ||
-                                localStorage.getItem('erp_authenticated') === 'true';
-
-        // Check active session cookie containing PHPSESSID
+        // 1. Strict student cookie check containing PHPSESSID
         const cookie = localStorage.getItem(`erp_cookie_${cleanId}`);
         if (cookie && cookie.includes('PHPSESSID')) return true;
         if (inMemoryErpCookies && inMemoryErpUser === cleanId && inMemoryErpCookies.includes('PHPSESSID')) return true;
 
-        const rememberedId = localStorage.getItem('rememberedId') || localStorage.getItem('original_my_id');
+        // 2. Primary / main account cookie
+        const rememberedId = (localStorage.getItem('rememberedId') || localStorage.getItem('original_my_id') || '').trim();
         if (cleanId === rememberedId) {
             const myCookie = localStorage.getItem(`erp_cookie_${rememberedId}`) || localStorage.getItem('erp_cookie_main');
             if (myCookie && myCookie.includes('PHPSESSID')) return true;
             if (inMemoryErpCookies && (!inMemoryErpUser || inMemoryErpUser === rememberedId) && inMemoryErpCookies.includes('PHPSESSID')) return true;
         }
 
-        if (sessionVerified && (cookie || inMemoryErpCookies)) return true;
+        // Strict verification: require verified session for this specific student AND a valid cookie
+        const isVerifiedForThisStudent = sessionStorage.getItem(`erp_verified_${cleanId}`) === 'true' ||
+                                        localStorage.getItem(`erp_verified_${cleanId}`) === 'true';
+        if (isVerifiedForThisStudent && cookie && cookie.length > 10) return true;
 
         return false;
     }
@@ -1246,8 +1244,8 @@ export const erpService = {
                 matchedYearVal = valMatch.value;
             }
 
-            // If still unresolved and no year was provided, use ERP's selected or first option
-            if (!matchedYearVal && !reqYearStr) {
+            // If still unresolved in sessionInfo.years, fall back to ERP's selected or first option
+            if (!matchedYearVal && sessionInfo?.years && sessionInfo.years.length > 0) {
                 matchedYearVal = sessionInfo.selectedYear?.value || sessionInfo.years[0]?.value;
             }
         }
@@ -1317,6 +1315,11 @@ export const erpService = {
                 if (fastData?.html) {
                     const parsed = this.parseSubjects(fastData.html);
                     if (parsed && parsed.length > 0) {
+                        if (fastData.selectedYearText) parsed.discoveredYear = fastData.selectedYearText;
+                        if (fastData.selectedSemText) {
+                            const isEven = fastData.selectedSemText.toLowerCase().includes('even') || fastData.resolvedSemId === '2';
+                            parsed.discoveredSem = isEven ? 'Even' : 'Odd';
+                        }
                         return parsed;
                     }
                 }
@@ -1423,6 +1426,52 @@ export const erpService = {
 
         if (subjects.length > 0) { 
             return subjects;
+        }
+
+        // Auto-fallback: If no courses found in primary semester, test alternate semester on ERP selected year
+        if (subjects.length === 0 && sessionInfo?.selectedYear?.value) {
+            const altSemId = semId === '1' ? '2' : '1';
+            const activeYId = sessionInfo.selectedYear.value;
+            try {
+                const altForm = new URLSearchParams();
+                altForm.append('DynamicModel[academicyear]', String(activeYId));
+                altForm.append('DynamicModel[semesterid]', String(altSemId));
+                altForm.append('DynamicModel[academic_year]', String(activeYId));
+                altForm.append('DynamicModel[semester_id]', String(altSemId));
+                altForm.append('academicyear', String(activeYId));
+                altForm.append('semesterid', String(altSemId));
+                if (effectiveCsrfToken) {
+                    altForm.append('_csrf', effectiveCsrfToken);
+                    altForm.append('_csrf-frontend', effectiveCsrfToken);
+                }
+                const loopCookie = getStoredErpCookies(targetStudent) || targetCookie;
+                const altHeaders = buildErpHeaders({
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache',
+                    'Referer': 'https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput'
+                }, targetStudent);
+                altHeaders['x-erp-cookie'] = loopCookie;
+                if (effectiveCsrfToken) altHeaders['X-CSRF-Token'] = effectiveCsrfToken;
+
+                const altResp = await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
+                    method: 'POST',
+                    headers: altHeaders,
+                    body: altForm.toString(),
+                    credentials: 'include',
+                    cache: 'no-store'
+                });
+                if (altResp.ok) {
+                    const altHtml = await altResp.text();
+                    const altParsed = this.parseSubjects(altHtml);
+                    if (altParsed.length > 0) {
+                        subjects = altParsed;
+                        subjects.discoveredSem = altSemId === '2' ? 'Even' : 'Odd';
+                        if (sessionInfo.selectedYear?.text) subjects.discoveredYear = sessionInfo.selectedYear.text;
+                    }
+                }
+            } catch { /* ignore alt sem fallback */ }
         }
 
         if (lastError && lastError.message?.includes('expired')) {
