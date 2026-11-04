@@ -537,6 +537,8 @@ export default {
                 }
 
                 const cookieMap = parseCookieHeader(clientCookie);
+                // CRITICAL SAFEGUARD: Capture authenticated student PHPSESSID and NEVER let intermediate queries overwrite it!
+                const originalPhpSessId = cookieMap.get('PHPSESSID') || cookieMap.get('phpsessid') || '';
                 let currentCookieStr = serializeCookieMap(cookieMap);
                 let currentCsrf = csrfToken || '';
 
@@ -553,7 +555,9 @@ export default {
                         method: 'GET',
                         headers: {
                             'Cookie': currentCookieStr,
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                            'Accept': 'text/html, */*; q=0.01',
+                            'X-Requested-With': 'XMLHttpRequest',
                             'Referer': `${ERP_BASE}/index.php`,
                             'Cache-Control': 'no-cache'
                         },
@@ -566,7 +570,9 @@ export default {
                             method: 'GET',
                             headers: {
                                 'Cookie': currentCookieStr,
-                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                                'Accept': 'text/html, */*; q=0.01',
+                                'X-Requested-With': 'XMLHttpRequest',
                                 'Referer': `${ERP_BASE}/index.php`,
                                 'Cache-Control': 'no-cache'
                             },
@@ -576,7 +582,13 @@ export default {
                     }
 
                     const inScList = inputResp.headers.getSetCookie ? inputResp.headers.getSetCookie() : [inputResp.headers.get('set-cookie')].filter(Boolean);
-                    parseCookieHeader(inScList).forEach((v, k) => cookieMap.set(k, v));
+                    parseCookieHeader(inScList).forEach((v, k) => {
+                        if (k.toLowerCase() === 'phpsessid' && originalPhpSessId) return; // Keep authenticated session!
+                        cookieMap.set(k, v);
+                    });
+                    if (originalPhpSessId) {
+                        cookieMap.set('PHPSESSID', originalPhpSessId);
+                    }
                     currentCookieStr = serializeCookieMap(cookieMap);
 
                     if (inputResp.status >= 300 && inputResp.status < 400) {
@@ -673,7 +685,7 @@ export default {
                         if (matchedYear) {
                             resolvedYearId = matchedYear.val;
                             selectedYearText = matchedYear.text;
-                        } else {
+                        } else if (!resolvedYearId) {
                             resolvedYearId = '';
                         }
 
@@ -717,6 +729,8 @@ export default {
                         if (matchedSem) {
                             resolvedSemId = matchedSem.val;
                             selectedSemText = matchedSem.text;
+                        } else if (!resolvedSemId) {
+                            resolvedSemId = '';
                         }
                     }
                 } catch (e) {
@@ -745,15 +759,15 @@ export default {
                         const offset = firstYear - 2026;
                         list.push(String(18 + offset), String(29 + offset), `${firstYear}-${firstYear + 1}`);
                     } else if (firstYear === 2026 || str === '18' || str === '29') {
-                        list.push('18', '29', '2026-2027', '2026-27');
-                    } else if (firstYear === 2025 || str === '17' || str === '28') {
-                        list.push('17', '28', '2025-2026', '2025-26');
+                        list.push('18', '29', '22', '19', '17', '20', '21', '2026-2027', '2026-27');
+                    } else if (firstYear === 2025 || str === '17' || str === '28' || str === '19') {
+                        list.push('17', '28', '19', '18', '16', '2025-2026', '2025-26');
                     } else if (firstYear === 2024 || str === '16' || str === '27') {
-                        list.push('16', '27', '2024-2025', '2024-25');
+                        list.push('16', '27', '15', '17', '2024-2025', '2024-25');
                     } else if (firstYear === 2023 || str === '15' || str === '26') {
-                        list.push('15', '26', '2023-2024', '2023-24');
+                        list.push('15', '26', '14', '16', '2023-2024', '2023-24');
                     } else if (firstYear === 2022 || str === '14' || str === '25') {
-                        list.push('14', '25', '2022-2023', '2022-23');
+                        list.push('14', '25', '13', '2022-2023', '2022-23');
                     } else if (firstYear === 2021 || str === '13' || str === '24') {
                         list.push('13', '24', '2021-2022', '2021-22');
                     } else if (firstYear === 2020 || str === '10' || str === '23') {
@@ -763,9 +777,13 @@ export default {
                     return Array.from(new Set(list.filter(Boolean)));
                 };
 
-                const candidateYears = getCandidateYearIds(year, yearId, resolvedYearId);
+                const candidateYears = Array.from(new Set([
+                    resolvedYearId,
+                    yearId,
+                    ...getCandidateYearIds(year, yearId, resolvedYearId)
+                ].filter(Boolean)));
                 if (candidateYears.length === 0) {
-                    candidateYears.push(resolvedYearId || '18');
+                    candidateYears.push(resolvedYearId || yearId || '18');
                 }
 
                 if (!resolvedSemId) {
@@ -782,10 +800,11 @@ export default {
                 let foundValidCourses = false;
 
                 const postHeaders = {
-                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                     'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'text/html, */*; q=0.01',
                     'Cache-Control': 'no-cache',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                     'Origin': ERP_BASE,
                     'Referer': `${ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`,
                     'Cookie': currentCookieStr
@@ -816,7 +835,13 @@ export default {
                     });
 
                     const crScList = crResp.headers.getSetCookie ? crResp.headers.getSetCookie() : [crResp.headers.get('set-cookie')].filter(Boolean);
-                    parseCookieHeader(crScList).forEach((v, k) => cookieMap.set(k, v));
+                    parseCookieHeader(crScList).forEach((v, k) => {
+                        if (k.toLowerCase() === 'phpsessid' && originalPhpSessId) return; // Keep authenticated session!
+                        cookieMap.set(k, v);
+                    });
+                    if (originalPhpSessId) {
+                        cookieMap.set('PHPSESSID', originalPhpSessId);
+                    }
                     currentCookieStr = serializeCookieMap(cookieMap);
 
                     if (crResp.status >= 300 && crResp.status < 400) {
@@ -829,7 +854,13 @@ export default {
                                 signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
                             });
                             const followSc = crResp.headers.getSetCookie ? crResp.headers.getSetCookie() : [crResp.headers.get('set-cookie')].filter(Boolean);
-                            parseCookieHeader(followSc).forEach((v, k) => cookieMap.set(k, v));
+                            parseCookieHeader(followSc).forEach((v, k) => {
+                                if (k.toLowerCase() === 'phpsessid' && originalPhpSessId) return; // Keep authenticated session!
+                                cookieMap.set(k, v);
+                            });
+                            if (originalPhpSessId) {
+                                cookieMap.set('PHPSESSID', originalPhpSessId);
+                            }
                             currentCookieStr = serializeCookieMap(cookieMap);
                         }
                     }
@@ -936,6 +967,10 @@ export default {
                 const scList = erpRes.headers.getSetCookie ? erpRes.headers.getSetCookie() : [erpRes.headers.get('set-cookie')].filter(Boolean);
                 if (scList.length > 0) {
                     const scMap = parseCookieHeader(scList);
+                    const clientSess = cookieMap.get('PHPSESSID') || cookieMap.get('phpsessid');
+                    if (clientSess && scMap.has('PHPSESSID')) {
+                        scMap.set('PHPSESSID', clientSess); // Never overwrite client authenticated session on intermediate proxy calls
+                    }
                     resHeaders.set('x-set-erp-cookie', serializeCookieMap(scMap));
                 }
                 const locHeader = erpRes.headers.get('location');
@@ -1431,40 +1466,6 @@ export default {
             }
         }
 
-        // 5.9 /index.php proxy fallback for legacy scraping flows
-        if (url.pathname === '/index.php') {
-            try {
-                const targetUrl = `${ERP_BASE}${url.pathname}${url.search}`;
-                const forwardResp = await fetch(targetUrl, {
-                    method: request.method,
-                    headers: {
-                        'Cookie': serializeCookieMap(cookieMap),
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                        'Referer': `${ERP_BASE}/`
-                    },
-                    body: request.method === 'POST' ? await request.text() : undefined,
-                    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                });
-                const scList = forwardResp.headers.getSetCookie ? forwardResp.headers.getSetCookie() : [forwardResp.headers.get('set-cookie')].filter(Boolean);
-                parseCookieHeader(scList).forEach((v, k) => cookieMap.set(k, v));
-                const allCookies = serializeCookieMap(cookieMap);
-                const respText = await forwardResp.text();
-                return new Response(respText, {
-                    status: forwardResp.status,
-                    headers: {
-                        ...cors,
-                        'Content-Type': forwardResp.headers.get('Content-Type') || 'text/html; charset=UTF-8',
-                        'x-set-erp-cookie': allCookies
-                    }
-                });
-            } catch (err) {
-                return new Response(JSON.stringify({ success: false, error: err.message }), {
-                    status: 502,
-                    headers: { ...cors, 'Content-Type': 'application/json' }
-                });
-            }
-        }
 
         // 6. Default 404 handler
         return new Response(JSON.stringify({

@@ -240,7 +240,7 @@ export function mergeCookies(existing, incoming) {
     return Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
-export const saveErpCookiesFromResponse = (response, { studentId = null } = {}) => {
+export const saveErpCookiesFromResponse = (response, { studentId = null, forceAuthUpdate = false } = {}) => {
     try {
         if (!response) return;
         const newCookies = response.headers?.get?.('x-set-erp-cookie') || response.headers?.get?.('set-cookie');
@@ -248,8 +248,22 @@ export const saveErpCookiesFromResponse = (response, { studentId = null } = {}) 
             const activeUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '';
             const cleanSid = (studentId || activeUser || '').trim();
             const existing = getStoredErpCookies(cleanSid);
-            // Strict Invariant: Always merge incoming cookies into existing cookies so PHPSESSID and SERVERID are never dropped
-            const merged = mergeCookies(existing, newCookies);
+            const cookieMap = new Map();
+            if (existing) parseCookieStringToMap(existing, cookieMap);
+            const incomingMap = new Map();
+            parseCookieStringToMap(newCookies, incomingMap);
+
+            const isAuth = typeof window !== 'undefined' && hasActiveErpSession(cleanSid);
+
+            incomingMap.forEach((val, key) => {
+                // Strict Invariant: NEVER let incoming cookies overwrite an authenticated student PHPSESSID unless forceAuthUpdate is true (login success)
+                if (key.toLowerCase() === 'phpsessid' && isAuth && !forceAuthUpdate) {
+                    return;
+                }
+                cookieMap.set(key, val);
+            });
+
+            const merged = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
             setStoredErpCookies(merged, cleanSid);
             try { sessionStorage.setItem('kl_captcha_cookies', merged); } catch { /* ignore */ }
         }
@@ -1306,10 +1320,10 @@ export const erpService = {
                 if (fastData?.sessionExpired) {
                     throw new Error("Your session has expired. Please log out and sign in again.");
                 }
-                saveErpCookiesFromResponse(fastResp, { studentId: targetStudent });
                 if (fastData?.html) {
                     const parsed = this.parseSubjects(fastData.html);
                     if (parsed && parsed.length > 0) {
+                        saveErpCookiesFromResponse(fastResp, { studentId: targetStudent });
                         if (fastData.selectedYearText) parsed.discoveredYear = fastData.selectedYearText;
                         if (fastData.selectedSemText) {
                             const isEven = fastData.selectedSemText.toLowerCase().includes('even') || fastData.resolvedSemId === '2';
@@ -1393,8 +1407,6 @@ export const erpService = {
                     html = await response.text();
                 }
 
-                saveErpCookiesFromResponse(response, { studentId: targetStudent });
-
                 if (!response.ok) {
                     console.warn(`[ERP] Candidate Year ID ${currentYearId} returned status ${response.status}`);
                     continue;
@@ -1409,6 +1421,7 @@ export const erpService = {
                 const parsed = this.parseSubjects(html);
                 if (parsed.length > 0) {
                     subjects = parsed;
+                    saveErpCookiesFromResponse(response, { studentId: targetStudent });
                     break;
                 }
             } catch (err) {
