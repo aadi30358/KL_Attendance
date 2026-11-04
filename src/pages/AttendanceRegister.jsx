@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck, CalendarDays, ArrowRight, AlertTriangle, LogOut } from 'lucide-react';
+import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck, CalendarDays, ArrowRight, AlertTriangle, LogOut, ChevronDown } from 'lucide-react';
 import { erpService, hasActiveErpSession } from '../services/erpService';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -183,10 +183,10 @@ function BunkSimulator({ subject }) {
     );
 }
 
-// Dynamically generate modern academic years (current + future years down to 2021)
+// Dynamically generate modern academic years (current + past years down to 2021)
 const generateDefaultYears = () => {
     // Current operational academic year across KL University ERP with enrolled courses is 2025-2026
-    const topYear = 2026;
+    const topYear = 2025;
     const years = [];
     for (let y = topYear; y >= 2021; y--) {
         const text = `${y}-${y + 1}`;
@@ -196,6 +196,94 @@ const generateDefaultYears = () => {
 };
 
 const DEFAULT_YEARS = generateDefaultYears();
+
+// Build clean, deduplicated semester dropdown options with Present Semester first
+const getAvailableSemesterOptions = (targetId) => {
+    const options = [];
+    const seen = new Set();
+
+    // 1. Present Academic Session is always first
+    const present = getPresentAcademicYearAndSem(targetId);
+    let presY = normalizeAcademicYear(present.year);
+    if (presY === '2026-2027') presY = '2025-2026';
+    const presS = normalizeSemester(present.sem);
+    const presKey = `${presY}_${presS}`;
+    const presSemLabel = presS === 'Even' ? 'Even Sem' : presS === 'Summer' ? 'Summer Term' : presS === 'Term3' ? 'Tri Sem / Term 3' : 'Odd Sem';
+    const presLabel = `Present Semester (${presY} · ${presSemLabel})`;
+
+    options.push({
+        key: presKey,
+        year: presY,
+        sem: presS,
+        label: presLabel,
+        isCurrent: true
+    });
+    seen.add(presKey);
+
+    // 2. Previously enrolled / discovered semesters
+    if (targetId) {
+        try {
+            const rawEnrolled = localStorage.getItem(`enrolledSemesters_${targetId}`);
+            if (rawEnrolled) {
+                const list = JSON.parse(rawEnrolled);
+                if (Array.isArray(list)) {
+                    list.forEach(item => {
+                        const y = normalizeAcademicYear(item.year);
+                        const s = normalizeSemester(item.semester);
+                        const k = `${y}_${s}`;
+                        if (!seen.has(k) && y !== '2026-2027') {
+                            seen.add(k);
+                            const semName = s === 'Even' ? 'Even Sem' : s === 'Summer' ? 'Summer Term' : s === 'Term3' ? 'Tri Sem / Term 3' : 'Odd Sem';
+                            options.push({
+                                key: k,
+                                year: y,
+                                sem: s,
+                                label: `${y} · ${semName}`,
+                                isCurrent: false
+                            });
+                        }
+                    });
+                }
+            }
+        } catch { /* ignore */ }
+    }
+
+    // 3. Batch-derived academic semesters (e.g. 24000... -> 2024 -> 2024-2025, 2025-2026)
+    const batchMatch = (targetId || '').match(/^(\d{2})/);
+    const batchYear = batchMatch ? parseInt(batchMatch[1], 10) + 2000 : 2024;
+    const startY = Math.max(2021, Math.min(batchYear, 2025));
+
+    for (let y = 2025; y >= startY; y--) {
+        const yrStr = `${y}-${y + 1}`;
+        ['Even', 'Odd'].forEach(s => {
+            const k = `${yrStr}_${s}`;
+            if (!seen.has(k)) {
+                seen.add(k);
+                const semName = s === 'Even' ? 'Even Sem' : 'Odd Sem';
+                options.push({
+                    key: k,
+                    year: yrStr,
+                    sem: s,
+                    label: `${yrStr} · ${semName}`,
+                    isCurrent: false
+                });
+            }
+        });
+    }
+
+    // Sort: Present Semester first, then descending chronological order
+    const first = options[0];
+    const rest = options.slice(1).sort((a, b) => {
+        const yA = parseInt(a.year.split('-')[0], 10) || 0;
+        const yB = parseInt(b.year.split('-')[0], 10) || 0;
+        if (yB !== yA) return yB - yA;
+        if (a.sem === 'Even' && b.sem === 'Odd') return -1;
+        if (a.sem === 'Odd' && b.sem === 'Even') return 1;
+        return 0;
+    });
+
+    return [first, ...rest];
+};
 
 const AttendanceRegister = () => {
     const { logout } = useAuth();
@@ -813,6 +901,44 @@ const AttendanceRegister = () => {
         }
     }, [activeId, year, semester, navigate]);
 
+    const handleSwitchSemester = useCallback((semesterKey) => {
+        if (!semesterKey) return;
+        const [targetYear, targetSem] = semesterKey.split('_');
+        if (!targetYear || !targetSem) return;
+
+        setAttendanceNotification(null);
+        setRecentlyUpdatedCodes(new Set());
+        setFetchError(null);
+
+        if (activeId) {
+            try {
+                localStorage.setItem(`manualYear_${activeId}`, targetYear);
+                localStorage.setItem(`manualSem_${activeId}`, targetSem);
+                localStorage.setItem(`activeYear_${activeId}`, targetYear);
+                localStorage.setItem(`activeSem_${activeId}`, targetSem);
+            } catch { /* ignore */ }
+        }
+
+        handleSearch(targetYear, targetSem, activeId, false);
+    }, [activeId, handleSearch]);
+
+    // Reactively update semester dropdown and auto-recover populated courses if background sync finishes
+    useEffect(() => {
+        const handleEnrolledUpdated = (e) => {
+            if (!e.detail?.studentId || e.detail.studentId === activeId) {
+                // If currently showing 0 courses, automatically present the latest populated semester
+                if (subjectsRef.current.length === 0 && Array.isArray(e.detail?.semesters) && e.detail.semesters.length > 0) {
+                    const latest = e.detail.semesters[0];
+                    if (latest?.coursesCount > 0 && (latest.year !== year || latest.semester !== semester)) {
+                        handleSearch(latest.year, latest.semester, activeId, false);
+                    }
+                }
+            }
+        };
+        window.addEventListener('kl_enrolled_semesters_updated', handleEnrolledUpdated);
+        return () => window.removeEventListener('kl_enrolled_semesters_updated', handleEnrolledUpdated);
+    }, [activeId, handleSearch, year, semester]);
+
     // Listen for profile switches (via quick Captcha modal or sidebar)
     useEffect(() => {
         const handleProfileSwitch = (e) => {
@@ -1095,7 +1221,7 @@ const AttendanceRegister = () => {
                     if (Array.isArray(allSemesters) && allSemesters.length > 0 && isMounted) {
                         // If current view has 0 courses or was empty, automatically present the latest populated semester
                         if (subjectsRef.current.length === 0) {
-                            const latest = allSemesters[0];
+                            const latest = allSemesters.find(s => s?.courses && s.courses.length > 0) || allSemesters[0];
                             if (latest?.courses && latest.courses.length > 0) {
                                 setSubjects(latest.courses);
                                 setYear(latest.year);
@@ -1647,17 +1773,22 @@ const AttendanceRegister = () => {
                                     </div>
 
                             <div className="flex flex-wrap items-center gap-2 text-slate-500 text-xs sm:text-sm font-medium">
-                                <button
-                                    type="button"
-                                    onClick={handleBack}
-                                    title="Click to switch Academic Year or Semester"
-                                    className="font-bold text-slate-800 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer transition-colors inline-flex items-center gap-1.5 group py-0.5 px-1.5 -ml-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
-                                >
-                                    <span>{year && semester ? `${displayYearText} · ${cleanSemesterLabel}` : 'Current Session'}</span>
-                                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-900/50 px-1.5 py-0.5 rounded-md border border-indigo-200/60 dark:border-indigo-800/60 group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                                        Change
-                                    </span>
-                                </button>
+                                {/* Inline Academic Semester Selection Dropdown */}
+                                <div className="relative inline-flex items-center">
+                                    <select
+                                        value={`${normalizeAcademicYear(year)}_${normalizeSemester(semester)}`}
+                                        onChange={(e) => handleSwitchSemester(e.target.value)}
+                                        aria-label="Select Academic Semester"
+                                        className="font-bold text-slate-800 dark:text-slate-100 bg-slate-100/90 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-slate-300/80 dark:border-slate-700 py-1 pl-2.5 pr-7 rounded-lg text-xs sm:text-sm cursor-pointer outline-none transition-colors appearance-none shadow-2xs"
+                                    >
+                                        {getAvailableSemesterOptions(activeId).map(opt => (
+                                            <option key={opt.key} value={opt.key} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-semibold">
+                                                {opt.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className="pointer-events-none absolute right-2 w-3.5 h-3.5 text-slate-500" />
+                                </div>
                                 {lastUpdated && (
                                     <>
                                         <span>•</span>

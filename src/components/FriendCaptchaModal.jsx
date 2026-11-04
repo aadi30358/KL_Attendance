@@ -245,6 +245,10 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 let targetYear = localStorage.getItem(`manualYear_${studentId}`) || localStorage.getItem(`activeYear_${studentId}`) || defaultStudentYear;
                 if (targetYear === '2026-2027') {
                     targetYear = '2025-2026';
+                    try {
+                        localStorage.setItem(`manualYear_${studentId}`, '2025-2026');
+                        localStorage.setItem(`activeYear_${studentId}`, '2025-2026');
+                    } catch { /* ignore */ }
                 }
                 const targetSem = localStorage.getItem(`manualSem_${studentId}`) || localStorage.getItem(`activeSem_${studentId}`) || 'Odd';
 
@@ -252,6 +256,9 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     sessionStorage.setItem(`erp_verified_${studentId}`, 'true');
                     sessionStorage.setItem('erp_verified_active', studentId);
                 } catch { /* ignore */ }
+
+                // High-speed parallel background ingestion: fetch all enrolled semesters across student's academic history
+                erpService.fetchAllEnrolledSemesters(studentId).catch(() => {});
 
                 // Notify all listeners that a profile has successfully authenticated
                 window.dispatchEvent(new CustomEvent('kl_profile_switched', {

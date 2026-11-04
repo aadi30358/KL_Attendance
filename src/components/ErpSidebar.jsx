@@ -24,7 +24,7 @@ import {
     deleteFriend,
     setActiveProfileId
 } from '../services/friendsService';
-import { setStoredErpCookies, clearStoredErpCookies, prewarmCaptcha } from '../services/erpService';
+import { erpService, setStoredErpCookies, clearStoredErpCookies, prewarmCaptcha } from '../services/erpService';
 import { deleteStudentProfileFromCloud, restoreStudentDataInIncognito } from '../services/cloudStorageService';
 import { useMaintenance } from '../services/useMaintenance';
 import FriendsManagerModal from './FriendsManagerModal';
@@ -538,6 +538,10 @@ export default function ErpSidebar({
                     setCaptchaTarget(null);
                     handleSwitchProfile(prof, true);
                     navigate('/attendance-register');
+                    const targetSid = prof?.studentId || prof?.username;
+                    if (targetSid) {
+                        erpService.fetchAllEnrolledSemesters(targetSid).catch(() => {});
+                    }
                 }}
             />
         </div>

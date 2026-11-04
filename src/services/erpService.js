@@ -1663,6 +1663,13 @@ export const erpService = {
 
         const targetCookie = getStoredErpCookies(targetStudent);
         if (!targetCookie) {
+            try {
+                const raw = localStorage.getItem(`enrolledSemesters_${targetStudent}`);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                }
+            } catch { /* ignore */ }
             console.warn(`[ERP] fetchAllEnrolledSemesters: No active session cookie for ${targetStudent}`);
             return [];
         }
@@ -1762,12 +1769,24 @@ export const erpService = {
         }
 
         if (results.length > 0) {
+            const semSummary = results.map(r => ({
+                year: r.year,
+                semester: r.semester,
+                coursesCount: r.coursesCount
+            }));
             try {
-                localStorage.setItem(`enrolledSemesters_${targetStudent}`, JSON.stringify(results.map(r => ({
-                    year: r.year,
-                    semester: r.semester,
-                    coursesCount: r.coursesCount
-                }))));
+                localStorage.setItem(`enrolledSemesters_${targetStudent}`, JSON.stringify(semSummary));
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('kl_enrolled_semesters_updated', {
+                        detail: { studentId: targetStudent, semesters: semSummary }
+                    }));
+                }
+            } catch { /* ignore */ }
+
+            // Save enrolled semesters list to Firestore profile permanently
+            try {
+                const { saveStudentProfileToCloud } = await import('./cloudStorageService.js');
+                await saveStudentProfileToCloud(targetStudent, { enrolledSemesters: semSummary });
             } catch { /* ignore */ }
 
             // Concurrently sync latest CGPA & grades

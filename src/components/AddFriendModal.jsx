@@ -67,9 +67,14 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
                 localStorage.setItem('activeErpUser', cleanId);
                 const profId = saved?.id || (isSelf ? 'main' : cleanId);
                 setActiveProfileId(profId);
-                const currentYr = `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
-                if (!localStorage.getItem(`manualYear_${cleanId}`)) {
+                const currentYr = '2025-2026';
+                const existingManualYr = localStorage.getItem(`manualYear_${cleanId}`);
+                if (!existingManualYr || existingManualYr === '2026-2027') {
                     localStorage.setItem(`manualYear_${cleanId}`, currentYr);
+                }
+                const existingActiveYr = localStorage.getItem(`activeYear_${cleanId}`);
+                if (!existingActiveYr || existingActiveYr === '2026-2027') {
+                    localStorage.setItem(`activeYear_${cleanId}`, currentYr);
                 }
                 if (!localStorage.getItem(`manualSem_${cleanId}`)) {
                     try { localStorage.setItem(`manualSem_${cleanId}`, 'Odd'); } catch { /* ignore */ }

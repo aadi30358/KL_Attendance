@@ -51,6 +51,7 @@ export async function saveStudentProfileToCloud(studentId, profileData = {}) {
 
         if (profileData.academicYear) payload.academicYear = profileData.academicYear;
         if (profileData.semester) payload.semester = profileData.semester;
+        if (Array.isArray(profileData.enrolledSemesters)) payload.enrolledSemesters = profileData.enrolledSemesters;
 
         await setDoc(userRef, payload, { merge: true });
 
@@ -483,6 +484,13 @@ export async function restoreStudentDataInIncognito(studentId) {
                 if (typeof window !== 'undefined') {
                     window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { studentId: cleanId } }));
                 }
+            } catch { /* ignore */ }
+        }
+
+        // 2b. Restore enrolled multi-semester academic history
+        if (Array.isArray(profile.enrolledSemesters) && profile.enrolledSemesters.length > 0) {
+            try {
+                localStorage.setItem(`enrolledSemesters_${cleanId}`, JSON.stringify(profile.enrolledSemesters));
             } catch { /* ignore */ }
         }
 
