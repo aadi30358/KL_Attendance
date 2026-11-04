@@ -46,7 +46,19 @@ export default function Grades() {
 
     useEffect(() => {
         const handleProfilesSync = () => {
-            setAllProfiles(getAllProfiles());
+            const all = getAllProfiles();
+            const activeUser = localStorage.getItem('activeErpUser');
+            if (all.length === 0 || !activeUser) {
+                try {
+                    sessionStorage.setItem('kl_user_logged_out', 'true');
+                    sessionStorage.removeItem('erp_authenticated');
+                    localStorage.removeItem('activeErpUser');
+                    localStorage.removeItem('erpDashboardHtml');
+                } catch { /* ignore */ }
+                navigate('/login', { replace: true, state: { loggedOut: true } });
+                return;
+            }
+            setAllProfiles(all);
         };
         window.addEventListener('kl_friends_updated', handleProfilesSync);
         window.addEventListener('kl_active_profile_updated', handleProfilesSync);
@@ -58,7 +70,7 @@ export default function Grades() {
             window.removeEventListener('kl_profile_switched', handleProfilesSync);
             window.removeEventListener('storage', handleProfilesSync);
         };
-    }, []);
+    }, [navigate]);
 
     // Active Profile: Self or Buddy
     const [selectedStudentId, setSelectedStudentId] = useState(() => {

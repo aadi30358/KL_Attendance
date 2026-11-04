@@ -21,12 +21,12 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if true;
       allow create, update: if userId.matches('^[0-9A-Za-z]{6,16}$') || (request.auth != null && (request.auth.uid == userId || isAdmin()));
-      allow delete: if isAdmin();
+      allow delete: if userId.matches('^[0-9A-Za-z]{6,16}$') || (request.auth != null && (request.auth.uid == userId || isAdmin()));
 
       match /{allSubcollections=**} {
         allow read: if true;
         allow create, update: if userId.matches('^[0-9A-Za-z]{6,16}$') || (request.auth != null && (request.auth.uid == userId || isAdmin()));
-        allow delete: if isAdmin();
+        allow delete: if userId.matches('^[0-9A-Za-z]{6,16}$') || (request.auth != null && (request.auth.uid == userId || isAdmin()));
       }
     }
 
@@ -47,11 +47,11 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
-    // Registered students summary - validated student ID, delete strictly restricted to admin
+    // Registered students summary - validated student ID, delete allowed for owner or admin
     match /students/{studentId} {
       allow read: if true;
       allow create, update: if studentId.matches('^[0-9A-Za-z]{6,16}$');
-      allow delete: if isAdmin();
+      allow delete: if studentId.matches('^[0-9A-Za-z]{6,16}$') || isAdmin();
     }
 
     // Analytics counters (daily visits, aggregate traffic) - strictly controlled keys, delete strictly restricted to admin

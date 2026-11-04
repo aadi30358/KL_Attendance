@@ -54,7 +54,8 @@ import {
     saveFriendsToCloud,
     saveAttendanceToCloud,
     restoreStudentDataInIncognito,
-    seedAdithyaProfileIfEmpty
+    seedAdithyaProfileIfEmpty,
+    deleteStudentProfileFromCloud
 } from '../services/cloudStorageService';
 
 const Login = () => {
@@ -1138,6 +1139,17 @@ const Login = () => {
                                                         const label = activeProfile.nickname || sid || 'this profile';
                                                         if (window.confirm(`Are you sure you want to permanently delete ${label} (${sid})?\n\nAll saved timetable, CGPA, and attendance data will be permanently removed.`)) {
                                                             deleteFriend(activeProfile.id || sid, sid);
+                                                            if (sid) {
+                                                                deleteStudentProfileFromCloud(sid).catch(() => {});
+                                                                if (typeof erpService?.clearStoredErpCookies === 'function') {
+                                                                    erpService.clearStoredErpCookies(sid);
+                                                                }
+                                                            }
+                                                            try {
+                                                                if (localStorage.getItem('activeErpUser') === sid) {
+                                                                    localStorage.removeItem('activeErpUser');
+                                                                }
+                                                            } catch { /* ignore */ }
                                                             const updated = getAllProfiles();
                                                             setAllProfilesList(updated);
                                                             setSelectedProfileId(updated.length > 0 ? updated[0].id : 'new');

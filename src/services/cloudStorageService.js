@@ -2,7 +2,7 @@
 // Guarantees zero-loss, cross-browser, cross-device, and Incognito persistence
 // Independent per-student profile and attendance history storage
 
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase.js';
 import { stripEmojis, encodePassword } from './friendsService.js';
 
@@ -89,6 +89,31 @@ export async function getStudentProfileFromCloud(studentId) {
         console.warn(`[CloudStorage] Error reading student profile for ${cleanId}:`, err?.message || err);
     }
     return null;
+}
+
+/**
+ * Permanently deletes a student's profile and registry from Firestore
+ * INVARIANT: Invoked ONLY when user explicitly requests account deletion
+ */
+export async function deleteStudentProfileFromCloud(studentId) {
+    const cleanId = sanitizeStudentId(studentId);
+    if (!cleanId) return false;
+
+    try {
+        await deleteDoc(doc(db, 'users', cleanId));
+        await deleteDoc(doc(db, 'students', cleanId));
+        // Also remove known attendance history documents if present
+        try {
+            await deleteDoc(doc(db, 'users', cleanId, 'attendance', '2026-2027_1'));
+            await deleteDoc(doc(db, 'users', cleanId, 'attendance', '2026-2027_2'));
+            await deleteDoc(doc(db, 'users', cleanId, 'attendance', '2025-2026_1'));
+            await deleteDoc(doc(db, 'users', cleanId, 'attendance', '2025-2026_2'));
+        } catch { /* ignore subcollection removal notices */ }
+        return true;
+    } catch (err) {
+        console.warn(`[CloudStorage] Error deleting student profile for ${cleanId}:`, err?.message || err);
+        return false;
+    }
 }
 
 /**

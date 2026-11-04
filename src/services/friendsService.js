@@ -581,6 +581,14 @@ export const deleteFriend = (friendId, explicitSid = null) => {
                     body: JSON.stringify({ deleteData: true })
                 }).catch(() => null);
             } catch { /* ignore */ }
+
+            try {
+                import('./cloudStorageService.js').then(m => {
+                    if (typeof m.deleteStudentProfileFromCloud === 'function') {
+                        m.deleteStudentProfileFromCloud(sid).catch(() => {});
+                    }
+                }).catch(() => {});
+            } catch { /* ignore */ }
         }
 
         // Active profile handling: switch to next available profile or clear

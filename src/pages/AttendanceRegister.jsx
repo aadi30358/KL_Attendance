@@ -10,7 +10,7 @@ import {
     playAttendanceChime
 } from '../services/attendanceAlerts';
 import { subscribeCrossDomainSync, broadcastAttendanceUpdate } from '../services/crossDomainSync';
-import { getActiveProfileDetails, getSavedFriends, getMyProfile } from '../services/friendsService';
+import { getActiveProfileDetails, getSavedFriends, getMyProfile, getAllProfiles } from '../services/friendsService';
 import {
     fetchLiveErpTimetable,
     normalizeAcademicYear,
@@ -378,9 +378,28 @@ const AttendanceRegister = () => {
 
     // Listen for switch view event from ErpSidebar or external triggers
 
-    // Sync active profile & friends
+    const navigate = useNavigate();
+    const location = useLocation();
+
+    // Sync active profile & friends + Auto-logout when profile is deleted
     useEffect(() => {
-        const updateProfile = () => setActiveProfile(getActiveProfileDetails());
+        const updateProfile = () => {
+            const all = getAllProfiles();
+            const activeUser = localStorage.getItem('activeErpUser');
+            if (all.length === 0 || !activeUser) {
+                // INVARIANT: When all profiles or active profile are deleted, automatically logout
+                try {
+                    sessionStorage.setItem('kl_user_logged_out', 'true');
+                    sessionStorage.removeItem('erp_authenticated');
+                    localStorage.removeItem('activeErpUser');
+                    localStorage.removeItem('erpDashboardHtml');
+                } catch { /* ignore */ }
+                navigate('/login', { replace: true, state: { loggedOut: true } });
+                return;
+            }
+            setActiveProfile(getActiveProfileDetails());
+        };
+
         window.addEventListener('kl_friends_updated', updateProfile);
         window.addEventListener('kl_active_profile_updated', updateProfile);
         window.addEventListener('storage', updateProfile);
@@ -389,10 +408,7 @@ const AttendanceRegister = () => {
             window.removeEventListener('kl_active_profile_updated', updateProfile);
             window.removeEventListener('storage', updateProfile);
         };
-    }, []);
-
-    const navigate = useNavigate();
-    const location = useLocation();
+    }, [navigate]);
     const subjectsRef = useRef(subjects);
     subjectsRef.current = subjects;
     const sessionAttendanceBaselines = useRef(new Map());

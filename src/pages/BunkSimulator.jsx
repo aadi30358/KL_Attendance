@@ -13,12 +13,12 @@ import {
     Users,
     ArrowLeft
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import ErpSidebar from '../components/ErpSidebar';
 import SEO from '../components/SEO';
 import { useAttendance } from '../context/useAttendance';
 import { subscribeCrossDomainSync } from '../services/crossDomainSync';
-import { getActiveProfileDetails } from '../services/friendsService';
+import { getActiveProfileDetails, getAllProfiles } from '../services/friendsService';
 
 // KLU Official Weights
 const KLU_WEIGHTS = {
@@ -86,6 +86,7 @@ const getStoredErpSubjects = () => {
 };
 
 const BunkSimulator = () => {
+    const navigate = useNavigate();
     const { attendanceData } = useAttendance();
     const [mode, setMode] = useState('ltps'); // 'ltps' or 'quick'
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -98,6 +99,18 @@ const BunkSimulator = () => {
 
     useEffect(() => {
         const updateProf = () => {
+            const all = getAllProfiles();
+            const activeUser = localStorage.getItem('activeErpUser');
+            if (all.length === 0 || !activeUser) {
+                try {
+                    sessionStorage.setItem('kl_user_logged_out', 'true');
+                    sessionStorage.removeItem('erp_authenticated');
+                    localStorage.removeItem('activeErpUser');
+                    localStorage.removeItem('erpDashboardHtml');
+                } catch { /* ignore */ }
+                navigate('/login', { replace: true, state: { loggedOut: true } });
+                return;
+            }
             const prof = getActiveProfileDetails();
             setActiveProfile(prof);
             setActiveId(prof?.studentId || localStorage.getItem('activeErpUser') || '');
@@ -112,7 +125,7 @@ const BunkSimulator = () => {
             window.removeEventListener('kl_profile_switched', updateProf);
             window.removeEventListener('storage', updateProf);
         };
-    }, []);
+    }, [navigate]);
 
     // ERP subjects if available
     const [savedSubjects, setSavedSubjects] = useState(getStoredErpSubjects);

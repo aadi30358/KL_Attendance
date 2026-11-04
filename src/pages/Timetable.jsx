@@ -18,9 +18,21 @@ export default function Timetable() {
         return sid;
     });
 
-    // Synchronize active profile across events and storage
+    // Synchronize active profile across events and storage + Auto-logout when profile is deleted
     useEffect(() => {
         const update = () => {
+            const all = getAllProfiles();
+            const activeUser = localStorage.getItem('activeErpUser');
+            if (all.length === 0 || !activeUser) {
+                try {
+                    sessionStorage.setItem('kl_user_logged_out', 'true');
+                    sessionStorage.removeItem('erp_authenticated');
+                    localStorage.removeItem('activeErpUser');
+                    localStorage.removeItem('erpDashboardHtml');
+                } catch { /* ignore */ }
+                navigate('/login', { replace: true, state: { loggedOut: true } });
+                return;
+            }
             const prof = getActiveProfileDetails();
             setActiveProfile(prof);
             const sid = (prof?.isFriend && prof?.studentId) ? prof.studentId : (localStorage.getItem('activeErpUser') || '');
@@ -34,7 +46,7 @@ export default function Timetable() {
             window.removeEventListener('kl_active_profile_updated', update);
             window.removeEventListener('storage', update);
         };
-    }, []);
+    }, [navigate]);
 
     const selectedYear = useMemo(() => {
         const raw = (activeId && (localStorage.getItem(`manualYear_${activeId}`) || localStorage.getItem(`activeYear_${activeId}`))) || '2026-2027';

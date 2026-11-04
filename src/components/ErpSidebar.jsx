@@ -25,6 +25,7 @@ import {
     setActiveProfileId
 } from '../services/friendsService';
 import { setStoredErpCookies, clearStoredErpCookies, prewarmCaptcha } from '../services/erpService';
+import { deleteStudentProfileFromCloud } from '../services/cloudStorageService';
 import { useMaintenance } from '../services/useMaintenance';
 import FriendsManagerModal from './FriendsManagerModal';
 import AddFriendModal from './AddFriendModal';
@@ -175,11 +176,38 @@ export default function ErpSidebar({
     const handleDeleteAccount = (e, profile) => {
         e.stopPropagation();
         const sid = profile?.studentId || profile?.username || '';
-        const label = profile?.nickname || (profile?.id === 'main' ? 'Primary Account' : 'this account');
-        if (window.confirm(`Are you sure you want to permanently delete ${label} (${sid || profile?.id})?\n\nAll saved timetable, CGPA, and attendance data will be permanently removed.`)) {
-            deleteFriend(profile.id || sid, sid);
-            setAllProfiles(getAllProfiles());
-            setActiveProfile(getActiveProfileDetails());
+        const pid = profile?.id || sid;
+        const label = profile?.nickname || (pid === 'main' ? 'Primary Account' : 'this account');
+        if (window.confirm(`Are you sure you want to permanently delete ${label} (${sid || pid})?\n\nAll saved timetable, CGPA, and attendance data will be permanently removed.`)) {
+            deleteFriend(pid, sid);
+            if (sid) {
+                deleteStudentProfileFromCloud(sid).catch(() => {});
+            }
+
+            const remaining = getAllProfiles();
+            const activeUser = localStorage.getItem('activeErpUser');
+            const isCurrentActive = !activeUser || activeUser === sid || activeUser === pid;
+            const isSelf = pid === 'main' || !profile?.isFriend;
+
+            // INVARIANT: When user deletes their active profile, primary profile, or all profiles -> automatically logout
+            if (isSelf || isCurrentActive || remaining.length === 0) {
+                try {
+                    sessionStorage.setItem('kl_user_logged_out', 'true');
+                    clearStoredErpCookies(sid);
+                    localStorage.removeItem('activeErpUser');
+                    localStorage.removeItem('erpDashboardHtml');
+                    sessionStorage.removeItem('erp_authenticated');
+                    sessionStorage.removeItem('adminLoggedOut');
+                } catch { /* ignore */ }
+
+                window.dispatchEvent(new Event('storage'));
+                window.dispatchEvent(new CustomEvent('kl_friends_updated', { detail: remaining }));
+                window.dispatchEvent(new CustomEvent('kl_active_profile_updated'));
+                navigate('/login', { replace: true, state: { loggedOut: true } });
+            } else {
+                setAllProfiles(remaining);
+                setActiveProfile(getActiveProfileDetails());
+            }
         }
     };
 
