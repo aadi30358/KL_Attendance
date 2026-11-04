@@ -626,7 +626,11 @@ const Login = () => {
                 ]).catch(recErr => console.warn('[Login] Record login notice:', recErr));
 
                 // Pre-sync live ERP attendance, timetable and grades in background & save to Firestore
-                const initYear = cleanId.startsWith('25') ? '2025-2026' : '2026-2027';
+                const initYear = '2025-2026';
+                try {
+                    localStorage.setItem(`activeYear_${cleanId}`, initYear);
+                    localStorage.setItem(`activeSem_${cleanId}`, 'Odd');
+                } catch { /* ignore */ }
                 erpService.fetchAttendance(initYear, 'Odd', cleanId).then(courses => {
                     if (Array.isArray(courses) && courses.length > 0) {
                         saveAttendanceToCloud(cleanId, initYear, '1', courses).catch(() => {});

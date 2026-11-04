@@ -654,7 +654,7 @@ export const deleteProfile = deleteFriend;
 /**
  * Save or import a friend's timetable without requiring their password (privacy-preserving)
  */
-export const saveFriendTimetable = ({ studentId, nickname, timetable, academicYear = '2026-2027', semester = 'Odd Sem' }) => {
+export const saveFriendTimetable = ({ studentId, nickname, timetable, academicYear = '2025-2026', semester = 'Odd Sem' }) => {
     if (typeof window === 'undefined') return null;
     const cleanId = (studentId || '').trim();
     const storedCustom = cleanId ? localStorage.getItem(`kl_name_${cleanId}`) : null;
@@ -693,7 +693,7 @@ export const saveFriendTimetable = ({ studentId, nickname, timetable, academicYe
         if (timetable) {
             const rawYr = String(academicYear || '').trim();
             const yrMatch = rawYr.match(/\b(20\d\d)-(20\d\d)\b/);
-            const normYear = yrMatch ? `${yrMatch[1]}-${yrMatch[2]}` : (rawYr.startsWith('20') ? `${rawYr.slice(0, 4)}-${parseInt(rawYr.slice(0, 4), 10) + 1}` : '2026-2027');
+            const normYear = yrMatch ? `${yrMatch[1]}-${yrMatch[2]}` : (rawYr.startsWith('20') ? `${rawYr.slice(0, 4)}-${parseInt(rawYr.slice(0, 4), 10) + 1}` : '2025-2026');
             const sLow = String(semester || '').trim().toLowerCase();
             const semNorm = sLow.includes('summer') || sLow === '3' ? 'Summer'
                 : sLow.includes('even') || sLow === '2' ? 'Even'

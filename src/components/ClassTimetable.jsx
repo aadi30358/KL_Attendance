@@ -59,7 +59,7 @@ export default function ClassTimetable({
     onRefreshErp,
     onSelectFriend,
     onSelectProfile,
-    selectedYear = '2026-2027',
+    selectedYear = '2025-2026',
     selectedSem = 'Odd Semester'
 }) {
     const navigate = useNavigate();

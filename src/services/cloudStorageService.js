@@ -130,7 +130,7 @@ export async function saveAttendanceToCloud(studentId, year, sem, courses = [], 
         return false;
     }
 
-    const cleanYear = String(year || '2026-2027').trim();
+    const cleanYear = String(year || '2025-2026').trim();
     const rawSem = String(sem || '1').trim();
     const isOdd = rawSem === '1' || rawSem.toLowerCase().includes('odd');
     const isEven = rawSem === '2' || rawSem.toLowerCase().includes('even');
@@ -256,7 +256,7 @@ export async function getAttendanceFromCloud(studentId, year = null, sem = null)
         const activeCourses = data.courses || data.activeCourses || [];
         if (Array.isArray(activeCourses) && activeCourses.length > 0) {
             return {
-                academicYear: data.academicYear || '2026-2027',
+                academicYear: (data.academicYear && data.academicYear !== '2026-2027') ? data.academicYear : '2025-2026',
                 semester: data.semester || 'Odd',
                 courses: activeCourses,
                 summary: data.attendanceSummary || null,
@@ -395,7 +395,7 @@ export async function getCgpaFromCloud(studentId) {
 /**
  * Permanently saves student Timetable to Firestore
  */
-export async function saveTimetableToCloud(studentId, timetable = {}, year = '2026-2027', sem = 'Odd') {
+export async function saveTimetableToCloud(studentId, timetable = {}, year = '2025-2026', sem = 'Odd') {
     const cleanId = sanitizeStudentId(studentId);
     if (!cleanId || !timetable || typeof timetable !== 'object') return false;
 
@@ -404,7 +404,7 @@ export async function saveTimetableToCloud(studentId, timetable = {}, year = '20
         const nowIso = new Date().toISOString();
         await setDoc(userRef, {
             timetable,
-            timetableYear: String(year || '2026-2027').trim(),
+            timetableYear: String(year || '2025-2026').trim(),
             timetableSem: String(sem || 'Odd').trim(),
             lastTimetableFetch: nowIso,
             updatedAt: nowIso
@@ -431,7 +431,7 @@ export async function getTimetableFromCloud(studentId) {
             if (data.timetable && typeof data.timetable === 'object') {
                 return {
                     timetable: data.timetable,
-                    year: data.timetableYear || '2026-2027',
+                    year: (data.timetableYear && data.timetableYear !== '2026-2027') ? data.timetableYear : '2025-2026',
                     sem: data.timetableSem || 'Odd',
                     lastTimetableFetch: data.lastTimetableFetch || null
                 };
@@ -456,7 +456,7 @@ export async function restoreStudentDataInIncognito(studentId) {
         if (!profile) return false;
 
         const resolvedName = profile.name || profile.nickname || (cleanId === '2400030358' ? 'Adithya' : 'Student');
-        const resolvedYear = profile.academicYear || '2026-2027';
+        const resolvedYear = (profile.academicYear && profile.academicYear !== '2026-2027') ? profile.academicYear : '2025-2026';
         const resolvedSem = profile.semester || '1';
 
         // 1. Populate primary identifiers
@@ -548,7 +548,7 @@ export async function seedAdithyaProfileIfEmpty() {
                 nickname: 'Adithya',
                 isPrimary: true,
                 primaryAccount: true,
-                academicYear: '2026-2027',
+                academicYear: '2025-2026',
                 semester: '1',
                 updatedAt: new Date().toISOString()
             }, { merge: true });

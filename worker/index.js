@@ -753,13 +753,13 @@ export default {
                         else firstYear += 2000;
                     }
 
-                    if (firstYear === 2026 || str === '29' || str === '18' || cleanStr.includes('26')) list.push('29', '30', '18', '20', '21', '22', '19', '28', '2026-2027', '2026-27');
-                    else if (firstYear === 2025 || str === '28' || str === '17' || str === '19' || cleanStr.includes('25')) list.push('28', '29', '17', '19', '18', '22', '20', '2025-2026', '2025-26');
-                    else if (firstYear === 2024 || str === '27' || str === '16' || cleanStr.includes('24')) list.push('27', '16', '17', '2024-2025', '2024-25');
-                    else if (firstYear === 2023 || str === '26' || str === '15' || cleanStr.includes('23')) list.push('26', '15', '16', '2023-2024', '2023-24');
-                    else if (firstYear === 2022 || str === '25' || str === '14' || cleanStr.includes('22')) list.push('25', '14', '15', '2022-2023', '2022-23');
-                    else if (firstYear === 2021 || str === '24' || str === '13' || cleanStr.includes('21')) list.push('24', '13', '14', '2021-2022', '2021-22');
-                    else if (firstYear === 2020 || str === '23' || str === '10' || cleanStr.includes('20')) list.push('23', '10', '13', '2020-2021', '2020-21');
+                    if (firstYear === 2026 || str === '29' || str === '18' || cleanStr.includes('26')) list.push('29', '18', '2026-2027', '2026-27');
+                    else if (firstYear === 2025 || str === '28' || str === '17' || str === '19' || cleanStr.includes('25')) list.push('28', '17', '19', '2025-2026', '2025-26');
+                    else if (firstYear === 2024 || str === '27' || str === '16' || cleanStr.includes('24')) list.push('27', '16', '2024-2025', '2024-25');
+                    else if (firstYear === 2023 || str === '26' || str === '15' || cleanStr.includes('23')) list.push('26', '15', '2023-2024', '2023-24');
+                    else if (firstYear === 2022 || str === '25' || str === '14' || cleanStr.includes('22')) list.push('25', '14', '2022-2023', '2022-23');
+                    else if (firstYear === 2021 || str === '24' || str === '13' || cleanStr.includes('21')) list.push('24', '13', '2021-2022', '2021-22');
+                    else if (firstYear === 2020 || str === '23' || str === '10' || cleanStr.includes('20')) list.push('23', '10', '2020-2021', '2020-21');
                     else if (firstYear === 2019 || str === '22' || str === '9' || cleanStr.includes('19')) list.push('22', '9');
                     if (str && !list.includes(str)) list.push(str);
 
@@ -768,12 +768,12 @@ export default {
 
                 const erpSelectedYear = availableYears.find(y => y.isSelected)?.val;
                 const candidateYears = Array.from(new Set([
-                    erpSelectedYear,
                     resolvedYearId,
-                    ...getCandidateYearIds(year, yearId, resolvedYearId)
+                    ...getCandidateYearIds(year, yearId, resolvedYearId),
+                    (!resolvedYearId ? erpSelectedYear : null)
                 ].filter(Boolean)));
                 if (candidateYears.length === 0) {
-                    candidateYears.push(resolvedYearId || '29');
+                    candidateYears.push(resolvedYearId || '28');
                 }
 
                 if (!resolvedSemId) {
@@ -868,46 +868,6 @@ export default {
                         finalResp = crResp;
                         finalHtml = crHtml;
                         usedYearId = testYearId;
-                    }
-                }
-
-                // Auto-fallback: If no courses found in primary semester, test alternate primary semester (Odd <-> Even)
-                if (!foundValidCourses && (erpSelectedYear || resolvedYearId)) {
-                    const altSemId = resolvedSemId === '1' ? '2' : '1';
-                    const activeYId = erpSelectedYear || resolvedYearId;
-                    try {
-                        const altForm = new URLSearchParams();
-                        altForm.append('DynamicModel[academicyear]', String(activeYId));
-                        altForm.append('DynamicModel[semesterid]', String(altSemId));
-                        altForm.append('DynamicModel[academic_year]', String(activeYId));
-                        altForm.append('DynamicModel[semester_id]', String(altSemId));
-                        altForm.append('academicyear', String(activeYId));
-                        altForm.append('semesterid', String(altSemId));
-                        if (currentCsrf) {
-                            altForm.append('_csrf', currentCsrf);
-                            altForm.append('_csrf-frontend', currentCsrf);
-                        }
-                        postHeaders['Cookie'] = currentCookieStr;
-                        const altResp = await fetch(`${ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
-                            method: 'POST',
-                            headers: postHeaders,
-                            body: altForm.toString(),
-                            redirect: 'manual',
-                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                        });
-                        const altHtml = await altResp.text();
-                        const altEmpty = altHtml.includes('class="empty"') || altHtml.includes('No results found');
-                        const altTable = altHtml.includes('<table') || altHtml.includes('grid-view') || altHtml.includes('Course Code');
-                        if (altTable && !altEmpty) {
-                            finalResp = altResp;
-                            finalHtml = altHtml;
-                            usedYearId = activeYId;
-                            resolvedSemId = altSemId;
-                            selectedSemText = altSemId === '2' ? 'Even Semester' : 'Odd Semester';
-                            foundValidCourses = true;
-                        }
-                    } catch (altErr) {
-                        console.warn("[Worker] Alternate semester auto-discovery notice:", altErr.message);
                     }
                 }
 

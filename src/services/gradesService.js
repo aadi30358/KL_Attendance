@@ -290,7 +290,8 @@ export const getEnrolledCoursesTemplate = (studentId) => {
             const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
             if (Array.isArray(list) && list.length > 0) {
                 const seenCodes = new Set();
-                const activeYear = localStorage.getItem(`activeYear_${targetId}`) || localStorage.getItem('selectedAcademicYear') || '2026-2027';
+                const storedYear = localStorage.getItem(`activeYear_${targetId}`) || localStorage.getItem('selectedAcademicYear');
+                const activeYear = (storedYear && storedYear !== '2026-2027') ? storedYear : '2025-2026';
                 const activeSem = localStorage.getItem(`activeSem_${targetId}`) || localStorage.getItem('selectedSemester') || 'Odd';
 
                 const templates = [];
@@ -366,7 +367,7 @@ export const updateCourseGrade = (studentId, courseCode, newGrade, newCredits = 
 
     if (!found) {
         updated.push({
-            academic_year: localStorage.getItem('selectedAcademicYear') || '2026-2027',
+            academic_year: localStorage.getItem('selectedAcademicYear') || '2025-2026',
             semester: localStorage.getItem('selectedSemester') || 'Odd',
             course_code: courseCode,
             course_desc: courseCode,

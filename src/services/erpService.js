@@ -1278,12 +1278,12 @@ export const erpService = {
             if (semMatch) semId = semMatch.value;
         }
 
-        // 5. Candidate IDs to try (combine ERP selected option, matched value and all historical candidate aliases for requested year)
+        // 5. Candidate IDs to try (prioritize matched value for the requested year, then valid aliases)
         const fallbackCandidates = getCandidateYearIdsForYear(year, null, null);
         const candidateYearIds = Array.from(new Set([
-            sessionInfo?.selectedYear?.value,
             matchedYearVal,
-            ...fallbackCandidates
+            ...fallbackCandidates,
+            (!matchedYearVal ? sessionInfo?.selectedYear?.value : null)
         ].filter(Boolean)));
 
         // 2. High-speed single-trip Edge discovery via /api/fast-attendance (< 800ms)
@@ -1426,52 +1426,6 @@ export const erpService = {
 
         if (subjects.length > 0) { 
             return subjects;
-        }
-
-        // Auto-fallback: If no courses found in primary semester, test alternate semester on ERP selected year
-        if (subjects.length === 0 && sessionInfo?.selectedYear?.value) {
-            const altSemId = semId === '1' ? '2' : '1';
-            const activeYId = sessionInfo.selectedYear.value;
-            try {
-                const altForm = new URLSearchParams();
-                altForm.append('DynamicModel[academicyear]', String(activeYId));
-                altForm.append('DynamicModel[semesterid]', String(altSemId));
-                altForm.append('DynamicModel[academic_year]', String(activeYId));
-                altForm.append('DynamicModel[semester_id]', String(altSemId));
-                altForm.append('academicyear', String(activeYId));
-                altForm.append('semesterid', String(altSemId));
-                if (effectiveCsrfToken) {
-                    altForm.append('_csrf', effectiveCsrfToken);
-                    altForm.append('_csrf-frontend', effectiveCsrfToken);
-                }
-                const loopCookie = getStoredErpCookies(targetStudent) || targetCookie;
-                const altHeaders = buildErpHeaders({
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'Pragma': 'no-cache',
-                    'Cache-Control': 'no-cache',
-                    'Referer': 'https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput'
-                }, targetStudent);
-                altHeaders['x-erp-cookie'] = loopCookie;
-                if (effectiveCsrfToken) altHeaders['X-CSRF-Token'] = effectiveCsrfToken;
-
-                const altResp = await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
-                    method: 'POST',
-                    headers: altHeaders,
-                    body: altForm.toString(),
-                    credentials: 'include',
-                    cache: 'no-store'
-                });
-                if (altResp.ok) {
-                    const altHtml = await altResp.text();
-                    const altParsed = this.parseSubjects(altHtml);
-                    if (altParsed.length > 0) {
-                        subjects = altParsed;
-                        subjects.discoveredSem = altSemId === '2' ? 'Even' : 'Odd';
-                        if (sessionInfo.selectedYear?.text) subjects.discoveredYear = sessionInfo.selectedYear.text;
-                    }
-                }
-            } catch { /* ignore alt sem fallback */ }
         }
 
         if (lastError && lastError.message?.includes('expired')) {

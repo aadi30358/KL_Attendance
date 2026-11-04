@@ -80,7 +80,7 @@ export function detectCampus(username) {
 }
 
 export function normalizeAcademicYear(year) {
-    if (!year) return '2026-2027';
+    if (!year) return '2025-2026';
     const str = String(year).trim();
 
     // 1. If it's already in YYYY-YYYY format, extract directly
@@ -118,36 +118,14 @@ export function normalizeSemester(sem) {
     return 'Odd';
 }
 
-export function getTruePresentAcademicYearAndSem(studentId = null) {
+export function getTruePresentAcademicYearAndSem() {
     const now = new Date();
-    const curYear = now.getFullYear();
     const curMonth = now.getMonth();
     const defaultSem = (curMonth >= 5 && curMonth <= 11) ? 'Odd' : 'Even';
-    const academicStartYear = (curMonth >= 5) ? curYear : curYear - 1;
 
-    if (studentId) {
-        const match = String(studentId).match(/^(\d{2})/);
-        if (match) {
-            const batchPrefix = parseInt(match[1], 10);
-            // Batch 25 entered college in 2025 -> active academic session is 2025-2026
-            if (batchPrefix >= 25) {
-                return {
-                    year: '2025-2026',
-                    sem: defaultSem
-                };
-            }
-            const admissionYr = 2000 + batchPrefix;
-            const studyOffset = Math.max(0, Math.min(3, academicStartYear - admissionYr));
-            const presentStartYr = admissionYr + studyOffset;
-            return {
-                year: `${presentStartYr}-${presentStartYr + 1}`,
-                sem: defaultSem
-            };
-        }
-    }
-
+    // The current active academic session across KL University is 2025-2026
     return {
-        year: `${academicStartYear}-${academicStartYear + 1}`,
+        year: '2025-2026',
         sem: defaultSem
     };
 }
@@ -157,7 +135,8 @@ export function getPresentAcademicYearAndSem(studentId = null, forceCalendarPres
         const sid = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
         const savedActiveYear = sid ? localStorage.getItem(`activeYear_${sid}`) : null;
         const savedActiveSem = sid ? localStorage.getItem(`activeSem_${sid}`) : null;
-        if (savedActiveYear && savedActiveSem) {
+        // Invariant: '2026-2027' was a legacy placeholder with no registered courses; ignore it and return current 2025-2026
+        if (savedActiveYear && savedActiveSem && savedActiveYear !== '2026-2027') {
             return {
                 year: normalizeAcademicYear(savedActiveYear),
                 sem: normalizeSemester(savedActiveSem)
@@ -985,7 +964,7 @@ export function filterCoursesForStudent(courses = [], studentId) {
 /**
  * Returns genuine, authentic KLU curriculum for this specific student ID, Year of Study and Semester.
  */
-export function getCurriculumForStudent(studentId, cleanYear = '2026-2027', cleanSem = 'Odd') {
+export function getCurriculumForStudent(studentId, cleanYear = '2025-2026', cleanSem = 'Odd') {
     const profile = getStudentProfileFromId(studentId);
     const academicStartYear = parseInt(cleanYear.split('-')[0], 10) || 2026;
     
@@ -1135,7 +1114,7 @@ export function isTimetableValidForStudent(timetable) {
 /**
  * Builds a deterministic, realistic KLU timetable mapped to the student's actual ERP courses or semester curriculum.
  */
-export function buildTimetableFromErpCourses(courses = [], studentId = 'default', selectedYear = '2026-2027', selectedSem = 'Odd') {
+export function buildTimetableFromErpCourses(courses = [], studentId = 'default', selectedYear = '2025-2026', selectedSem = 'Odd') {
     const cleanYear = normalizeAcademicYear(selectedYear);
     const cleanSem = normalizeSemester(selectedSem);
     const profile = getStudentProfileFromId(studentId);
@@ -1272,7 +1251,7 @@ export function buildTimetableFromErpCourses(courses = [], studentId = 'default'
 /**
  * Retrieves the stored or freshly synthesized timetable for a student and academic session.
  */
-export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '2026-2027', selectedSem = 'Odd') {
+export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '2025-2026', selectedSem = 'Odd') {
     const activeErpUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
     const targetId = studentId || activeErpUser || '';
     if (!targetId) return null;
@@ -1468,7 +1447,7 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
 /**
  * Saves customized timetable edits scoped to academic year and semester.
  */
-export function saveStudentTimetable(studentId, timetableData, selectedYear = '2026-2027', selectedSem = 'Odd') {
+export function saveStudentTimetable(studentId, timetableData, selectedYear = '2025-2026', selectedSem = 'Odd') {
     if (!studentId || !timetableData) return;
     const cleanYear = normalizeAcademicYear(selectedYear);
     const cleanSem = normalizeSemester(selectedSem);
@@ -1499,7 +1478,7 @@ export function saveStudentTimetable(studentId, timetableData, selectedYear = '2
 /**
  * Syncs timetable from persistent server database if client cache is empty
  */
-export async function syncTimetableWithServer(studentId, yearId = '2026-2027', semId = 'Odd') {
+export async function syncTimetableWithServer(studentId, yearId = '2025-2026', semId = 'Odd') {
     const cleanYear = normalizeAcademicYear(yearId);
     const cleanSem = normalizeSemester(semId);
     const activeUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
@@ -1984,7 +1963,7 @@ export function getLiveClassStatus(timetable = {}, username = null) {
 /**
  * Checks whether an authentic ERP timetable is saved locally for this student.
  */
-export function hasSavedErpTimetable(studentId, selectedYear = '2026-2027', selectedSem = 'Odd') {
+export function hasSavedErpTimetable(studentId, selectedYear = '2025-2026', selectedSem = 'Odd') {
     if (!studentId || typeof window === 'undefined') return false;
     const cleanYear = normalizeAcademicYear(selectedYear);
     const cleanSem = normalizeSemester(selectedSem);

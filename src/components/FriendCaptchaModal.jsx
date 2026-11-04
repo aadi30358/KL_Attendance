@@ -241,9 +241,9 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 saveFriendsToCloud(studentId, getSavedFriends()).catch(() => {});
 
                 // Determine target session
-                const defaultStudentYear = (studentId && String(studentId).startsWith('25')) ? '2025-2026' : '2026-2027';
+                const defaultStudentYear = '2025-2026';
                 let targetYear = localStorage.getItem(`manualYear_${studentId}`) || localStorage.getItem(`activeYear_${studentId}`) || defaultStudentYear;
-                if (studentId && String(studentId).startsWith('25') && targetYear === '2026-2027') {
+                if (targetYear === '2026-2027') {
                     targetYear = '2025-2026';
                 }
                 const targetSem = localStorage.getItem(`manualSem_${studentId}`) || localStorage.getItem(`activeSem_${studentId}`) || 'Odd';
@@ -285,18 +285,8 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     }),
                     erpService.fetchAttendance(targetYear, targetSem, studentId).then(async data => {
                         let list = Array.isArray(data) ? data : [];
-                        let finalYear = data?.discoveredYear || targetYear;
-                        let finalSem = data?.discoveredSem || targetSem;
-                        // Auto-fallback if 2026-2027 has no courses (e.g. 2025 batch student)
-                        if (list.length === 0 && targetYear === '2026-2027') {
-                            const fallbackYear = '2025-2026';
-                            const fallbackData = await erpService.fetchAttendance(fallbackYear, targetSem, studentId).catch(() => []);
-                            if (Array.isArray(fallbackData) && fallbackData.length > 0) {
-                                list = fallbackData;
-                                finalYear = fallbackData?.discoveredYear || fallbackYear;
-                                finalSem = fallbackData?.discoveredSem || targetSem;
-                            }
-                        }
+                        let finalYear = targetYear;
+                        let finalSem = targetSem;
 
                         // INVARIANT: Never overwrite valid existing courses with empty response
                         if (list.length > 0) {

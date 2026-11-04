@@ -49,8 +49,9 @@ export default function Timetable() {
     }, [navigate]);
 
     const selectedYear = useMemo(() => {
-        const raw = (activeId && (localStorage.getItem(`manualYear_${activeId}`) || localStorage.getItem(`activeYear_${activeId}`))) || '2026-2027';
-        return normalizeAcademicYear(raw);
+        const raw = activeId ? (localStorage.getItem(`manualYear_${activeId}`) || localStorage.getItem(`activeYear_${activeId}`)) : null;
+        const clean = (raw && raw !== '2026-2027') ? raw : '2025-2026';
+        return normalizeAcademicYear(clean);
     }, [activeId]);
 
     const selectedSem = useMemo(() => {

@@ -121,19 +121,19 @@ export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId
       `${String(firstYear).slice(-2)}-${shortYr}`
     );
   } else if (firstYear === 2026 || strYear === '29' || strYear === '18') {
-    candidates.push('29', '30', '18', '20', '21', '22', '19', '28', '2026-2027', '2026-27', '26-27');
+    candidates.push('29', '18', '2026-2027', '2026-27', '26-27');
   } else if (firstYear === 2025 || strYear === '28' || strYear === '17' || strYear === '19') {
-    candidates.push('28', '29', '17', '19', '18', '22', '20', '2025-2026', '2025-26', '25-26');
+    candidates.push('28', '17', '19', '2025-2026', '2025-26', '25-26');
   } else if (firstYear === 2024 || strYear === '27' || strYear === '16') {
-    candidates.push('27', '16', '17', '2024-2025', '2024-25', '24-25');
+    candidates.push('27', '16', '2024-2025', '2024-25', '24-25');
   } else if (firstYear === 2023 || strYear === '26' || strYear === '15') {
-    candidates.push('26', '15', '16', '2023-2024', '2023-24', '23-24');
+    candidates.push('26', '15', '2023-2024', '2023-24', '23-24');
   } else if (firstYear === 2022 || strYear === '25' || strYear === '14') {
-    candidates.push('25', '14', '15', '2022-2023', '2022-23', '22-23');
+    candidates.push('25', '14', '2022-2023', '2022-23', '22-23');
   } else if (firstYear === 2021 || strYear === '24' || strYear === '13') {
-    candidates.push('24', '13', '14', '2021-2022', '2021-22', '21-22');
+    candidates.push('24', '13', '2021-2022', '2021-22', '21-22');
   } else if (firstYear === 2020 || strYear === '23' || strYear === '10') {
-    candidates.push('23', '10', '13', '2020-2021', '2020-21', '20-21');
+    candidates.push('23', '10', '2020-2021', '2020-21', '20-21');
   }
 
   if (strYear && !candidates.includes(strYear)) {
