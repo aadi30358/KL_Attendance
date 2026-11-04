@@ -25,21 +25,29 @@ export const hasActiveErpSession = (studentId = null) => {
     if (typeof window === 'undefined') return false;
     const cleanId = (studentId || '').trim();
     if (cleanId) {
-        // Must be verified in the current browser session
-        const sessionVerified = sessionStorage.getItem(`erp_verified_${cleanId}`) === 'true';
-        if (!sessionVerified) return false;
+        // Must not be explicitly logged out in current tab
+        const isLoggedOut = sessionStorage.getItem('kl_user_logged_out') === 'true';
+        if (isLoggedOut) return false;
 
-        // And have active session cookie
+        // Session verified check across both sessionStorage and localStorage (multi-tab resilient)
+        const sessionVerified = sessionStorage.getItem(`erp_verified_${cleanId}`) === 'true' ||
+                                localStorage.getItem(`erp_verified_${cleanId}`) === 'true' ||
+                                sessionStorage.getItem('erp_authenticated') === 'true' ||
+                                localStorage.getItem('erp_authenticated') === 'true';
+
+        // Check active session cookie containing PHPSESSID
         const cookie = localStorage.getItem(`erp_cookie_${cleanId}`);
-        if (cookie && cookie.trim().length > 0) return true;
-        if (inMemoryErpCookies && inMemoryErpUser === cleanId) return true;
+        if (cookie && cookie.includes('PHPSESSID')) return true;
+        if (inMemoryErpCookies && inMemoryErpUser === cleanId && inMemoryErpCookies.includes('PHPSESSID')) return true;
 
-        const rememberedId = localStorage.getItem('rememberedId');
+        const rememberedId = localStorage.getItem('rememberedId') || localStorage.getItem('original_my_id');
         if (cleanId === rememberedId) {
             const myCookie = localStorage.getItem(`erp_cookie_${rememberedId}`) || localStorage.getItem('erp_cookie_main');
-            if (myCookie && myCookie.trim().length > 0) return true;
-            if (inMemoryErpCookies && (!inMemoryErpUser || inMemoryErpUser === rememberedId)) return true;
+            if (myCookie && myCookie.includes('PHPSESSID')) return true;
+            if (inMemoryErpCookies && (!inMemoryErpUser || inMemoryErpUser === rememberedId) && inMemoryErpCookies.includes('PHPSESSID')) return true;
         }
+
+        if (sessionVerified && (cookie || inMemoryErpCookies)) return true;
 
         return false;
     }
@@ -120,6 +128,12 @@ export const setStoredErpCookies = (val, studentId = null) => {
     if (typeof window !== 'undefined' && cleanId && val) {
         try {
             localStorage.setItem(`erp_cookie_${cleanId}`, val);
+            if (val.includes('PHPSESSID')) {
+                localStorage.setItem(`erp_verified_${cleanId}`, 'true');
+                sessionStorage.setItem(`erp_verified_${cleanId}`, 'true');
+                localStorage.setItem('erp_authenticated', 'true');
+                sessionStorage.setItem('erp_authenticated', 'true');
+            }
             const rememberedId = localStorage.getItem('rememberedId');
             if (cleanId === rememberedId) {
                 localStorage.setItem('erp_cookie_main', val);
@@ -1266,9 +1280,10 @@ export const erpService = {
             if (semMatch) semId = semMatch.value;
         }
 
-        // 5. Candidate IDs to try (combine matched value and all historical candidate aliases for requested year)
+        // 5. Candidate IDs to try (combine ERP selected option, matched value and all historical candidate aliases for requested year)
         const fallbackCandidates = getCandidateYearIdsForYear(year, null, null);
         const candidateYearIds = Array.from(new Set([
+            sessionInfo?.selectedYear?.value,
             matchedYearVal,
             ...fallbackCandidates
         ].filter(Boolean)));
@@ -1286,7 +1301,7 @@ export const erpService = {
                 body: JSON.stringify({
                     year: reqYearStr,
                     semester: String(semester || '').trim(),
-                    yearId: matchedYearVal || '',
+                    yearId: matchedYearVal || sessionInfo?.selectedYear?.value || '',
                     semId: semId || '',
                     csrfToken: effectiveCsrfToken
                 }),
@@ -1320,37 +1335,8 @@ export const erpService = {
         for (const currentYearId of candidateYearIds) {
             try {
                 const loopCookie = getStoredErpCookies(targetStudent) || targetCookie;
-                // 1. Prime searchgetinput with candidate year and sem to update Yii2 controller session context
-                try {
-                    const primeForm = new URLSearchParams();
-                    primeForm.append('DynamicModel[academicyear]', String(currentYearId));
-                    primeForm.append('DynamicModel[semesterid]', String(semId));
-                    if (effectiveCsrfToken) {
-                        primeForm.append('_csrf', effectiveCsrfToken);
-                        primeForm.append('_csrf-frontend', effectiveCsrfToken);
-                    }
-                    const primeHeaders = buildErpHeaders({
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'Pragma': 'no-cache',
-                        'Cache-Control': 'no-cache',
-                        'Referer': 'https://newerp.kluniversity.in/index.php'
-                    }, targetStudent);
-                    primeHeaders['x-erp-cookie'] = loopCookie;
 
-                    const primeResp = await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
-                        method: 'POST',
-                        headers: primeHeaders,
-                        body: primeForm,
-                        credentials: 'include',
-                        cache: 'no-store'
-                    });
-                    saveErpCookiesFromResponse(primeResp, { studentId: targetStudent });
-                } catch {
-                    // ignore priming failure and continue to courselist
-                }
-
-                // 2. Query courselist
+                // Query courselist directly with form parameters
                 const formData = new URLSearchParams();
                 formData.append('DynamicModel[academicyear]', String(currentYearId));
                 formData.append('DynamicModel[semesterid]', String(semId));
@@ -1379,7 +1365,7 @@ export const erpService = {
                 let response = await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
                     method: 'POST',
                     headers,
-                    body: formData,
+                    body: formData.toString(),
                     credentials: 'include',
                     cache: 'no-store',
                     signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(25000) : undefined

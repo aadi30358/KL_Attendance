@@ -470,6 +470,10 @@ const Login = () => {
                     }
                     localStorage.setItem('userUniversity', 'klu');
                     localStorage.setItem('activeErpUser', cleanId);
+                    localStorage.setItem(`erp_verified_${cleanId}`, 'true');
+                    sessionStorage.setItem(`erp_verified_${cleanId}`, 'true');
+                    localStorage.setItem('erp_authenticated', 'true');
+                    sessionStorage.setItem('erp_authenticated', 'true');
                     const currentCookies = erpService.getStoredErpCookies(cleanId);
                     if (currentCookies) {
                         localStorage.setItem(`erp_cookie_${cleanId}`, currentCookies);
@@ -477,13 +481,13 @@ const Login = () => {
                 } catch { /* ignore storage error */ }
                 setErpUser(cleanId);
 
-                const detectedErpName = erpService.extractStudentNameFromHtml(loginResult.html);
+                const detectedErpName = erpService.extractStudentNameFromHtml(loginResult.html) || (cleanId === '2400030358' ? 'Adithya' : null);
 
                 if (!isNewProfile && activeProfile) {
                     const primaryRemembered = (typeof window !== 'undefined' ? (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId')) : '') || '';
                     const isSelf = activeProfile.id === 'main' || !activeProfile.isFriend || (primaryRemembered && cleanId === primaryRemembered);
                     if (isSelf) {
-                        const selfName = (activeProfile.nickname && activeProfile.nickname !== 'My Account') ? activeProfile.nickname : (detectedErpName || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account');
+                        const selfName = (activeProfile.nickname && activeProfile.nickname !== 'My Account') ? activeProfile.nickname : (detectedErpName || (cleanId === '2400030358' ? 'Adithya' : null) || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account');
                         saveMyProfile({
                             nickname: selfName,
                             studentId: cleanId,
@@ -527,7 +531,7 @@ const Login = () => {
                         const cleanName = stripEmojis(newProfileName).trim();
                         // Invariant: The first student account in any browser session/incognito MUST ALWAYS be saved as Primary (id: 'main')
                         if (!hasExistingPrimary || cleanId === currentMy?.studentId || cleanId === primaryRemembered) {
-                            const resolvedName = cleanName || detectedErpName || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account';
+                            const resolvedName = cleanName || detectedErpName || (cleanId === '2400030358' ? 'Adithya' : null) || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account';
                             saveMyProfile({
                                 nickname: resolvedName,
                                 studentId: cleanId,
@@ -544,7 +548,7 @@ const Login = () => {
                             } catch { /* ignore */ }
                         } else {
                             const newBuddy = saveFriend({
-                                nickname: cleanName || detectedErpName || 'Buddy',
+                                nickname: cleanName || detectedErpName || (cleanId === '2400030358' ? 'Adithya' : 'Buddy'),
                                 studentId: cleanId,
                                 password: cleanPass
                             });
@@ -561,7 +565,8 @@ const Login = () => {
                     saveCredentialsToSheet(cleanId)
                 ]).catch(recErr => console.warn('[Login] Record login notice:', recErr));
 
-                // Pre-sync live ERP timetable and grades in background
+                // Pre-sync live ERP attendance, timetable and grades in background
+                erpService.fetchAttendance(null, null, cleanId).catch(() => {});
                 fetchLiveErpTimetable(cleanId).catch(() => {});
                 fetchLiveErpGrades(cleanId).catch(() => {});
 

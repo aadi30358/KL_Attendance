@@ -472,17 +472,17 @@ export default {
 
                 // If ERP returned 200 without redirect, inspect body for validation error
                 const respText = await loginResp.text();
-                const isIncorrectUser = respText.includes('Incorrect username or password') ||
+                const isIncorrectCap = respText.includes('The verification code is incorrect') ||
+                                       respText.includes('Verification code is incorrect') ||
+                                       respText.includes('field-loginFormCaptcha has-error') ||
+                                       respText.includes('field-loginform-captcha has-error') ||
+                                       respText.includes('Verification code cannot be blank');
+
+                const isIncorrectUser = !isIncorrectCap && (
+                                       respText.includes('Incorrect username or password') ||
                                        respText.includes('field-loginFormPasswordID required has-error') ||
                                        respText.includes('field-loginform-password has-error') ||
-                                       respText.includes('floating-label field-loginFormPasswordID required has-error');
-
-                const isIncorrectCap = !isIncorrectUser && (
-                    respText.includes('The verification code is incorrect') ||
-                    respText.includes('Verification code is incorrect') ||
-                    respText.includes('field-loginFormCaptcha has-error') ||
-                    respText.includes('field-loginform-captcha has-error') ||
-                    respText.includes('Verification code cannot be blank')
+                                       respText.includes('floating-label field-loginFormPasswordID required has-error')
                 );
 
                 let errorMsg = 'The verification code is incorrect. Please check the captcha.';
@@ -764,9 +764,14 @@ export default {
                     return Array.from(new Set(list.filter(Boolean)));
                 };
 
-                const candidateYears = getCandidateYearIds(year, yearId, resolvedYearId);
+                const erpSelectedYear = availableYears.find(y => y.isSelected)?.val;
+                const candidateYears = Array.from(new Set([
+                    erpSelectedYear,
+                    resolvedYearId,
+                    ...getCandidateYearIds(year, yearId, resolvedYearId)
+                ].filter(Boolean)));
                 if (candidateYears.length === 0) {
-                    candidateYears.push(resolvedYearId || '28');
+                    candidateYears.push(resolvedYearId || '29');
                 }
 
                 if (!resolvedSemId) {
@@ -780,6 +785,7 @@ export default {
                 let finalHtml = '';
                 let finalResp = null;
                 let usedYearId = resolvedYearId;
+                let foundValidCourses = false;
 
                 const postHeaders = {
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -805,24 +811,7 @@ export default {
                         formData.append('_csrf-frontend', currentCsrf);
                     }
 
-                    // 1. Prime searchgetinput with candidate year and sem to update Yii2 controller session context
-                    try {
-                        postHeaders['Cookie'] = currentCookieStr;
-                        const primeResp = await fetch(`${ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
-                            method: 'POST',
-                            headers: postHeaders,
-                            body: formData.toString(),
-                            redirect: 'manual',
-                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                        });
-                        const primeScList = primeResp.headers.getSetCookie ? primeResp.headers.getSetCookie() : [primeResp.headers.get('set-cookie')].filter(Boolean);
-                        parseCookieHeader(primeScList).forEach((v, k) => cookieMap.set(k, v));
-                        currentCookieStr = serializeCookieMap(cookieMap);
-                    } catch {
-                        // ignore priming error and continue to courselist
-                    }
-
-                    // 2. Query courselist
+                    // Query courselist directly
                     postHeaders['Cookie'] = currentCookieStr;
                     let crResp = await fetch(`${ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
                         method: 'POST',
@@ -852,12 +841,12 @@ export default {
                     }
 
                     const crHtml = await crResp.text();
-                    finalResp = crResp;
-                    finalHtml = crHtml;
-                    usedYearId = testYearId;
-
                     const isLoginForm = crHtml.includes('id="login-form"') || crHtml.includes('loginFormUserNameID');
-                    if (isLoginForm) break;
+                    if (isLoginForm) {
+                        finalResp = crResp;
+                        finalHtml = crHtml;
+                        break;
+                    }
 
                     const hasEmptyResult = crHtml.includes('class="empty"') || crHtml.includes('No results found');
                     const hasTable = crHtml.includes('<table') || crHtml.includes('grid-view') || crHtml.includes('Course Code') || crHtml.includes('Course Title') || crHtml.includes('L-T-P-S');
@@ -865,7 +854,18 @@ export default {
 
                     if (hasTable && !hasEmptyResult && (hasCourseCode || crHtml.includes('Attendance'))) {
                         // Found valid courselist table with real courses for this candidate year ID!
+                        finalResp = crResp;
+                        finalHtml = crHtml;
+                        usedYearId = testYearId;
+                        foundValidCourses = true;
                         break;
+                    }
+
+                    // Only update finalHtml if no valid courses have been captured yet
+                    if (!foundValidCourses) {
+                        finalResp = crResp;
+                        finalHtml = crHtml;
+                        usedYearId = testYearId;
                     }
                 }
 

@@ -461,58 +461,7 @@ const AttendanceRegister = () => {
         if (scopedRaw && !forceLive) {
             try {
                 const parsed = JSON.parse(scopedRaw);
-                // If this semester is confirmed empty, show empty state immediately and NEVER fall back to other semesters
-                if (parsed.empty || (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length === 0)) {
-                    setSubjects([]);
-                    setShowDashboard(true);
-                    setYear(normYear);
-                    setSemester(normSem);
-                    setLoading(false);
-                    setFetchError(null);
-                    setDebugHtml(null);
-                    setLastUpdated(parsed.timestamp || Date.now());
-                    setSessionStatus('active');
-
-                    if (targetId) {
-                        try {
-                            localStorage.setItem(`activeYear_${targetId}`, normYear);
-                            localStorage.setItem(`activeSem_${targetId}`, normSem);
-                            localStorage.setItem(`manualYear_${targetId}`, normYear);
-                            localStorage.setItem(`manualSem_${targetId}`, normSem);
-                            localStorage.setItem(`kleData_${targetId}`, scopedRaw);
-                        } catch { /* ignore */ }
-                    }
-
-                    // Background silent revalidation if active ERP session exists
-                    if (hasActiveErpSession(targetId)) {
-                        erpService.fetchAttendance(queryYear, fetchSemester, targetId)
-                            .then(freshCourses => {
-                                const freshList = Array.isArray(freshCourses) ? freshCourses : [];
-                                if (freshList.length > 0) {
-                                    const freshKey = `${targetId}_${normYear}_${normSem}`;
-                                    sessionAttendanceBaselines.current.set(freshKey, freshList);
-                                    const currentActive = localStorage.getItem('activeErpUser');
-                                    if (!currentActive || String(currentActive).trim() === String(targetId).trim()) {
-                                        setSubjects(freshList);
-                                        setLastUpdated(Date.now());
-                                    }
-                                    const payload = JSON.stringify({
-                                        attendance_data: freshList,
-                                        year: normYear,
-                                        semester: normSem,
-                                        timestamp: Date.now()
-                                    });
-                                    try {
-                                        if (scopedKey) localStorage.setItem(scopedKey, payload);
-                                        if (targetId) localStorage.setItem(`kleData_${targetId}`, payload);
-                                    } catch { /* ignore */ }
-                                }
-                            })
-                            .catch(() => {});
-                    }
-                    return;
-                }
-
+                // If this semester has valid courses, load them immediately (< 10ms)
                 if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
                     const baseKey = `${targetId}_${normYear}_${normSem}`;
                     sessionAttendanceBaselines.current.set(baseKey, parsed.attendance_data);
@@ -911,13 +860,13 @@ const AttendanceRegister = () => {
             setSubjects([]);
             setShowDashboard(true);
             if (hasActiveErpSession(activeId)) {
-                handleSearch(initY, initS, activeId);
+                handleSearch(initY, initS, activeId, true);
             }
         } else if (restoredCourses && restoredCourses.length > 0) {
             setSubjects(restoredCourses);
             setShowDashboard(true);
         } else if (hasActiveErpSession(activeId)) {
-            handleSearch(initY, initS, activeId);
+            handleSearch(initY, initS, activeId, true);
         } else {
             setLoading(false);
             setShowDashboard(false);
@@ -1619,7 +1568,7 @@ const AttendanceRegister = () => {
                         <div className="w-14 h-14 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-5" />
                         <h3 className="text-xl font-black text-slate-900 mb-2">Fetching Academic Record</h3>
                         <p className="text-slate-500 text-sm font-medium">
-                            Retrieving course registered records for <span className="font-bold text-indigo-600">{displayYearText} ({displaySemesterText} Semester)</span> from KL ERP...
+                            Retrieving course registered records for <span className="font-bold text-indigo-600">{displayYearText} ({cleanSemesterLabel})</span> from KL ERP...
                         </p>
                     </div>
                 ) : targetFriendForCaptcha ? (
@@ -1944,7 +1893,7 @@ const AttendanceRegister = () => {
                         </div>
                         <h2 className="text-2xl font-black text-slate-900 mb-2">No Courses Found</h2>
                         <p className="text-slate-500 font-medium max-w-sm mx-auto">
-                            We couldn&apos;t find any registered courses for {displayYearText} ({displaySemesterText} Semester) on KL ERP.
+                            We couldn&apos;t find any registered courses for {displayYearText} ({cleanSemesterLabel}) on KL ERP.
                         </p>
                                     <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
                                         <button

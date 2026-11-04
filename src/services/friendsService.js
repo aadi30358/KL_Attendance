@@ -152,14 +152,16 @@ export const getSavedFriends = () => {
                 }
 
                 if (foundSid && /^\d{5,}$/.test(foundSid)) {
+                    const rememberedPrimary = (typeof window !== 'undefined' ? (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || '';
                     if (
                         (!primaryId || foundSid !== primaryId) && 
+                        (!rememberedPrimary || foundSid !== rememberedPrimary) &&
                         !deletedList.includes(foundSid) && 
                         !deletedList.includes(`friend_${foundSid}`) &&
                         !list.some(f => f.studentId === foundSid || f.username === foundSid || f.id === foundSid)
                     ) {
                         const custom = localStorage.getItem(`kl_name_${foundSid}`);
-                        const nameToUse = custom || foundName || (foundSid ? `Friend (${foundSid.slice(-4)})` : 'Friend');
+                        const nameToUse = custom || (foundSid === '2400030358' ? 'Adithya' : null) || foundName || (foundSid ? `Friend (${foundSid.slice(-4)})` : 'Friend');
                         list.push({
                             id: `friend_${foundSid}`,
                             nickname: nameToUse,
@@ -275,7 +277,10 @@ export const getMyProfile = () => {
 
         const customName = myId ? localStorage.getItem(`kl_name_${myId}`) : null;
         if (customName) rawName = customName;
-        const cleanName = customName || stripEmojis(rawName);
+        let cleanName = customName || stripEmojis(rawName);
+        if ((!cleanName || cleanName === 'My Profile' || cleanName.startsWith('Friend (')) && myId === '2400030358') {
+            cleanName = 'Adithya';
+        }
 
         // Strictly return null if neither ID nor password is saved, OR if deleted
         if (!myId && !myPass) {
@@ -285,11 +290,13 @@ export const getMyProfile = () => {
             return null;
         }
 
+        const finalNickname = cleanName || (myId === '2400030358' ? 'Adithya' : (myId ? myId : 'My Profile'));
+
         return {
             id: 'main',
             isFriend: false,
-            nickname: cleanName || (myId ? myId : 'My Profile'),
-            label: cleanName || (myId ? myId : 'My Profile'),
+            nickname: finalNickname,
+            label: finalNickname,
             studentId: myId,
             password: myPass,
             hasSavedPassword: Boolean(myPass)
