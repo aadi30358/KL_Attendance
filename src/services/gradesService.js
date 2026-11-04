@@ -291,7 +291,7 @@ export const getEnrolledCoursesTemplate = (studentId) => {
             if (Array.isArray(list) && list.length > 0) {
                 const seenCodes = new Set();
                 const storedYear = localStorage.getItem(`activeYear_${targetId}`) || localStorage.getItem('selectedAcademicYear');
-                const activeYear = (storedYear && storedYear !== '2026-2027') ? storedYear : '2025-2026';
+                const activeYear = storedYear || '2026-2027';
                 const activeSem = localStorage.getItem(`activeSem_${targetId}`) || localStorage.getItem('selectedSemester') || 'Odd';
 
                 const templates = [];

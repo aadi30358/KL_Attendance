@@ -1243,11 +1243,6 @@ export const erpService = {
             if (!matchedYearVal && valMatch) {
                 matchedYearVal = valMatch.value;
             }
-
-            // If still unresolved in sessionInfo.years, fall back to ERP's selected or first option
-            if (!matchedYearVal && sessionInfo?.years && sessionInfo.years.length > 0) {
-                matchedYearVal = sessionInfo.selectedYear?.value || sessionInfo.years[0]?.value;
-            }
         }
 
         // 4. Resolve semester ID
@@ -1681,30 +1676,32 @@ export const erpService = {
 
         // Deduce candidate years from ERP dropdown + student ID batch
         const yearsSet = new Set();
+        const topYear = Math.max(new Date().getFullYear(), 2026);
 
         // 1. Years from ERP search input dropdown
         if (sessionInfo?.years && Array.isArray(sessionInfo.years)) {
             sessionInfo.years.forEach(y => {
                 const text = (y.text || y.value || '').replace(/\s*\([^)]*\)/g, '').trim();
                 const startYr = parseInt(text.split('-')[0], 10);
-                if (!isNaN(startYr) && startYr >= 2021 && startYr <= 2025) {
+                if (!isNaN(startYr) && startYr >= 2021 && startYr <= topYear) {
                     yearsSet.add(`${startYr}-${startYr + 1}`);
                 }
             });
         }
 
-        // 2. Years deduced from student admission year (e.g. '2400030358' -> 2024 -> 2024-2025, 2025-2026)
+        // 2. Years deduced from student admission year (e.g. '2400030358' -> 2024 -> 2024-2025, 2025-2026, 2026-2027)
         const batchMatch = targetStudent.match(/^(\d{2})/);
         if (batchMatch) {
             const batchYr = parseInt(batchMatch[1], 10) + 2000;
-            if (batchYr >= 2020 && batchYr <= 2025) {
-                for (let y = batchYr; y <= 2025; y++) {
+            if (batchYr >= 2020 && batchYr <= topYear) {
+                for (let y = batchYr; y <= topYear; y++) {
                     yearsSet.add(`${y}-${y + 1}`);
                 }
             }
         }
 
-        // Always include current active university year
+        // Always include present academic university years
+        yearsSet.add('2026-2027');
         yearsSet.add('2025-2026');
 
         // Sort descending: current year first (2025-2026), then 2024-2025, 2023-2024...

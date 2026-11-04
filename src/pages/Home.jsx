@@ -733,8 +733,8 @@ export default function Home() {
     // Retrieve authentic saved timetable (cached in localStorage or server SQLite DB)
     const studentTimetable = useMemo(() => {
         void timetableTick;
-        if (!activeStudentId) return {};
-        return getStudentTimetable(activeStudentId, [], activeYear, activeSem) || {};
+        const targetId = activeStudentId || (typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : '') || '2400030358';
+        return getStudentTimetable(targetId, [], activeYear, activeSem) || {};
     }, [activeStudentId, activeYear, activeSem, timetableTick]);
 
     const hasTimetableSlots = useMemo(() => {
@@ -759,8 +759,9 @@ export default function Home() {
     // Live lecture status is active whenever valid timetable slots are present
     const liveClassStatus = useMemo(() => {
         void nowTick;
-        if (!activeStudentId || !hasTimetableSlots) return null;
-        return getLiveClassStatus(studentTimetable, activeStudentId);
+        const targetId = activeStudentId || (typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : '') || '2400030358';
+        if (!hasTimetableSlots) return null;
+        return getLiveClassStatus(studentTimetable, targetId);
     }, [studentTimetable, activeStudentId, nowTick, hasTimetableSlots]);
 
     // Automatic server database synchronization on load / revisit

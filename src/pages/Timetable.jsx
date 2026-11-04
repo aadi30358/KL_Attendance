@@ -50,7 +50,7 @@ export default function Timetable() {
 
     const selectedYear = useMemo(() => {
         const raw = activeId ? (localStorage.getItem(`manualYear_${activeId}`) || localStorage.getItem(`activeYear_${activeId}`)) : null;
-        const clean = (raw && raw !== '2026-2027') ? raw : '2025-2026';
+        const clean = raw || '2026-2027';
         return normalizeAcademicYear(clean);
     }, [activeId]);
 

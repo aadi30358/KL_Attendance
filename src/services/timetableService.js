@@ -119,14 +119,9 @@ export function normalizeSemester(sem) {
 }
 
 export function getTruePresentAcademicYearAndSem() {
-    const now = new Date();
-    const curMonth = now.getMonth();
-    const defaultSem = (curMonth >= 5 && curMonth <= 11) ? 'Odd' : 'Even';
-
-    // The current active academic session across KL University is 2025-2026
     return {
-        year: '2025-2026',
-        sem: defaultSem
+        year: '2026-2027',
+        sem: 'Odd'
     };
 }
 
@@ -135,8 +130,7 @@ export function getPresentAcademicYearAndSem(studentId = null, forceCalendarPres
         const sid = studentId || localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId') || '';
         const savedActiveYear = sid ? localStorage.getItem(`activeYear_${sid}`) : null;
         const savedActiveSem = sid ? localStorage.getItem(`activeSem_${sid}`) : null;
-        // Invariant: '2026-2027' was a legacy placeholder with no registered courses; ignore it and return current 2025-2026
-        if (savedActiveYear && savedActiveSem && savedActiveYear !== '2026-2027') {
+        if (savedActiveYear && savedActiveSem) {
             return {
                 year: normalizeAcademicYear(savedActiveYear),
                 sem: normalizeSemester(savedActiveSem)
@@ -1114,7 +1108,7 @@ export function isTimetableValidForStudent(timetable) {
 /**
  * Builds a deterministic, realistic KLU timetable mapped to the student's actual ERP courses or semester curriculum.
  */
-export function buildTimetableFromErpCourses(courses = [], studentId = 'default', selectedYear = '2025-2026', selectedSem = 'Odd') {
+export function buildTimetableFromErpCourses(courses = [], studentId = 'default', selectedYear = '2026-2027', selectedSem = 'Odd') {
     const cleanYear = normalizeAcademicYear(selectedYear);
     const cleanSem = normalizeSemester(selectedSem);
     const profile = getStudentProfileFromId(studentId);
@@ -1251,7 +1245,7 @@ export function buildTimetableFromErpCourses(courses = [], studentId = 'default'
 /**
  * Retrieves the stored or freshly synthesized timetable for a student and academic session.
  */
-export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '2025-2026', selectedSem = 'Odd') {
+export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '2026-2027', selectedSem = 'Odd') {
     const activeErpUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
     const targetId = studentId || activeErpUser || '';
     if (!targetId) return null;
@@ -1415,10 +1409,7 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
                 } catch { /* ignore */ }
             }
         }
-        if (!hasActiveErpSession(targetId)) {
-            return null;
-        }
-        coursesToUse = getCurriculumForStudent(targetId, cleanYear, cleanSem);
+        coursesToUse = getCurriculumForStudent(targetId || '2400030358', cleanYear, cleanSem);
         isCurriculumFallback = true;
     }
 

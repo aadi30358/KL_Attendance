@@ -637,7 +637,7 @@ const Login = () => {
                 ]).catch(recErr => console.warn('[Login] Record login notice:', recErr));
 
                 // Pre-sync live ERP attendance, timetable, grades & all semesters in background & save to Firestore
-                const initYear = '2025-2026';
+                const initYear = '2026-2027';
                 try {
                     localStorage.setItem(`activeYear_${cleanId}`, initYear);
                     localStorage.setItem(`activeSem_${cleanId}`, 'Odd');

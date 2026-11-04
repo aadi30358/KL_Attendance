@@ -241,15 +241,8 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 saveFriendsToCloud(studentId, getSavedFriends()).catch(() => {});
 
                 // Determine target session
-                const defaultStudentYear = '2025-2026';
+                const defaultStudentYear = '2026-2027';
                 let targetYear = localStorage.getItem(`manualYear_${studentId}`) || localStorage.getItem(`activeYear_${studentId}`) || defaultStudentYear;
-                if (targetYear === '2026-2027') {
-                    targetYear = '2025-2026';
-                    try {
-                        localStorage.setItem(`manualYear_${studentId}`, '2025-2026');
-                        localStorage.setItem(`activeYear_${studentId}`, '2025-2026');
-                    } catch { /* ignore */ }
-                }
                 const targetSem = localStorage.getItem(`manualSem_${studentId}`) || localStorage.getItem(`activeSem_${studentId}`) || 'Odd';
 
                 try {

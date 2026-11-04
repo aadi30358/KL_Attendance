@@ -6,6 +6,7 @@
 .env.*
 server/.env
 backend/firebase_credentials.json
+final_kl_attedance-copy/
 pdf_text*.txt
 __pycache__/
 *.pyc

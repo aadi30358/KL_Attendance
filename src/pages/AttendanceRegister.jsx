@@ -185,12 +185,12 @@ function BunkSimulator({ subject }) {
 
 // Dynamically generate modern academic years (current + past years down to 2021)
 const generateDefaultYears = () => {
-    // Current operational academic year across KL University ERP with enrolled courses is 2025-2026
-    const topYear = 2025;
+    // Current operational academic year across KL University ERP with enrolled courses is 2026-2027
+    const topYear = 2026;
     const years = [];
     for (let y = topYear; y >= 2021; y--) {
         const text = `${y}-${y + 1}`;
-        years.push({ value: text, text, isCurrent: y === 2025 });
+        years.push({ value: text, text, isCurrent: y === 2026 });
     }
     return years;
 };
@@ -204,8 +204,7 @@ const getAvailableSemesterOptions = (targetId) => {
 
     // 1. Present Academic Session is always first
     const present = getPresentAcademicYearAndSem(targetId);
-    let presY = normalizeAcademicYear(present.year);
-    if (presY === '2026-2027') presY = '2025-2026';
+    const presY = normalizeAcademicYear(present.year);
     const presS = normalizeSemester(present.sem);
     const presKey = `${presY}_${presS}`;
     const presSemLabel = presS === 'Even' ? 'Even Sem' : presS === 'Summer' ? 'Summer Term' : presS === 'Term3' ? 'Tri Sem / Term 3' : 'Odd Sem';
@@ -231,7 +230,7 @@ const getAvailableSemesterOptions = (targetId) => {
                         const y = normalizeAcademicYear(item.year);
                         const s = normalizeSemester(item.semester);
                         const k = `${y}_${s}`;
-                        if (!seen.has(k) && y !== '2026-2027') {
+                        if (!seen.has(k)) {
                             seen.add(k);
                             const semName = s === 'Even' ? 'Even Sem' : s === 'Summer' ? 'Summer Term' : s === 'Term3' ? 'Tri Sem / Term 3' : 'Odd Sem';
                             options.push({
@@ -248,12 +247,12 @@ const getAvailableSemesterOptions = (targetId) => {
         } catch { /* ignore */ }
     }
 
-    // 3. Batch-derived academic semesters (e.g. 24000... -> 2024 -> 2024-2025, 2025-2026)
+    // 3. Batch-derived academic semesters (e.g. 24000... -> 2024 -> 2024-2025, 2025-2026, 2026-2027)
     const batchMatch = (targetId || '').match(/^(\d{2})/);
     const batchYear = batchMatch ? parseInt(batchMatch[1], 10) + 2000 : 2024;
-    const startY = Math.max(2021, Math.min(batchYear, 2025));
+    const startY = Math.max(2021, Math.min(batchYear, 2026));
 
-    for (let y = 2025; y >= startY; y--) {
+    for (let y = 2026; y >= startY; y--) {
         const yrStr = `${y}-${y + 1}`;
         ['Even', 'Odd'].forEach(s => {
             const k = `${yrStr}_${s}`;
@@ -328,17 +327,11 @@ const AttendanceRegister = () => {
 
     const [year, setYear] = useState(() => {
         const manualYear = activeId ? localStorage.getItem(`manualYear_${activeId}`) : null;
-        if (manualYear) {
-            if (manualYear === '2026-2027') return '2025-2026';
-            return manualYear;
-        }
+        if (manualYear) return manualYear;
         const savedYear = activeId ? localStorage.getItem(`activeYear_${activeId}`) : null;
-        if (savedYear) {
-            if (savedYear === '2026-2027') return '2025-2026';
-            return savedYear;
-        }
+        if (savedYear) return savedYear;
         const present = getPresentAcademicYearAndSem(activeId);
-        return (present.year === '2026-2027') ? '2025-2026' : present.year;
+        return present.year;
     });
     const [semester, setSemester] = useState(() => {
         const manualSem = activeId ? localStorage.getItem(`manualSem_${activeId}`) : null;
@@ -722,6 +715,24 @@ const AttendanceRegister = () => {
                 setSubjects(finalCourses);
                 setShowDashboard(true);
                 saveAttendanceToCloud(targetId, finalYear, finalSem, finalCourses).catch(() => {});
+
+                // Background sync timetable & CGPA to Firestore cloud & localStorage permanently
+                try {
+                    const { fetchLiveErpTimetable } = await import('../services/timetableService');
+                    fetchLiveErpTimetable(targetId, finalYear, finalSem).then(res => {
+                        if (res?.timetable) {
+                            saveTimetableToCloud(targetId, res.timetable, finalYear, finalSem).catch(() => {});
+                        }
+                    }).catch(() => {});
+
+                    const { fetchLiveErpGrades } = await import('../services/gradesService');
+                    fetchLiveErpGrades(targetId).then(res => {
+                        if (res?.courses && res.courses.length > 0) {
+                            saveCgpaToCloud(targetId, res.courses, res.cgpa).catch(() => {});
+                        }
+                    }).catch(() => {});
+                } catch { /* ignore */ }
+
                 try {
                     localStorage.setItem(`activeYear_${targetId}`, finalYear);
                     localStorage.setItem(`activeSem_${targetId}`, finalSem);
@@ -956,12 +967,11 @@ const AttendanceRegister = () => {
             setDebugHtml(null);
 
             // Determine target academic year & semester for this student
-            const defaultStudentYear = '2025-2026';
-            const detailYear = detail?.year && detail?.year !== '2026-2027' ? detail.year : null;
+            const defaultStudentYear = '2026-2027';
+            const detailYear = detail?.year ? detail.year : null;
             const savedYear = newId ? (localStorage.getItem(`manualYear_${newId}`) || localStorage.getItem(`activeYear_${newId}`)) : null;
             const savedSem = newId ? (localStorage.getItem(`manualSem_${newId}`) || localStorage.getItem(`activeSem_${newId}`)) : null;
-            let targetYear = detailYear || ((savedYear && savedYear !== '2026-2027') ? savedYear : defaultStudentYear);
-            if (targetYear === '2026-2027') targetYear = '2025-2026';
+            let targetYear = detailYear || savedYear || defaultStudentYear;
             const targetSem = detail?.sem || savedSem || semester || 'Odd';
 
             setYear(targetYear);
@@ -1069,8 +1079,7 @@ const AttendanceRegister = () => {
         const savedYear = activeId ? (localStorage.getItem(`activeYear_${activeId}`) || localStorage.getItem(`manualYear_${activeId}`)) : null;
         const savedSem = activeId ? (localStorage.getItem(`activeSem_${activeId}`) || localStorage.getItem(`manualSem_${activeId}`)) : null;
         const present = getPresentAcademicYearAndSem(activeId);
-        let initY = normalizeAcademicYear((savedYear && savedYear !== '2026-2027') ? savedYear : present.year);
-        if (initY === '2026-2027') initY = '2025-2026';
+        let initY = normalizeAcademicYear(savedYear || present.year);
         const initS = normalizeSemester(savedSem || present.sem);
         const scopedKey = activeId ? `kleData_${activeId}_${initY}_${initS}` : null;
         const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
@@ -1179,17 +1188,16 @@ const AttendanceRegister = () => {
             }
             // Auto-select active year directly: prioritize saved manual selection if available
             const userManualYear = activeId ? (localStorage.getItem(`manualYear_${activeId}`) || localStorage.getItem(`activeYear_${activeId}`)) : null;
-            let nextYear = '2025-2026';
-            if (userManualYear && userManualYear !== '2026-2027') {
+            let nextYear = '2026-2027';
+            if (userManualYear) {
                 nextYear = normalizeAcademicYear(userManualYear);
                 setYear(nextYear);
             } else if (sessionData.selectedYear?.text) {
-                const rawSelected = normalizeAcademicYear(sessionData.selectedYear.text);
-                nextYear = (rawSelected === '2026-2027') ? '2025-2026' : rawSelected;
+                nextYear = normalizeAcademicYear(sessionData.selectedYear.text);
                 setYear(nextYear);
             } else {
-                nextYear = '2025-2026';
-                setYear('2025-2026');
+                nextYear = '2026-2027';
+                setYear('2026-2027');
             }
 
             const userManualSem = activeId ? (localStorage.getItem(`manualSem_${activeId}`) || localStorage.getItem(`activeSem_${activeId}`)) : null;
@@ -1208,8 +1216,7 @@ const AttendanceRegister = () => {
             }
 
             // If subjects are currently empty and discovered session differs from initial query, query immediately
-            let normNextYear = normalizeAcademicYear(nextYear);
-            if (normNextYear === '2026-2027') normNextYear = '2025-2026';
+            const normNextYear = normalizeAcademicYear(nextYear);
             const normNextSem = normalizeSemester(nextSem);
             if (subjectsRef.current.length === 0 && (normNextYear !== initY || normNextSem !== initS)) {
                 handleSearch(normNextYear, normNextSem, activeId);
@@ -1646,8 +1653,7 @@ const AttendanceRegister = () => {
                                 // Resolve target year and semester for this student
                                 const profYear = localStorage.getItem(`manualYear_${newId}`) || localStorage.getItem(`activeYear_${newId}`) || year;
                                 const profSem = localStorage.getItem(`manualSem_${newId}`) || localStorage.getItem(`activeSem_${newId}`) || semester;
-                                let normY = normalizeAcademicYear(profYear);
-                                if (normY === '2026-2027') normY = '2025-2026';
+                                const normY = normalizeAcademicYear(profYear);
                                 const normS = normalizeSemester(profSem);
                                 setYear(normY);
                                 setSemester(normS);
@@ -2244,7 +2250,7 @@ const AttendanceRegister = () => {
                         setActiveId(sid);
                         setActiveProfile(authFriend || getActiveProfileDetails(sid));
                         const savedY = localStorage.getItem(`manualYear_${sid}`) || localStorage.getItem(`activeYear_${sid}`);
-                        const targetY = (savedY && savedY !== '2026-2027') ? savedY : '2025-2026';
+                        const targetY = savedY || '2026-2027';
                         const savedS = localStorage.getItem(`manualSem_${sid}`) || localStorage.getItem(`activeSem_${sid}`);
                         const targetS = savedS || semester || 'Odd';
                         setYear(targetY);
@@ -2534,7 +2540,7 @@ const AttendanceRegister = () => {
                     setActiveId(sid);
                     setActiveProfile(authFriend || getActiveProfileDetails(sid));
                     const savedY = localStorage.getItem(`manualYear_${sid}`) || localStorage.getItem(`activeYear_${sid}`);
-                    const targetY = (savedY && savedY !== '2026-2027') ? savedY : ((year && year !== '2026-2027') ? year : '2025-2026');
+                    const targetY = savedY || year || '2026-2027';
                     const savedS = localStorage.getItem(`manualSem_${sid}`) || localStorage.getItem(`activeSem_${sid}`);
                     const targetS = savedS || semester || 'Odd';
                     setYear(targetY);

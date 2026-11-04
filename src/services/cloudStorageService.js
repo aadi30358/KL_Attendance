@@ -257,7 +257,7 @@ export async function getAttendanceFromCloud(studentId, year = null, sem = null)
         const activeCourses = data.courses || data.activeCourses || [];
         if (Array.isArray(activeCourses) && activeCourses.length > 0) {
             return {
-                academicYear: (data.academicYear && data.academicYear !== '2026-2027') ? data.academicYear : '2025-2026',
+                academicYear: data.academicYear || '2026-2027',
                 semester: data.semester || 'Odd',
                 courses: activeCourses,
                 summary: data.attendanceSummary || null,
@@ -432,7 +432,7 @@ export async function getTimetableFromCloud(studentId) {
             if (data.timetable && typeof data.timetable === 'object') {
                 return {
                     timetable: data.timetable,
-                    year: (data.timetableYear && data.timetableYear !== '2026-2027') ? data.timetableYear : '2025-2026',
+                    year: data.timetableYear || '2026-2027',
                     sem: data.timetableSem || 'Odd',
                     lastTimetableFetch: data.lastTimetableFetch || null
                 };
@@ -457,7 +457,7 @@ export async function restoreStudentDataInIncognito(studentId) {
         if (!profile) return false;
 
         const resolvedName = profile.name || profile.nickname || (cleanId === '2400030358' ? 'Adithya' : 'Student');
-        const resolvedYear = (profile.academicYear && profile.academicYear !== '2026-2027') ? profile.academicYear : '2025-2026';
+        const resolvedYear = profile.academicYear || '2026-2027';
         const resolvedSem = profile.semester || '1';
 
         // 1. Populate primary identifiers
@@ -563,7 +563,7 @@ export async function seedAdithyaProfileIfEmpty() {
                 nickname: 'Adithya',
                 isPrimary: true,
                 primaryAccount: true,
-                academicYear: '2025-2026',
+                academicYear: '2026-2027',
                 semester: '1',
                 updatedAt: new Date().toISOString()
             }, { merge: true });

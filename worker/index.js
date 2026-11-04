@@ -654,33 +654,22 @@ export default {
 
                         let matchedYear = null;
                         if (availableYears.length > 0) {
-                            // 1. Direct ERP DB value match first (e.g. '29')
-                            const directId = (parseInt(reqYearStr, 10) > 20) ? reqYearStr : reqYearId;
-                            if (directId) {
-                                matchedYear = availableYears.find(y => y.val === directId);
-                            }
-
-                            // 2. Exact or substring text match with clean text (e.g. "2026-2027")
-                            if (!matchedYear && cleanYearStr) {
+                            // 1. Text match with clean string (e.g. "2026-2027", "26-27", "2026")
+                            if (cleanYearStr) {
                                 matchedYear = availableYears.find(y => {
                                     const yt = y.text.toLowerCase().trim();
                                     return yt === cleanYearStr || yt.includes(cleanYearStr) || cleanYearStr.includes(yt);
                                 });
                             }
 
-                            // 3. Match starting year (e.g. "2026")
+                            // 2. Target start year match (e.g. "2026")
                             if (!matchedYear && targetYearStart) {
                                 matchedYear = availableYears.find(y => y.text.includes(targetYearStart));
                             }
 
-                            // 4. Fallback to direct val match
-                            if (!matchedYear && (reqYearId || reqYearStr)) {
-                                matchedYear = availableYears.find(y => y.val === reqYearId || y.val === reqYearStr);
-                            }
-
-                            // 5. If still no match in availableYears, fall back to ERP's enrolled selected option or first option
-                            if (!matchedYear && availableYears.length > 0) {
-                                matchedYear = availableYears.find(y => y.isSelected) || availableYears[0];
+                            // 3. Direct value match
+                            if (!matchedYear && reqYearId) {
+                                matchedYear = availableYears.find(y => y.val === reqYearId);
                             }
                         }
                         if (matchedYear) {
@@ -753,14 +742,14 @@ export default {
                         else firstYear += 2000;
                     }
 
-                    if (firstYear === 2026 || str === '29' || str === '18' || cleanStr.includes('26')) list.push('29', '18', '2026-2027', '2026-27');
-                    else if (firstYear === 2025 || str === '28' || str === '17' || str === '19' || cleanStr.includes('25')) list.push('28', '17', '19', '2025-2026', '2025-26');
-                    else if (firstYear === 2024 || str === '27' || str === '16' || cleanStr.includes('24')) list.push('27', '16', '2024-2025', '2024-25');
-                    else if (firstYear === 2023 || str === '26' || str === '15' || cleanStr.includes('23')) list.push('26', '15', '2023-2024', '2023-24');
-                    else if (firstYear === 2022 || str === '25' || str === '14' || cleanStr.includes('22')) list.push('25', '14', '2022-2023', '2022-23');
-                    else if (firstYear === 2021 || str === '24' || str === '13' || cleanStr.includes('21')) list.push('24', '13', '2021-2022', '2021-22');
-                    else if (firstYear === 2020 || str === '23' || str === '10' || cleanStr.includes('20')) list.push('23', '10', '2020-2021', '2020-21');
-                    else if (firstYear === 2019 || str === '22' || str === '9' || cleanStr.includes('19')) list.push('22', '9');
+                    if (firstYear === 2026 || str === '18' || str === '29' || cleanStr.includes('26')) list.push('18', '22', '19', '17', '20', '21', '29', '2026-2027', '2026-27');
+                    else if (firstYear === 2025 || str === '17' || str === '28' || str === '19' || cleanStr.includes('25')) list.push('17', '19', '18', '16', '28', '2025-2026', '2025-26');
+                    else if (firstYear === 2024 || str === '16' || str === '27' || cleanStr.includes('24')) list.push('16', '15', '17', '27', '2024-2025', '2024-25');
+                    else if (firstYear === 2023 || str === '15' || str === '26' || cleanStr.includes('23')) list.push('15', '14', '16', '26', '2023-2024', '2023-24');
+                    else if (firstYear === 2022 || str === '14' || str === '25' || cleanStr.includes('22')) list.push('14', '13', '15', '25', '2022-2023', '2022-23');
+                    else if (firstYear === 2021 || str === '13' || str === '24' || cleanStr.includes('21')) list.push('13', '10', '14', '24', '2021-2022', '2021-22');
+                    else if (firstYear === 2020 || str === '10' || str === '23' || cleanStr.includes('20')) list.push('10', '9', '13', '23', '2020-2021', '2020-21');
+                    else if (firstYear === 2019 || str === '9' || str === '22' || cleanStr.includes('19')) list.push('9', '8', '22');
                     if (str && !list.includes(str)) list.push(str);
 
                     return Array.from(new Set(list.filter(Boolean)));

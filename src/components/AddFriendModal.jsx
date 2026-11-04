@@ -67,13 +67,13 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
                 localStorage.setItem('activeErpUser', cleanId);
                 const profId = saved?.id || (isSelf ? 'main' : cleanId);
                 setActiveProfileId(profId);
-                const currentYr = '2025-2026';
+                const currentYr = '2026-2027';
                 const existingManualYr = localStorage.getItem(`manualYear_${cleanId}`);
-                if (!existingManualYr || existingManualYr === '2026-2027') {
+                if (!existingManualYr) {
                     localStorage.setItem(`manualYear_${cleanId}`, currentYr);
                 }
                 const existingActiveYr = localStorage.getItem(`activeYear_${cleanId}`);
-                if (!existingActiveYr || existingActiveYr === '2026-2027') {
+                if (!existingActiveYr) {
                     localStorage.setItem(`activeYear_${cleanId}`, currentYr);
                 }
                 if (!localStorage.getItem(`manualSem_${cleanId}`)) {
