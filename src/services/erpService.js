@@ -114,7 +114,8 @@ export const getStoredErpCookies = (studentId = null) => {
 
 export const setStoredErpCookies = (val, studentId = null) => {
     inMemoryErpCookies = val || '';
-    const cleanId = (studentId || '').trim();
+    const activeUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '';
+    const cleanId = (studentId || activeUser || '').trim();
     inMemoryErpUser = cleanId; // empty string when initializing pre-login captcha session
     if (typeof window !== 'undefined' && cleanId && val) {
         try {
@@ -227,25 +228,48 @@ export function mergeCookies(existing, incoming) {
     return Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
-export const saveErpCookiesFromResponse = (response, { forceAuthUpdate = true, studentId = null } = {}) => {
+export const saveErpCookiesFromResponse = (response, { studentId = null } = {}) => {
     try {
         if (!response) return;
         const newCookies = response.headers?.get?.('x-set-erp-cookie') || response.headers?.get?.('set-cookie');
         if (newCookies) {
-            const existing = getStoredErpCookies(studentId);
-            const cookieMap = new Map();
-            if (existing && !forceAuthUpdate) {
-                parseCookieStringToMap(existing, cookieMap);
-            }
-            parseCookieStringToMap(newCookies, cookieMap);
-            const merged = Array.from(cookieMap.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
-            setStoredErpCookies(merged, studentId);
+            const activeUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '';
+            const cleanSid = (studentId || activeUser || '').trim();
+            const existing = getStoredErpCookies(cleanSid);
+            // Strict Invariant: Always merge incoming cookies into existing cookies so PHPSESSID and SERVERID are never dropped
+            const merged = mergeCookies(existing, newCookies);
+            setStoredErpCookies(merged, cleanSid);
             try { sessionStorage.setItem('kl_captcha_cookies', merged); } catch { /* ignore */ }
         }
     } catch (e) {
         console.warn("[ERP] Failed to persist cookies:", e);
     }
 };
+
+/**
+ * Extracts the real student full name from authentic ERP dashboard HTML.
+ */
+export function extractStudentNameFromHtml(html) {
+    if (!html || typeof html !== 'string') return '';
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const nameEl = doc.querySelector('.profile_info h2, .user-profile, .username, #username, .profile-name, .user-name, .navbar-user-name');
+        if (nameEl && nameEl.textContent) {
+            const raw = nameEl.textContent.trim().replace(/^Welcome\s*,?\s*/i, '').trim();
+            if (raw && raw.length > 1 && !raw.toLowerCase().includes('student portal') && !raw.toLowerCase().includes('login')) {
+                return raw;
+            }
+        }
+    } catch { /* ignore DOMParser failure in non-browser environments */ }
+
+    const nameMatch = html.match(/class=["'](?:profile_info|user-profile|username)["'][^>]*>[\s\S]*?<h2[^>]*>([^<]+)<\/h2>/i) ||
+                      html.match(/class=["']user-profile["'][^>]*>([^<]+)</i);
+    if (nameMatch && nameMatch[1]) {
+        return nameMatch[1].trim().replace(/^Welcome\s*,?\s*/i, '').trim();
+    }
+    return '';
+}
 
 export const clearStoredErpCookies = (studentId = null) => {
     const cleanId = (studentId || '').trim();
@@ -348,6 +372,7 @@ export const erpService = {
     getStoredErpCookies,
     saveErpCookiesFromResponse,
     clearStoredErpCookies,
+    extractStudentNameFromHtml,
 
     // Fetch the login page to scrape CSRF token and initial captcha atomically
     // Fetch the login page to scrape CSRF token and initial captcha atomically
@@ -1248,12 +1273,53 @@ export const erpService = {
             ...fallbackCandidates
         ].filter(Boolean)));
 
+        // 2. High-speed single-trip Edge discovery via /api/fast-attendance (< 800ms)
+        try {
+            const currentCookie = getStoredErpCookies(targetStudent) || targetCookie;
+            const fastResp = await fetch(`${apiBase || ''}/api/fast-attendance`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-erp-cookie': currentCookie,
+                    ...(effectiveCsrfToken ? { 'x-csrf-token': effectiveCsrfToken } : {})
+                },
+                body: JSON.stringify({
+                    year: reqYearStr,
+                    semester: String(semester || '').trim(),
+                    yearId: matchedYearVal || '',
+                    semId: semId || '',
+                    csrfToken: effectiveCsrfToken
+                }),
+                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(12000) : undefined
+            });
+
+            if (fastResp.ok) {
+                const fastData = await fastResp.json().catch(() => null);
+                if (fastData?.sessionExpired) {
+                    throw new Error("Your session has expired. Please log out and sign in again.");
+                }
+                saveErpCookiesFromResponse(fastResp, { studentId: targetStudent });
+                if (fastData?.html) {
+                    const parsed = this.parseSubjects(fastData.html);
+                    if (parsed && parsed.length > 0) {
+                        return parsed;
+                    }
+                }
+            }
+        } catch (fastErr) {
+            if (fastErr.message?.includes('expired') || fastErr.message?.includes('sign in')) {
+                throw fastErr;
+            }
+            console.warn('[ERP] fast-attendance fallback to multi-step query:', fastErr.message);
+        }
+
         let subjects = [];
         let lastHtml = '';
         let lastError = null;
 
         for (const currentYearId of candidateYearIds) {
             try {
+                const loopCookie = getStoredErpCookies(targetStudent) || targetCookie;
                 // 1. Prime searchgetinput with candidate year and sem to update Yii2 controller session context
                 try {
                     const primeForm = new URLSearchParams();
@@ -1270,15 +1336,16 @@ export const erpService = {
                         'Cache-Control': 'no-cache',
                         'Referer': 'https://newerp.kluniversity.in/index.php'
                     }, targetStudent);
-                    primeHeaders['x-erp-cookie'] = targetCookie;
+                    primeHeaders['x-erp-cookie'] = loopCookie;
 
-                    await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
+                    const primeResp = await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
                         method: 'POST',
                         headers: primeHeaders,
                         body: primeForm,
                         credentials: 'include',
                         cache: 'no-store'
                     });
+                    saveErpCookiesFromResponse(primeResp, { studentId: targetStudent });
                 } catch {
                     // ignore priming failure and continue to courselist
                 }
@@ -1296,6 +1363,7 @@ export const erpService = {
                     formData.append('_csrf-frontend', effectiveCsrfToken);
                 }
 
+                const postCookie = getStoredErpCookies(targetStudent) || loopCookie;
                 const headers = buildErpHeaders({
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-Requested-With': 'XMLHttpRequest',
@@ -1303,7 +1371,7 @@ export const erpService = {
                     'Cache-Control': 'no-cache',
                     'Referer': 'https://newerp.kluniversity.in/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput'
                 }, targetStudent);
-                headers['x-erp-cookie'] = targetCookie;
+                headers['x-erp-cookie'] = postCookie;
                 if (effectiveCsrfToken) {
                     headers['X-CSRF-Token'] = effectiveCsrfToken;
                 }

@@ -910,6 +910,9 @@ const AttendanceRegister = () => {
         if (isRestoredEmpty) {
             setSubjects([]);
             setShowDashboard(true);
+            if (hasActiveErpSession(activeId)) {
+                handleSearch(initY, initS, activeId);
+            }
         } else if (restoredCourses && restoredCourses.length > 0) {
             setSubjects(restoredCourses);
             setShowDashboard(true);
