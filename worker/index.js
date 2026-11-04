@@ -646,7 +646,6 @@ export default {
                         }
 
                         const reqYearStr = (year || '').toString().trim();
-                        const reqYearId = (yearId || '').toString().trim();
                         const cleanYearStr = reqYearStr.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
                         const legacyToYear = { '18': '2026', '17': '2025', '16': '2024', '15': '2023', '14': '2022' };
                         const targetYearStart = legacyToYear[reqYearStr] || 
@@ -656,25 +655,26 @@ export default {
                         if (availableYears.length > 0) {
                             // 1. Text match with clean string (e.g. "2026-2027", "26-27", "2026")
                             if (cleanYearStr) {
+                                const normReq = cleanYearStr.replace(/\s+/g, '');
                                 matchedYear = availableYears.find(y => {
-                                    const yt = y.text.toLowerCase().trim();
-                                    return yt === cleanYearStr || yt.includes(cleanYearStr) || cleanYearStr.includes(yt);
+                                    const yt = y.text.toLowerCase().trim().replace(/\s+/g, '');
+                                    return yt === normReq || yt.includes(normReq) || normReq.includes(yt);
                                 });
                             }
 
                             // 2. Target start year match (e.g. "2026")
                             if (!matchedYear && targetYearStart) {
-                                matchedYear = availableYears.find(y => y.text.includes(targetYearStart));
-                            }
-
-                            // 3. Direct value match
-                            if (!matchedYear && reqYearId) {
-                                matchedYear = availableYears.find(y => y.val === reqYearId);
+                                matchedYear = availableYears.find(y => {
+                                    const clean = (y.text || '').toLowerCase().trim();
+                                    return clean.startsWith(targetYearStart) || clean.includes(targetYearStart + '-');
+                                });
                             }
                         }
                         if (matchedYear) {
                             resolvedYearId = matchedYear.val;
                             selectedYearText = matchedYear.text;
+                        } else {
+                            resolvedYearId = '';
                         }
 
                         const reqSemStr = (semester || '').toString().trim().toLowerCase();
@@ -726,10 +726,7 @@ export default {
                 // Helper to resolve all possible candidate ERP IDs for the requested academic year
                 const getCandidateYearIds = (yVal, yIdVal, mVal) => {
                     const list = [];
-                    if (mVal) list.push(String(mVal).trim());
-                    if (yIdVal) list.push(String(yIdVal).trim());
                     const str = String(yVal || '').trim();
-                    const cleanStr = str.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
                     let firstYear = parseInt(str.split('-')[0], 10);
                     if (!isNaN(firstYear) && firstYear < 100) {
                         if (firstYear === 29 || firstYear === 18) firstYear = 2026;
@@ -742,27 +739,33 @@ export default {
                         else firstYear += 2000;
                     }
 
-                    if (firstYear === 2026 || str === '18' || str === '29' || cleanStr.includes('26')) list.push('18', '22', '19', '17', '20', '21', '29', '2026-2027', '2026-27');
-                    else if (firstYear === 2025 || str === '17' || str === '28' || str === '19' || cleanStr.includes('25')) list.push('17', '19', '18', '16', '28', '2025-2026', '2025-26');
-                    else if (firstYear === 2024 || str === '16' || str === '27' || cleanStr.includes('24')) list.push('16', '15', '17', '27', '2024-2025', '2024-25');
-                    else if (firstYear === 2023 || str === '15' || str === '26' || cleanStr.includes('23')) list.push('15', '14', '16', '26', '2023-2024', '2023-24');
-                    else if (firstYear === 2022 || str === '14' || str === '25' || cleanStr.includes('22')) list.push('14', '13', '15', '25', '2022-2023', '2022-23');
-                    else if (firstYear === 2021 || str === '13' || str === '24' || cleanStr.includes('21')) list.push('13', '10', '14', '24', '2021-2022', '2021-22');
-                    else if (firstYear === 2020 || str === '10' || str === '23' || cleanStr.includes('20')) list.push('10', '9', '13', '23', '2020-2021', '2020-21');
-                    else if (firstYear === 2019 || str === '9' || str === '22' || cleanStr.includes('19')) list.push('9', '8', '22');
-                    if (str && !list.includes(str)) list.push(str);
+                    if (mVal) list.push(String(mVal).trim());
+
+                    if (firstYear && firstYear > 2026) {
+                        const offset = firstYear - 2026;
+                        list.push(String(18 + offset), String(29 + offset), `${firstYear}-${firstYear + 1}`);
+                    } else if (firstYear === 2026 || str === '18' || str === '29') {
+                        list.push('18', '29', '2026-2027', '2026-27');
+                    } else if (firstYear === 2025 || str === '17' || str === '28') {
+                        list.push('17', '28', '2025-2026', '2025-26');
+                    } else if (firstYear === 2024 || str === '16' || str === '27') {
+                        list.push('16', '27', '2024-2025', '2024-25');
+                    } else if (firstYear === 2023 || str === '15' || str === '26') {
+                        list.push('15', '26', '2023-2024', '2023-24');
+                    } else if (firstYear === 2022 || str === '14' || str === '25') {
+                        list.push('14', '25', '2022-2023', '2022-23');
+                    } else if (firstYear === 2021 || str === '13' || str === '24') {
+                        list.push('13', '24', '2021-2022', '2021-22');
+                    } else if (firstYear === 2020 || str === '10' || str === '23') {
+                        list.push('10', '23', '2020-2021', '2020-21');
+                    }
 
                     return Array.from(new Set(list.filter(Boolean)));
                 };
 
-                const erpSelectedYear = availableYears.find(y => y.isSelected)?.val;
-                const candidateYears = Array.from(new Set([
-                    resolvedYearId,
-                    ...getCandidateYearIds(year, yearId, resolvedYearId),
-                    (!resolvedYearId ? erpSelectedYear : null)
-                ].filter(Boolean)));
+                const candidateYears = getCandidateYearIds(year, yearId, resolvedYearId);
                 if (candidateYears.length === 0) {
-                    candidateYears.push(resolvedYearId || '28');
+                    candidateYears.push(resolvedYearId || '18');
                 }
 
                 if (!resolvedSemId) {

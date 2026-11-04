@@ -1277,14 +1277,14 @@ export const erpService = {
         const fallbackCandidates = getCandidateYearIdsForYear(year, null, null);
         const candidateYearIds = Array.from(new Set([
             matchedYearVal,
-            ...fallbackCandidates,
-            (!matchedYearVal ? sessionInfo?.selectedYear?.value : null)
+            ...fallbackCandidates
         ].filter(Boolean)));
 
         // 2. High-speed single-trip Edge discovery via /api/fast-attendance (< 800ms)
         try {
             const currentCookie = getStoredErpCookies(targetStudent) || targetCookie;
-            const fastResp = await fetch(`${apiBase || ''}/api/fast-attendance`, {
+            const targetBase = apiBase || FALLBACK_ERP_BASE;
+            const fastResp = await fetch(`${targetBase}/api/fast-attendance`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1294,7 +1294,7 @@ export const erpService = {
                 body: JSON.stringify({
                     year: reqYearStr,
                     semester: String(semester || '').trim(),
-                    yearId: matchedYearVal || sessionInfo?.selectedYear?.value || '',
+                    yearId: matchedYearVal || '',
                     semId: semId || '',
                     csrfToken: effectiveCsrfToken
                 }),
@@ -1360,7 +1360,8 @@ export const erpService = {
                     headers['X-CSRF-Token'] = effectiveCsrfToken;
                 }
 
-                let response = await fetch(`${apiBase || ''}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
+                const targetBase = apiBase || FALLBACK_ERP_BASE;
+                let response = await fetch(`${targetBase}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
                     method: 'POST',
                     headers,
                     body: formData.toString(),
@@ -1378,14 +1379,14 @@ export const erpService = {
                 }
 
                 let html = await response.text();
-                if ((html.includes('<div id="root">') || html.includes('/vite.svg') || html.includes('/timetable-logo.svg')) && apiBase !== FALLBACK_ERP_BASE) {
+                if ((html.includes('<div id="root">') || html.includes('/vite.svg') || html.includes('/timetable-logo.svg')) && targetBase !== FALLBACK_ERP_BASE) {
                     const fbHeaders = { ...headers, 'x-erp-cookie': targetCookie };
                     const cookie = getStoredErpCookies(targetStudent);
                     if (cookie) fbHeaders['x-erp-cookie'] = cookie;
                     response = await fetch(`${FALLBACK_ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
                         method: 'POST',
                         headers: fbHeaders,
-                        body: formData,
+                        body: formData.toString(),
                         credentials: 'include',
                         cache: 'no-store'
                     });

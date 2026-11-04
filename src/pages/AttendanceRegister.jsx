@@ -16,6 +16,7 @@ import {
     normalizeAcademicYear,
     normalizeSemester,
     getPresentAcademicYearAndSem,
+    getTruePresentAcademicYearAndSem,
     getStudentTimetable,
     getLiveClassStatus,
     cleanRoomNumber,
@@ -203,7 +204,7 @@ const getAvailableSemesterOptions = (targetId) => {
     const seen = new Set();
 
     // 1. Present Academic Session is always first
-    const present = getPresentAcademicYearAndSem(targetId);
+    const present = getTruePresentAcademicYearAndSem(targetId);
     const presY = normalizeAcademicYear(present.year);
     const presS = normalizeSemester(present.sem);
     const presKey = `${presY}_${presS}`;
@@ -920,6 +921,8 @@ const AttendanceRegister = () => {
         setAttendanceNotification(null);
         setRecentlyUpdatedCodes(new Set());
         setFetchError(null);
+        setYear(targetYear);
+        setSemester(targetSem);
 
         if (activeId) {
             try {
