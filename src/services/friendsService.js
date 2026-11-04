@@ -27,23 +27,54 @@ const ACTIVE_PROFILE_KEY = 'kl_active_profile_id';
 
 // Obfuscate password for safe local storage
 export const encodePassword = (pass) => {
+    if (!pass || typeof pass !== 'string') return '';
+    if (pass.startsWith('klenc:')) return pass;
     try {
-        return btoa(unescape(encodeURIComponent(pass)));
+        return 'klenc:' + btoa(unescape(encodeURIComponent(pass)));
     } catch {
-        return btoa(pass);
+        return 'klenc:' + btoa(pass);
     }
 };
 
 export const decodePassword = (encoded) => {
-    if (!encoded) return '';
-    try {
-        return decodeURIComponent(escape(atob(encoded)));
-    } catch {
+    if (!encoded || typeof encoded !== 'string') return '';
+    if (encoded.startsWith('klenc:')) {
+        const payload = encoded.slice(6);
         try {
-            return atob(encoded);
+            return decodeURIComponent(escape(atob(payload)));
         } catch {
+            try {
+                return atob(payload);
+            } catch {
+                return payload;
+            }
+        }
+    }
+    // For legacy un-prefixed values: never run atob blindly on plaintext
+    try {
+        const decoded = decodeURIComponent(escape(atob(encoded)));
+        // Discard if decoded contains non-printable control characters
+        let hasControl = false;
+        for (let i = 0; i < decoded.length; i++) {
+            const code = decoded.charCodeAt(i);
+            if ((code >= 0 && code <= 8) || (code >= 14 && code <= 31) || (code >= 127 && code <= 159)) {
+                hasControl = true;
+                break;
+            }
+        }
+        if (hasControl) {
             return encoded;
         }
+        // Verify round-trip encoding matches to ensure it was truly encoded
+        try {
+            const reEncoded = btoa(unescape(encodeURIComponent(decoded)));
+            if (reEncoded === encoded) {
+                return decoded;
+            }
+        } catch { /* ignore */ }
+        return decoded;
+    } catch {
+        return encoded;
     }
 };
 

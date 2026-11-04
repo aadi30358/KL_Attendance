@@ -11,6 +11,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { broadcastAttendanceUpdate } from '../services/crossDomainSync';
 import { 
     saveStudentProfileToCloud, 
+    getStudentProfileFromCloud,
     saveFriendsToCloud, 
     saveAttendanceToCloud, 
     saveCgpaToCloud, 
@@ -27,6 +28,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
     const [captchaUrl, setCaptchaUrl] = useState('');
     const [csrfToken, setCsrfToken] = useState('');
     const [manualPassword, setManualPassword] = useState('');
+    const [cloudPassword, setCloudPassword] = useState('');
     const [loadingCaptcha, setLoadingCaptcha] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
@@ -40,19 +42,27 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
 
     const savedPassword = useMemo(() => {
         if (!friend) return '';
-        let candidate = friend.password;
+        let candidate = friend.password || friend.savedPassword;
         const sid = friend.studentId || friend.username || (friend.id !== 'main' ? friend.id : '') || '';
         if (!candidate && sid) {
             const foundInFriends = (getSavedFriends() || []).find(f => f.studentId === sid || f.username === sid || f.id === sid);
             if (foundInFriends?.password) candidate = foundInFriends.password;
         }
+        if (!candidate && sid) {
+            candidate = (typeof window !== 'undefined' ? (localStorage.getItem(`friend_pass_${sid}`) || localStorage.getItem(`kl_pass_${sid}`)) : '');
+        }
         if (!candidate && (friend.id === 'main' || sid === (typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : ''))) {
             candidate = (typeof window !== 'undefined' ? localStorage.getItem('rememberedPassword') : '') || getMyProfile()?.password;
+        }
+        if (!candidate) {
+            candidate = (typeof window !== 'undefined' ? localStorage.getItem('userCredentials_enc') : '');
         }
         if (!candidate) return '';
         const decoded = decodePassword(candidate);
         return decoded || candidate;
     }, [friend]);
+
+    const effectivePassword = savedPassword || cloudPassword;
 
     const refreshCaptcha = useCallback(async () => {
         setLoadingCaptcha(true);
@@ -62,6 +72,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             const res = await erpService.refreshCaptcha(studentId);
             if (res?.cookies) {
                 captchaCookiesRef.current = res.cookies;
+                try { sessionStorage.setItem('kl_captcha_cookies', res.cookies); } catch { /* ignore */ }
             }
             const resolvedUrl = res?.captchaUrl || res?.dataUrl || (res?.blob ? URL.createObjectURL(res.blob) : null) || (res?.captchaBlob ? URL.createObjectURL(res.captchaBlob) : null);
             if (resolvedUrl) {
@@ -93,6 +104,17 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         setManualPassword('');
 
         let isMounted = true;
+
+        // In incognito or fresh browser, retrieve permanently saved password from Cloud Firestore
+        if (!savedPassword && studentId) {
+            getStudentProfileFromCloud(studentId).then(cloudProf => {
+                if (cloudProf?.savedPassword && isMounted) {
+                    const decoded = decodePassword(cloudProf.savedPassword);
+                    if (decoded) setCloudPassword(decoded);
+                }
+            }).catch(() => {});
+        }
+
         const loadInitial = async () => {
             setLoadingCaptcha(true);
             try {
@@ -100,6 +122,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 if (!isMounted) return;
                 if (res?.cookies) {
                     captchaCookiesRef.current = res.cookies;
+                    try { sessionStorage.setItem('kl_captcha_cookies', res.cookies); } catch { /* ignore */ }
                 }
                 if (res?.csrfToken) {
                     setCsrfToken(res.csrfToken);
@@ -133,7 +156,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             isMounted = false;
             clearTimeout(timer);
         };
-    }, [isOpen, friend, refreshCaptcha]);
+    }, [isOpen, friend, refreshCaptcha, savedPassword, studentId]);
 
     const handleLogin = async (e) => {
         if (e) e.preventDefault();
@@ -150,7 +173,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
             return;
         }
 
-        const rawPassword = savedPassword || manualPassword.trim();
+        const rawPassword = effectivePassword || manualPassword.trim();
         const activeToken = csrfTokenRef.current || erpService.getStoredCsrfToken() || csrfToken || '';
 
         if (!studentId) {
@@ -167,7 +190,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
         setError('');
 
         try {
-            const boundCookies = captchaCookiesRef.current || '';
+            const boundCookies = captchaCookiesRef.current || (typeof window !== 'undefined' ? sessionStorage.getItem('kl_captcha_cookies') : '') || '';
             const loginResult = await erpService.login(studentId, rawPassword, cleanCaptcha, activeToken, boundCookies);
 
             if (loginResult && loginResult.success) {
@@ -314,7 +337,8 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     })
                 ]).catch(() => {});
             } else {
-                throw new Error('The verification code is incorrect. Please check the captcha.');
+                const failMsg = loginResult?.error || loginResult?.message || '';
+                throw new Error(failMsg || 'The verification code is incorrect. Please check the captcha.');
             }
         } catch (err) {
             console.warn('Friend login notice:', err?.message || err);
@@ -374,7 +398,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 </div>
 
                 {/* Auto-filled Notice */}
-                {savedPassword ? (
+                {effectivePassword ? (
                     <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-xl py-2 px-3 flex items-center gap-2 text-emerald-800 text-xs font-bold">
                         <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                         <span>ID & Password saved. Enter Captcha only.</span>
@@ -401,7 +425,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
 
                 <form onSubmit={handleLogin} className="space-y-4">
                     {/* Manual Password field (shown if password not saved) */}
-                    {!savedPassword && (
+                    {!effectivePassword && (
                         <div className="space-y-1.5">
                             <label className="text-[11px] font-black uppercase tracking-wider text-slate-600 block">
                                 ERP Password

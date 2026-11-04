@@ -25,7 +25,7 @@ import {
     setActiveProfileId
 } from '../services/friendsService';
 import { setStoredErpCookies, clearStoredErpCookies, prewarmCaptcha } from '../services/erpService';
-import { deleteStudentProfileFromCloud } from '../services/cloudStorageService';
+import { deleteStudentProfileFromCloud, restoreStudentDataInIncognito } from '../services/cloudStorageService';
 import { useMaintenance } from '../services/useMaintenance';
 import FriendsManagerModal from './FriendsManagerModal';
 import AddFriendModal from './AddFriendModal';
@@ -64,6 +64,19 @@ export default function ErpSidebar({
             window.removeEventListener('storage', sync);
         };
     }, []);
+
+    // In incognito mode or fresh tab, automatically restore saved accounts from Firestore
+    useEffect(() => {
+        if (allProfiles.length === 0) {
+            const sid = (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '2400030358';
+            restoreStudentDataInIncognito(sid).then(restored => {
+                if (restored) {
+                    setAllProfiles(getAllProfiles());
+                    setActiveProfile(getActiveProfileDetails());
+                }
+            }).catch(() => {});
+        }
+    }, [allProfiles.length]);
 
     const handleNavigation = (path) => {
         if (onToggle && window.innerWidth < 1024) {

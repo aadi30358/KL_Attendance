@@ -131,8 +131,15 @@ export async function saveAttendanceToCloud(studentId, year, sem, courses = [], 
     }
 
     const cleanYear = String(year || '2026-2027').trim();
-    const cleanSem = String(sem || '1').trim();
-    const historyKey = `${cleanYear}_${cleanSem}`;
+    const rawSem = String(sem || '1').trim();
+    const isOdd = rawSem === '1' || rawSem.toLowerCase().includes('odd');
+    const isEven = rawSem === '2' || rawSem.toLowerCase().includes('even');
+    const isSummer = rawSem === '3' || rawSem.toLowerCase().includes('summer');
+    const isTerm3 = rawSem === '4' || (rawSem.toLowerCase().includes('term') && !isSummer);
+    const semName = isOdd ? 'Odd' : isEven ? 'Even' : isSummer ? 'Summer' : isTerm3 ? 'Term3' : rawSem;
+    const semNum = isOdd ? '1' : isEven ? '2' : isSummer ? '3' : isTerm3 ? '4' : rawSem;
+    const historyKey1 = `${cleanYear}_${semName}`;
+    const historyKey2 = `${cleanYear}_${semNum}`;
     const nowIso = new Date().toISOString();
     const nowTs = Date.now();
 
@@ -153,7 +160,7 @@ export async function saveAttendanceToCloud(studentId, year, sem, courses = [], 
 
         const attendanceEntry = {
             academicYear: cleanYear,
-            semester: cleanSem,
+            semester: semName,
             courses,
             summary: finalSummary,
             lastSuccessfulFetch: nowIso,
@@ -165,20 +172,23 @@ export async function saveAttendanceToCloud(studentId, year, sem, courses = [], 
         const userRef = doc(db, 'users', cleanId);
         await setDoc(userRef, {
             academicYear: cleanYear,
-            semester: cleanSem,
+            semester: semName,
             activeCourses: courses,
             courses: courses,
             attendanceSummary: finalSummary,
             lastSuccessfulFetch: nowIso,
             lastUpdated: nowTs,
-            [`attendanceHistory.${historyKey}`]: attendanceEntry,
+            [`attendanceHistory.${historyKey1}`]: attendanceEntry,
+            [`attendanceHistory.${historyKey2}`]: attendanceEntry,
             updatedAt: nowIso
         }, { merge: true });
 
         // 3. Save into subcollection for structured historical permanence
         try {
-            const subRef = doc(db, 'users', cleanId, 'attendance', historyKey);
-            await setDoc(subRef, attendanceEntry, { merge: true });
+            const subRef1 = doc(db, 'users', cleanId, 'attendance', historyKey1);
+            await setDoc(subRef1, attendanceEntry, { merge: true });
+            const subRef2 = doc(db, 'users', cleanId, 'attendance', historyKey2);
+            await setDoc(subRef2, attendanceEntry, { merge: true });
         } catch (subErr) {
             console.warn(`[CloudStorage] Subcollection save notice for ${cleanId}:`, subErr?.message);
         }
@@ -207,19 +217,39 @@ export async function getAttendanceFromCloud(studentId, year = null, sem = null)
         // If specific year & semester requested
         if (year && sem) {
             const cleanYear = String(year).trim();
-            const cleanSem = String(sem).trim();
-            const historyKey = `${cleanYear}_${cleanSem}`;
+            const rawSem = String(sem).trim();
+            const isOdd = rawSem === '1' || rawSem.toLowerCase().includes('odd');
+            const isEven = rawSem === '2' || rawSem.toLowerCase().includes('even');
+            const isSummer = rawSem === '3' || rawSem.toLowerCase().includes('summer');
+            const isTerm3 = rawSem === '4' || (rawSem.toLowerCase().includes('term') && !isSummer);
+            const semName = isOdd ? 'Odd' : isEven ? 'Even' : isSummer ? 'Summer' : isTerm3 ? 'Term3' : rawSem;
+            const semNum = isOdd ? '1' : isEven ? '2' : isSummer ? '3' : isTerm3 ? '4' : rawSem;
 
-            if (data.attendanceHistory && data.attendanceHistory[historyKey]) {
-                return data.attendanceHistory[historyKey];
+            const candidates = [
+                `${cleanYear}_${semName}`,
+                `${cleanYear}_${semNum}`,
+                `${cleanYear}_${rawSem}`
+            ];
+
+            for (const key of candidates) {
+                if (data.attendanceHistory && data.attendanceHistory[key] && Array.isArray(data.attendanceHistory[key].courses) && data.attendanceHistory[key].courses.length > 0) {
+                    return data.attendanceHistory[key];
+                }
             }
 
             // Check subcollection fallback
-            try {
-                const subRef = doc(db, 'users', cleanId, 'attendance', historyKey);
-                const subSnap = await getDoc(subRef);
-                if (subSnap.exists()) return subSnap.data();
-            } catch { /* ignore */ }
+            for (const key of candidates) {
+                try {
+                    const subRef = doc(db, 'users', cleanId, 'attendance', key);
+                    const subSnap = await getDoc(subRef);
+                    if (subSnap.exists()) {
+                        const subData = subSnap.data();
+                        if (Array.isArray(subData?.courses) && subData.courses.length > 0) {
+                            return subData;
+                        }
+                    }
+                } catch { /* ignore */ }
+            }
         }
 
         // Return latest active courses if available
@@ -227,11 +257,20 @@ export async function getAttendanceFromCloud(studentId, year = null, sem = null)
         if (Array.isArray(activeCourses) && activeCourses.length > 0) {
             return {
                 academicYear: data.academicYear || '2026-2027',
-                semester: data.semester || '1',
+                semester: data.semester || 'Odd',
                 courses: activeCourses,
                 summary: data.attendanceSummary || null,
                 timestamp: data.lastUpdated || (data.lastSuccessfulFetch ? new Date(data.lastSuccessfulFetch).getTime() : Date.now())
             };
+        }
+
+        // Search any historical semester with valid courses
+        if (data.attendanceHistory && typeof data.attendanceHistory === 'object') {
+            for (const entry of Object.values(data.attendanceHistory)) {
+                if (Array.isArray(entry?.courses) && entry.courses.length > 0) {
+                    return entry;
+                }
+            }
         }
     } catch (err) {
         console.warn(`[CloudStorage] Error getting attendance from cloud for ${cleanId}:`, err?.message || err);

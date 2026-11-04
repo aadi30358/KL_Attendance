@@ -28,7 +28,7 @@ import { fetchLiveErpGrades } from '../services/gradesService';
 import FriendsManagerModal from '../components/FriendsManagerModal';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';
 import ErpSidebar from '../components/ErpSidebar';
-import { getAttendanceFromCloud, saveAttendanceToCloud, saveCgpaToCloud, saveTimetableToCloud } from '../services/cloudStorageService';
+import { getAttendanceFromCloud, saveAttendanceToCloud, saveCgpaToCloud, saveTimetableToCloud, restoreStudentDataInIncognito } from '../services/cloudStorageService';
 
 function formatTimeAgo(timestamp) {
     if (!timestamp) return null;
@@ -935,10 +935,23 @@ const AttendanceRegister = () => {
         );
 
         if ((!html || html.includes('site-error') || html.includes('The above error occurred') || html.includes('id="login-form"')) && !hasSavedData && !hasSavedProfile) {
-            localStorage.removeItem('erpDashboardHtml');
-            localStorage.removeItem('activeErpUser');
-            sessionStorage.removeItem('erp_authenticated');
-            navigate('/login');
+            // Attempt fast cloud restore before giving up to login (essential for Incognito direct opens)
+            const fallbackStudent = activeUser || '2400030358';
+            restoreStudentDataInIncognito(fallbackStudent).then(restored => {
+                if (restored) {
+                    setActiveId(fallbackStudent);
+                    setActiveProfile(getActiveProfileDetails(fallbackStudent));
+                    const presentFallback = getPresentAcademicYearAndSem(fallbackStudent);
+                    handleSearch(presentFallback.year, presentFallback.sem, fallbackStudent);
+                } else {
+                    localStorage.removeItem('erpDashboardHtml');
+                    localStorage.removeItem('activeErpUser');
+                    sessionStorage.removeItem('erp_authenticated');
+                    navigate('/login');
+                }
+            }).catch(() => {
+                navigate('/login');
+            });
             return;
         }
 
