@@ -301,6 +301,110 @@ export async function getFriendsFromCloud(studentId) {
 }
 
 /**
+ * Permanently saves student CGPA and grades to Firestore
+ */
+export async function saveCgpaToCloud(studentId, grades = [], cgpa = null) {
+    const cleanId = sanitizeStudentId(studentId);
+    if (!cleanId || !Array.isArray(grades) || grades.length === 0) return false;
+
+    try {
+        const userRef = doc(db, 'users', cleanId);
+        const nowIso = new Date().toISOString();
+        const payload = {
+            grades,
+            lastCgpaFetch: nowIso,
+            updatedAt: nowIso
+        };
+        if (cgpa !== null && cgpa !== undefined) {
+            payload.cgpa = cgpa;
+        }
+
+        await setDoc(userRef, payload, { merge: true });
+        return true;
+    } catch (err) {
+        console.warn(`[CloudStorage] Error saving CGPA to cloud for ${cleanId}:`, err?.message || err);
+        return false;
+    }
+}
+
+/**
+ * Retrieves student CGPA and grades from Firestore
+ */
+export async function getCgpaFromCloud(studentId) {
+    const cleanId = sanitizeStudentId(studentId);
+    if (!cleanId) return null;
+
+    try {
+        const userRef = doc(db, 'users', cleanId);
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+            const data = snap.data();
+            if (Array.isArray(data.grades) && data.grades.length > 0) {
+                return {
+                    grades: data.grades,
+                    cgpa: data.cgpa || null,
+                    lastCgpaFetch: data.lastCgpaFetch || null
+                };
+            }
+        }
+    } catch (err) {
+        console.warn(`[CloudStorage] Error getting CGPA from cloud for ${cleanId}:`, err?.message || err);
+    }
+    return null;
+}
+
+/**
+ * Permanently saves student Timetable to Firestore
+ */
+export async function saveTimetableToCloud(studentId, timetable = {}, year = '2026-2027', sem = 'Odd') {
+    const cleanId = sanitizeStudentId(studentId);
+    if (!cleanId || !timetable || typeof timetable !== 'object') return false;
+
+    try {
+        const userRef = doc(db, 'users', cleanId);
+        const nowIso = new Date().toISOString();
+        await setDoc(userRef, {
+            timetable,
+            timetableYear: String(year || '2026-2027').trim(),
+            timetableSem: String(sem || 'Odd').trim(),
+            lastTimetableFetch: nowIso,
+            updatedAt: nowIso
+        }, { merge: true });
+        return true;
+    } catch (err) {
+        console.warn(`[CloudStorage] Error saving timetable to cloud for ${cleanId}:`, err?.message || err);
+        return false;
+    }
+}
+
+/**
+ * Retrieves student Timetable from Firestore
+ */
+export async function getTimetableFromCloud(studentId) {
+    const cleanId = sanitizeStudentId(studentId);
+    if (!cleanId) return null;
+
+    try {
+        const userRef = doc(db, 'users', cleanId);
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+            const data = snap.data();
+            if (data.timetable && typeof data.timetable === 'object') {
+                return {
+                    timetable: data.timetable,
+                    year: data.timetableYear || '2026-2027',
+                    sem: data.timetableSem || 'Odd',
+                    lastTimetableFetch: data.lastTimetableFetch || null
+                };
+            }
+        }
+    } catch (err) {
+        console.warn(`[CloudStorage] Error getting timetable from cloud for ${cleanId}:`, err?.message || err);
+    }
+    return null;
+}
+
+/**
  * Restores permanent cloud data into local memory and localStorage
  * Essential for Incognito mode, new browsers, new devices, or after cache clearing
  */
@@ -356,7 +460,27 @@ export async function restoreStudentDataInIncognito(studentId) {
             } catch { /* ignore */ }
         }
 
-        // 4. Notify all components and tabs of successful cloud restore
+        // 4. Populate CGPA & Grades if available
+        if (Array.isArray(profile.grades) && profile.grades.length > 0) {
+            try {
+                const strGrades = JSON.stringify(profile.grades);
+                localStorage.setItem(`kl_grades_${cleanId}`, strGrades);
+                localStorage.setItem(`cgpa_${cleanId}`, strGrades);
+                if (cleanId === '2400030358' || profile.isPrimary) {
+                    localStorage.setItem('cgpa_data', strGrades);
+                }
+            } catch { /* ignore */ }
+        }
+
+        // 5. Populate Timetable if available
+        if (profile.timetable && typeof profile.timetable === 'object') {
+            try {
+                localStorage.setItem(`kl_timetable_${cleanId}`, JSON.stringify(profile.timetable));
+                localStorage.setItem('timetableData', JSON.stringify(profile.timetable));
+            } catch { /* ignore */ }
+        }
+
+        // 6. Notify all components and tabs of successful cloud restore
         if (typeof window !== 'undefined') {
             window.dispatchEvent(new Event('storage'));
             window.dispatchEvent(new CustomEvent('kl_friends_updated', { detail: { studentId: cleanId } }));

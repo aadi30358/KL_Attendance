@@ -128,7 +128,15 @@ export function getTruePresentAcademicYearAndSem(studentId = null) {
     if (studentId) {
         const match = String(studentId).match(/^(\d{2})/);
         if (match) {
-            const admissionYr = 2000 + parseInt(match[1], 10);
+            const batchPrefix = parseInt(match[1], 10);
+            // Batch 25 entered college in 2025 -> active academic session is 2025-2026
+            if (batchPrefix >= 25) {
+                return {
+                    year: '2025-2026',
+                    sem: defaultSem
+                };
+            }
+            const admissionYr = 2000 + batchPrefix;
             const studyOffset = Math.max(0, Math.min(3, academicStartYear - admissionYr));
             const presentStartYr = admissionYr + studyOffset;
             return {

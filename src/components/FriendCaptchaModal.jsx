@@ -9,7 +9,13 @@ import { useMaintenance } from '../services/useMaintenance';
 import { useAuth } from '../context/useAuth';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { broadcastAttendanceUpdate } from '../services/crossDomainSync';
-import { saveStudentProfileToCloud, saveFriendsToCloud } from '../services/cloudStorageService';
+import { 
+    saveStudentProfileToCloud, 
+    saveFriendsToCloud, 
+    saveAttendanceToCloud, 
+    saveCgpaToCloud, 
+    saveTimetableToCloud 
+} from '../services/cloudStorageService';
 
 export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess }) {
     const { setErpUser } = useAuth();
@@ -212,8 +218,9 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 saveFriendsToCloud(studentId, getSavedFriends()).catch(() => {});
 
                 // Determine target session
-                const targetYear = localStorage.getItem(`activeYear_${studentId}`) || localStorage.getItem('selectedAcademicYear') || '2026-2027';
-                const targetSem = localStorage.getItem(`activeSem_${studentId}`) || localStorage.getItem('selectedSemester') || 'Odd';
+                const defaultStudentYear = (studentId && String(studentId).startsWith('25')) ? '2025-2026' : '2026-2027';
+                const targetYear = localStorage.getItem(`manualYear_${studentId}`) || localStorage.getItem(`activeYear_${studentId}`) || defaultStudentYear;
+                const targetSem = localStorage.getItem(`manualSem_${studentId}`) || localStorage.getItem(`activeSem_${studentId}`) || 'Odd';
 
                 try {
                     sessionStorage.setItem(`erp_verified_${studentId}`, 'true');
@@ -240,50 +247,71 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     navigate('/attendance-register');
                 }
 
-                // High-speed parallel background sync: fetches attendance, timetable, and grades concurrently
+                // High-speed parallel background sync: fetches attendance, timetable, and grades concurrently & saves to cloud
                 Promise.allSettled([
                     fetchLiveErpTimetable(studentId, targetYear, targetSem).then(res => {
                         if (res?.timetable) {
+                            saveTimetableToCloud(studentId, res.timetable, targetYear, targetSem).catch(() => {});
                             window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
                                 detail: { studentId, year: targetYear, sem: targetSem }
                             }));
                         }
                     }),
-                    erpService.fetchAttendance(targetYear, targetSem, studentId).then(data => {
-                        const list = Array.isArray(data) ? data : [];
+                    erpService.fetchAttendance(targetYear, targetSem, studentId).then(async data => {
+                        let list = Array.isArray(data) ? data : [];
+                        let finalYear = targetYear;
+                        // Auto-fallback if 2026-2027 has no courses (e.g. 2025 batch student)
+                        if (list.length === 0 && targetYear === '2026-2027') {
+                            const fallbackYear = '2025-2026';
+                            const fallbackData = await erpService.fetchAttendance(fallbackYear, targetSem, studentId).catch(() => []);
+                            if (Array.isArray(fallbackData) && fallbackData.length > 0) {
+                                list = fallbackData;
+                                finalYear = fallbackYear;
+                            }
+                        }
+
                         const isZero = list.length === 0;
                         const payload = JSON.stringify({
                             attendance_data: list,
-                            year: targetYear,
+                            year: finalYear,
                             semester: targetSem,
                             timestamp: Date.now(),
                             empty: isZero
                         });
                         try {
                             localStorage.setItem(`kleData_${studentId}`, payload);
-                            localStorage.setItem(`kleData_${studentId}_${targetYear}_${targetSem}`, payload);
-                            localStorage.setItem(`activeYear_${studentId}`, targetYear);
+                            localStorage.setItem(`kleData_${studentId}_${finalYear}_${targetSem}`, payload);
+                            localStorage.setItem(`activeYear_${studentId}`, finalYear);
                             localStorage.setItem(`activeSem_${studentId}`, targetSem);
                             localStorage.setItem(`attendanceLastUpdated_${studentId}`, String(Date.now()));
                         } catch { /* ignore storage error */ }
+
+                        if (list.length > 0) {
+                            saveAttendanceToCloud(studentId, finalYear, targetSem, list).catch(() => {});
+                        }
+
                         window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
-                            detail: { studentId, data: list, year: targetYear, sem: targetSem }
+                            detail: { studentId, data: list, year: finalYear, sem: targetSem }
                         }));
                         window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                            detail: { studentId, year: targetYear, sem: targetSem }
+                            detail: { studentId, year: finalYear, sem: targetSem }
                         }));
                         window.dispatchEvent(new CustomEvent('kl_active_profile_updated', {
                             detail: { studentId }
                         }));
                         broadcastAttendanceUpdate({
                             studentId,
-                            year: targetYear,
+                            year: finalYear,
                             semester: targetSem,
                             coursesCount: list.length,
                             timestamp: Date.now()
                         }).catch(() => {});
                     }),
-                    fetchLiveErpGrades(studentId)
+                    fetchLiveErpGrades(studentId).then(res => {
+                        if (res?.courses && res.courses.length > 0) {
+                            saveCgpaToCloud(studentId, res.courses, res.cgpa).catch(() => {});
+                        }
+                    })
                 ]).catch(() => {});
             } else {
                 throw new Error('The verification code is incorrect. Please check the captcha.');

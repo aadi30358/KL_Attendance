@@ -53,6 +53,8 @@ import {
     getStudentProfileFromCloud,
     saveFriendsToCloud,
     saveAttendanceToCloud,
+    saveCgpaToCloud,
+    saveTimetableToCloud,
     restoreStudentDataInIncognito,
     seedAdithyaProfileIfEmpty,
     deleteStudentProfileFromCloud
@@ -624,13 +626,22 @@ const Login = () => {
                 ]).catch(recErr => console.warn('[Login] Record login notice:', recErr));
 
                 // Pre-sync live ERP attendance, timetable and grades in background & save to Firestore
-                erpService.fetchAttendance(null, null, cleanId).then(courses => {
+                const initYear = cleanId.startsWith('25') ? '2025-2026' : '2026-2027';
+                erpService.fetchAttendance(initYear, 'Odd', cleanId).then(courses => {
                     if (Array.isArray(courses) && courses.length > 0) {
-                        saveAttendanceToCloud(cleanId, '2026-2027', '1', courses).catch(() => {});
+                        saveAttendanceToCloud(cleanId, initYear, '1', courses).catch(() => {});
                     }
                 }).catch(() => {});
-                fetchLiveErpTimetable(cleanId).catch(() => {});
-                fetchLiveErpGrades(cleanId).catch(() => {});
+                fetchLiveErpTimetable(cleanId, initYear, 'Odd').then(res => {
+                    if (res?.timetable) {
+                        saveTimetableToCloud(cleanId, res.timetable, initYear, 'Odd').catch(() => {});
+                    }
+                }).catch(() => {});
+                fetchLiveErpGrades(cleanId).then(res => {
+                    if (res?.courses && res.courses.length > 0) {
+                        saveCgpaToCloud(cleanId, res.courses, res.cgpa).catch(() => {});
+                    }
+                }).catch(() => {});
 
                 // Instant sub-second event dispatches across tabs and components
                 window.dispatchEvent(new CustomEvent('kl_attendance_updated', { detail: { studentId: cleanId } }));

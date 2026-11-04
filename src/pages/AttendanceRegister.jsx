@@ -28,7 +28,7 @@ import { fetchLiveErpGrades } from '../services/gradesService';
 import FriendsManagerModal from '../components/FriendsManagerModal';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';
 import ErpSidebar from '../components/ErpSidebar';
-import { getAttendanceFromCloud, saveAttendanceToCloud } from '../services/cloudStorageService';
+import { getAttendanceFromCloud, saveAttendanceToCloud, saveCgpaToCloud, saveTimetableToCloud } from '../services/cloudStorageService';
 
 function formatTimeAgo(timestamp) {
     if (!timestamp) return null;
@@ -630,6 +630,54 @@ const AttendanceRegister = () => {
                 setSubjects(finalCourses);
                 setShowDashboard(true);
                 saveAttendanceToCloud(targetId, finalYear, finalSem, finalCourses).catch(() => {});
+            } else if (normYear === '2026-2027') {
+                // Auto-fallback: If 2026-2027 has no registered courses (e.g. batch 25 student like Harshitha 2500032128), try 2025-2026
+                const fallbackYear = '2025-2026';
+                try {
+                    const fallbackData = await erpService.fetchAttendance(fallbackYear, fetchSemester, targetId);
+                    if (Array.isArray(fallbackData) && fallbackData.length > 0) {
+                        setSubjects(fallbackData);
+                        setShowDashboard(true);
+                        setYear(fallbackYear);
+                        setSemester(normSem);
+                        saveAttendanceToCloud(targetId, fallbackYear, normSem, fallbackData).catch(() => {});
+                        try {
+                            localStorage.setItem(`activeYear_${targetId}`, fallbackYear);
+                            localStorage.setItem(`manualYear_${targetId}`, fallbackYear);
+                            localStorage.setItem(`kleData_${targetId}`, JSON.stringify({
+                                attendance_data: fallbackData,
+                                year: fallbackYear,
+                                semester: normSem,
+                                timestamp: Date.now()
+                            }));
+                        } catch { /* ignore */ }
+
+                        // Trigger timetable and CGPA sync for the discovered year
+                        fetchLiveErpTimetable(targetId, fallbackYear, normSem).then((res) => {
+                            if (res?.timetable) {
+                                saveTimetableToCloud(targetId, res.timetable, fallbackYear, normSem).catch(() => {});
+                                window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                                    detail: { studentId: targetId, year: fallbackYear, sem: normSem }
+                                }));
+                            }
+                        }).catch(() => null);
+
+                        fetchLiveErpGrades(targetId).then(res => {
+                            if (res?.courses && res.courses.length > 0) {
+                                saveCgpaToCloud(targetId, res.courses, res.cgpa).catch(() => {});
+                            }
+                        }).catch(() => null);
+
+                        return;
+                    }
+                } catch { /* ignore fallback error */ }
+
+                if (subjectsRef.current && subjectsRef.current.length > 0) {
+                    setShowDashboard(true);
+                } else {
+                    setSubjects([]);
+                    setShowDashboard(true);
+                }
             } else if (subjectsRef.current && subjectsRef.current.length > 0) {
                 // Invariant: Never overwrite existing valid attendance with empty response
                 setShowDashboard(true);
@@ -644,17 +692,22 @@ const AttendanceRegister = () => {
             setSessionStatus('active');
 
             if (finalCourses.length > 0) {
-                // Trigger live ERP timetable & grades sync in background
+                // Trigger live ERP timetable & grades sync in background and save to cloud
                 if (targetId) {
                     fetchLiveErpTimetable(targetId, finalYear, finalSem).then((res) => {
                         if (res?.timetable) {
+                            saveTimetableToCloud(targetId, res.timetable, finalYear, finalSem).catch(() => {});
                             window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
                                 detail: { studentId: targetId, year: finalYear, sem: finalSem }
                             }));
                         }
                     }).catch(() => null);
 
-                    fetchLiveErpGrades(targetId).catch(() => null);
+                    fetchLiveErpGrades(targetId).then(res => {
+                        if (res?.courses && res.courses.length > 0) {
+                            saveCgpaToCloud(targetId, res.courses, res.cgpa).catch(() => {});
+                        }
+                    }).catch(() => null);
                 }
 
                 const keyToUse = targetId ? `kleData_${targetId}` : 'kleData';
@@ -800,7 +853,8 @@ const AttendanceRegister = () => {
             // Determine target academic year & semester for this student
             const savedYear = newId ? (localStorage.getItem(`manualYear_${newId}`) || localStorage.getItem(`activeYear_${newId}`)) : null;
             const savedSem = newId ? (localStorage.getItem(`manualSem_${newId}`) || localStorage.getItem(`activeSem_${newId}`)) : null;
-            const targetYear = savedYear || year || '2026-2027';
+            const defaultStudentYear = (newId && String(newId).startsWith('25')) ? '2025-2026' : (year || '2026-2027');
+            const targetYear = savedYear || defaultStudentYear;
             const targetSem = savedSem || semester || 'Odd';
 
             setYear(targetYear);
