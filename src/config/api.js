@@ -121,9 +121,9 @@ export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId
       `${String(firstYear).slice(-2)}-${shortYr}`
     );
   } else if (firstYear === 2026 || strYear === '29' || strYear === '18') {
-    candidates.push('29', '18', '22', '19', '28', '2026-2027', '2026-27', '26-27');
+    candidates.push('29', '30', '18', '20', '21', '22', '19', '28', '2026-2027', '2026-27', '26-27');
   } else if (firstYear === 2025 || strYear === '28' || strYear === '17' || strYear === '19') {
-    candidates.push('28', '17', '19', '18', '22', '2025-2026', '2025-26', '25-26');
+    candidates.push('28', '29', '17', '19', '18', '22', '20', '2025-2026', '2025-26', '25-26');
   } else if (firstYear === 2024 || strYear === '27' || strYear === '16') {
     candidates.push('27', '16', '17', '2024-2025', '2024-25', '24-25');
   } else if (firstYear === 2023 || strYear === '26' || strYear === '15') {

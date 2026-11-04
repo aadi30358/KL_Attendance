@@ -511,8 +511,11 @@ const Login = () => {
                     // Check if cleanId matches an existing saved friend
                     const existingFriends = getSavedFriends();
                     const matchedFriend = existingFriends.find(f => (f.studentId || '').toLowerCase() === cleanId.toLowerCase());
+                    const currentMy = getMyProfile();
+                    const primaryRemembered = (typeof window !== 'undefined' ? (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId')) : '') || '';
+                    const hasExistingPrimary = Boolean(currentMy?.studentId || primaryRemembered);
 
-                    if (matchedFriend) {
+                    if (matchedFriend && hasExistingPrimary && matchedFriend.studentId !== currentMy?.studentId && matchedFriend.studentId !== primaryRemembered) {
                         saveFriend({
                             id: matchedFriend.id,
                             nickname: matchedFriend.nickname || 'Buddy',
@@ -522,43 +525,31 @@ const Login = () => {
                         setActiveProfileId(matchedFriend.id);
                     } else {
                         const cleanName = stripEmojis(newProfileName).trim();
-                        if (cleanName && cleanName.toLowerCase() !== 'my account') {
-                            const saved = saveFriend({
-                                nickname: cleanName,
+                        // Invariant: The first student account in any browser session/incognito MUST ALWAYS be saved as Primary (id: 'main')
+                        if (!hasExistingPrimary || cleanId === currentMy?.studentId || cleanId === primaryRemembered) {
+                            const resolvedName = cleanName || detectedErpName || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account';
+                            saveMyProfile({
+                                nickname: resolvedName,
                                 studentId: cleanId,
                                 password: cleanPass
                             });
-                            if (saved) {
-                                setActiveProfileId(saved.id);
-                            }
-                        } else {
-                            // Only save as myProfile if no rememberedId exists or if it matches cleanId
-                            const currentMy = getMyProfile();
-                            if (!currentMy?.studentId || currentMy.studentId === cleanId) {
-                                const resolvedName = cleanName || detectedErpName || localStorage.getItem('rememberedName') || 'My Account';
-                                saveMyProfile({
-                                    nickname: resolvedName,
-                                    studentId: cleanId,
-                                    password: cleanPass
-                                });
-                                setActiveProfileId('main');
-                                try {
-                                    localStorage.setItem('original_my_id', cleanId);
-                                    localStorage.setItem('rememberedId', cleanId);
-                                    if (resolvedName && resolvedName !== 'My Account') {
-                                        localStorage.setItem('rememberedName', resolvedName);
-                                        localStorage.setItem(`kl_name_${cleanId}`, resolvedName);
-                                    }
-                                } catch { /* ignore */ }
-                            } else {
-                                const newBuddy = saveFriend({
-                                    nickname: cleanName || detectedErpName || 'Buddy',
-                                    studentId: cleanId,
-                                    password: cleanPass
-                                });
-                                if (newBuddy) {
-                                    setActiveProfileId(newBuddy.id);
+                            setActiveProfileId('main', cleanId);
+                            try {
+                                localStorage.setItem('original_my_id', cleanId);
+                                localStorage.setItem('rememberedId', cleanId);
+                                if (resolvedName && resolvedName !== 'My Account') {
+                                    localStorage.setItem('rememberedName', resolvedName);
+                                    localStorage.setItem(`kl_name_${cleanId}`, resolvedName);
                                 }
+                            } catch { /* ignore */ }
+                        } else {
+                            const newBuddy = saveFriend({
+                                nickname: cleanName || detectedErpName || 'Buddy',
+                                studentId: cleanId,
+                                password: cleanPass
+                            });
+                            if (newBuddy) {
+                                setActiveProfileId(newBuddy.id);
                             }
                         }
                     }

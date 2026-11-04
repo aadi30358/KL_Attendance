@@ -292,7 +292,7 @@ export default function StudyHub() {
                                     </div>
                                     <div>
                                         <h2 className="text-2xl font-bold text-slate-900">Personal Tutor</h2>
-                                        <p className="text-slate-400 text-sm font-bold uppercase tracking-wider">Gemini 1.5 Pro</p>
+                                        <p className="text-slate-400 text-sm font-bold uppercase tracking-wider">Gemini 2.5</p>
                                     </div>
                                 </div>
                             </div>

@@ -128,17 +128,18 @@ export const getSavedFriends = () => {
 
         // Self-Healing: Discover any accounts with stored cookies or attendance data
         try {
-            const primaryId = (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId') || '').trim();
+            const primaryId = (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser') || '').trim();
             for (let i = 0; i < localStorage.length; i++) {
                 const k = localStorage.key(i);
                 if (!k) continue;
                 let foundSid = null;
                 let foundName = '';
 
-                if (k.startsWith('erp_cookie_')) {
+                if (k.startsWith('erp_cookie_') && k !== 'erp_cookie_main') {
                     foundSid = k.replace('erp_cookie_', '').trim();
-                } else if (k.startsWith('kleData_')) {
-                    foundSid = k.replace('kleData_', '').trim();
+                } else if (k.startsWith('kleData_') && k !== 'kleData') {
+                    const rawPart = k.replace('kleData_', '').trim();
+                    foundSid = rawPart.includes('_') ? rawPart.split('_')[0] : rawPart;
                     try {
                         const parsed = JSON.parse(localStorage.getItem(k) || '{}');
                         if (parsed?.student_name) foundName = stripEmojis(parsed.student_name);
@@ -152,7 +153,7 @@ export const getSavedFriends = () => {
 
                 if (foundSid && /^\d{5,}$/.test(foundSid)) {
                     if (
-                        foundSid !== primaryId && 
+                        (!primaryId || foundSid !== primaryId) && 
                         !deletedList.includes(foundSid) && 
                         !deletedList.includes(`friend_${foundSid}`) &&
                         !list.some(f => f.studentId === foundSid || f.username === foundSid || f.id === foundSid)

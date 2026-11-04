@@ -751,8 +751,8 @@ export default {
                         else firstYear += 2000;
                     }
 
-                    if (firstYear === 2026 || str === '29' || str === '18' || cleanStr.includes('26')) list.push('29', '18', '22', '19', '28', '2026-2027', '2026-27');
-                    else if (firstYear === 2025 || str === '28' || str === '17' || str === '19' || cleanStr.includes('25')) list.push('28', '17', '19', '18', '22', '2025-2026', '2025-26');
+                    if (firstYear === 2026 || str === '29' || str === '18' || cleanStr.includes('26')) list.push('29', '30', '18', '20', '21', '22', '19', '28', '2026-2027', '2026-27');
+                    else if (firstYear === 2025 || str === '28' || str === '17' || str === '19' || cleanStr.includes('25')) list.push('28', '29', '17', '19', '18', '22', '20', '2025-2026', '2025-26');
                     else if (firstYear === 2024 || str === '27' || str === '16' || cleanStr.includes('24')) list.push('27', '16', '17', '2024-2025', '2024-25');
                     else if (firstYear === 2023 || str === '26' || str === '15' || cleanStr.includes('23')) list.push('26', '15', '16', '2023-2024', '2023-24');
                     else if (firstYear === 2022 || str === '25' || str === '14' || cleanStr.includes('22')) list.push('25', '14', '15', '2022-2023', '2022-23');
@@ -805,6 +805,24 @@ export default {
                         formData.append('_csrf-frontend', currentCsrf);
                     }
 
+                    // 1. Prime searchgetinput with candidate year and sem to update Yii2 controller session context
+                    try {
+                        postHeaders['Cookie'] = currentCookieStr;
+                        const primeResp = await fetch(`${ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fsearchgetinput`, {
+                            method: 'POST',
+                            headers: postHeaders,
+                            body: formData.toString(),
+                            redirect: 'manual',
+                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                        });
+                        const primeScList = primeResp.headers.getSetCookie ? primeResp.headers.getSetCookie() : [primeResp.headers.get('set-cookie')].filter(Boolean);
+                        parseCookieHeader(primeScList).forEach((v, k) => cookieMap.set(k, v));
+                        currentCookieStr = serializeCookieMap(cookieMap);
+                    } catch {
+                        // ignore priming error and continue to courselist
+                    }
+
+                    // 2. Query courselist
                     postHeaders['Cookie'] = currentCookieStr;
                     let crResp = await fetch(`${ERP_BASE}/index.php?r=studentattendance%2Fstudentdailyattendance%2Fcourselist`, {
                         method: 'POST',
@@ -923,7 +941,8 @@ export default {
 
                 const scList = erpRes.headers.getSetCookie ? erpRes.headers.getSetCookie() : [erpRes.headers.get('set-cookie')].filter(Boolean);
                 if (scList.length > 0) {
-                    resHeaders.set('x-set-erp-cookie', scList.map(c => c.split(';')[0]).join('; '));
+                    const scMap = parseCookieHeader(scList);
+                    resHeaders.set('x-set-erp-cookie', serializeCookieMap(scMap));
                 }
                 const locHeader = erpRes.headers.get('location');
                 if (locHeader) {

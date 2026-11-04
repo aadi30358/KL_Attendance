@@ -443,7 +443,7 @@ const AttendanceRegister = () => {
         return () => window.removeEventListener('kl_open_captcha', handleOpenCaptcha);
     }, []);
 
-    const handleSearch = useCallback(async (fetchYear = year, fetchSemester = semester, customId = activeId) => {
+    const handleSearch = useCallback(async (fetchYear = year, fetchSemester = semester, customId = activeId, forceLive = false) => {
         if (!fetchYear || !fetchSemester) { 
             setFetchError('Please select both Year and Semester'); 
             return; 
@@ -458,7 +458,7 @@ const AttendanceRegister = () => {
         // 1. FAST CACHE-FIRST RELOAD (< 10ms): Check if cached data exists for this specific student, year & sem
         const scopedKey = targetId ? `kleData_${targetId}_${normYear}_${normSem}` : null;
         const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
-        if (scopedRaw) {
+        if (scopedRaw && !forceLive) {
             try {
                 const parsed = JSON.parse(scopedRaw);
                 // If this semester is confirmed empty, show empty state immediately and NEVER fall back to other semesters
@@ -986,8 +986,10 @@ const AttendanceRegister = () => {
             }
 
             // If subjects are currently empty and discovered session differs from initial query, query immediately
-            if (subjectsRef.current.length === 0 && (nextYear !== initY || nextSem !== initS)) {
-                handleSearch(nextYear, nextSem, activeId);
+            const normNextYear = normalizeAcademicYear(nextYear);
+            const normNextSem = normalizeSemester(nextSem);
+            if (subjectsRef.current.length === 0 && (normNextYear !== initY || normNextSem !== initS)) {
+                handleSearch(normNextYear, normNextSem, activeId);
             }
         }).catch(err => {
             console.warn('[AttendanceRegister] Could not preload sessions:', err);
@@ -2194,7 +2196,7 @@ const AttendanceRegister = () => {
                                                 return;
                                             }
                                         }
-                                        handleSearch(year, semester);
+                                        handleSearch(year, semester, activeId, true);
                                     }} 
                                     disabled={loading}
                                     className="w-full bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-600 hover:from-indigo-700 hover:to-purple-700 active:scale-[0.98] text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-600/25 hover:shadow-indigo-600/35 transition-all mt-2 flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-85">
