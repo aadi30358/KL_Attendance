@@ -472,22 +472,24 @@ export default {
 
                 // If ERP returned 200 without redirect, inspect body for validation error
                 const respText = await loginResp.text();
-                const isIncorrectCap = respText.includes('The verification code is incorrect') ||
+                const isIncorrectUser = respText.includes('Incorrect username or password') ||
+                                       respText.includes('field-loginFormPasswordID required has-error') ||
+                                       respText.includes('field-loginform-password has-error') ||
+                                       respText.includes('floating-label field-loginFormPasswordID required has-error') ||
+                                       respText.includes('Enter Password') ||
+                                       respText.includes('Enter Username');
+
+                const isIncorrectCap = !isIncorrectUser && (
+                                       respText.includes('The verification code is incorrect') ||
                                        respText.includes('Verification code is incorrect') ||
                                        respText.includes('field-loginFormCaptcha has-error') ||
                                        respText.includes('field-loginform-captcha has-error') ||
-                                       respText.includes('Verification code cannot be blank');
-
-                const isIncorrectUser = !isIncorrectCap && (
-                                       respText.includes('Incorrect username or password') ||
-                                       respText.includes('field-loginFormPasswordID required has-error') ||
-                                       respText.includes('field-loginform-password has-error') ||
-                                       respText.includes('floating-label field-loginFormPasswordID required has-error')
+                                       respText.includes('Verification code cannot be blank')
                 );
 
-                let errorMsg = 'The verification code is incorrect. Please check the captcha.';
+                let errorMsg = 'Incorrect Student ID, Password, or Captcha. Please try again.';
                 if (isIncorrectUser) {
-                    errorMsg = 'Incorrect Student ID or Password.';
+                    errorMsg = 'Incorrect Student ID or Password. Please check your password.';
                 } else if (isIncorrectCap) {
                     errorMsg = 'The verification code is incorrect. Please check the captcha.';
                 } else if (respText.includes('Unable to verify your data submission')) {

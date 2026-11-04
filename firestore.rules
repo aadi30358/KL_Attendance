@@ -17,11 +17,17 @@ service cloud.firestore {
       allow write: if isAdmin() || docId in ['sync', 'deployment'];
     }
 
-    // User profiles - allows real student roll numbers (6-16 alphanumeric) or authenticated owner/admin
+    // User profiles & permanent student attendance records - allows real student roll numbers (6-16 alphanumeric) or authenticated owner/admin
     match /users/{userId} {
       allow read: if true;
       allow create, update: if userId.matches('^[0-9A-Za-z]{6,16}$') || (request.auth != null && (request.auth.uid == userId || isAdmin()));
       allow delete: if isAdmin();
+
+      match /{allSubcollections=**} {
+        allow read: if true;
+        allow create, update: if userId.matches('^[0-9A-Za-z]{6,16}$') || (request.auth != null && (request.auth.uid == userId || isAdmin()));
+        allow delete: if isAdmin();
+      }
     }
 
     // Feedback collection - public creation with size validation, update/delete strictly restricted to admin

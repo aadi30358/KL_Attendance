@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { initializeAuth, inMemoryPersistence } from "firebase/auth";
+import { initializeAuth, browserLocalPersistence, indexedDBLocalPersistence, inMemoryPersistence } from "firebase/auth";
 
 const firebaseConfig = {
     apiKey: "AIzaSyD43vdxh1aaOQryt1eFLIWUrrzdEAJYapk",
@@ -15,10 +15,24 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-// Initialize services with in-memory persistence to keep client storage (IndexedDB) 100% clean
+// Initialize Firestore - works across normal, private & incognito tabs
 export const db = getFirestore(app);
-export const auth = initializeAuth(app, {
-    persistence: inMemoryPersistence
-});
+
+// Initialize Auth with multi-environment persistence (browserLocal -> indexedDB -> inMemory fallback)
+let authInstance;
+try {
+    authInstance = initializeAuth(app, {
+        persistence: [browserLocalPersistence, indexedDBLocalPersistence, inMemoryPersistence]
+    });
+} catch {
+    try {
+        authInstance = initializeAuth(app, {
+            persistence: inMemoryPersistence
+        });
+    } catch {
+        // Fallback if already initialized
+    }
+}
+export const auth = authInstance;
 
 export default app;

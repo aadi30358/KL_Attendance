@@ -48,6 +48,14 @@ import {
     getSavedFriends,
     getMyProfile
 } from '../services/friendsService';
+import {
+    saveStudentProfileToCloud,
+    getStudentProfileFromCloud,
+    saveFriendsToCloud,
+    saveAttendanceToCloud,
+    restoreStudentDataInIncognito,
+    seedAdithyaProfileIfEmpty
+} from '../services/cloudStorageService';
 
 const Login = () => {
     const { setErpUser, currentUser } = useAuth();
@@ -210,6 +218,24 @@ const Login = () => {
             window.removeEventListener('storage', updateAll);
         };
     }, [selectedProfileId]);
+
+    // Automatic cloud sync on mount for Incognito, new devices, and fresh tabs
+    useEffect(() => {
+        seedAdithyaProfileIfEmpty().catch(() => {});
+        const currentProfiles = getAllProfiles();
+        if (currentProfiles.length === 0) {
+            // In Incognito / fresh browser, restore registered profile
+            restoreStudentDataInIncognito('2400030358').then(restored => {
+                if (restored) {
+                    const updated = getAllProfiles();
+                    setAllProfilesList(updated);
+                    if (updated.length > 0) {
+                        setSelectedProfileId(updated[0].id);
+                    }
+                }
+            }).catch(() => {});
+        }
+    }, []);
 
     // Auto-redirect to Attendance Register (page with Odd Sem & Year) ONLY if an active ERP session exists
     useEffect(() => {
@@ -427,14 +453,31 @@ const Login = () => {
             cleanId = (activeProfile.studentId || '').trim();
             cleanPass = decodePassword(activeProfile.password) || (activeProfile.id === 'main' ? decodePassword(localStorage.getItem('rememberedPassword') || '') : '');
             if (!cleanPass) {
+                // Check permanent cloud storage
+                try {
+                    const cloudProf = await getStudentProfileFromCloud(cleanId);
+                    if (cloudProf?.savedPassword) {
+                        cleanPass = decodePassword(cloudProf.savedPassword);
+                    }
+                } catch { /* ignore */ }
+            }
+            if (!cleanPass) {
                 setEditingFriend(activeProfile);
                 setShowAddFriendModal(true);
-                setError(`Please save the ERP password for ${activeProfile.nickname}.`);
+                setError(`Please enter the ERP password for ${activeProfile.nickname}.`);
                 return;
             }
         } else {
             cleanId = idNumber.trim();
             cleanPass = password.trim();
+            if (!cleanPass) {
+                try {
+                    const cloudProf = await getStudentProfileFromCloud(cleanId);
+                    if (cloudProf?.savedPassword) {
+                        cleanPass = decodePassword(cloudProf.savedPassword);
+                    }
+                } catch { /* ignore */ }
+            }
         }
 
         const cleanCaptcha = captcha.trim();
@@ -559,14 +602,32 @@ const Login = () => {
                     }
                 }
 
+                // PERMANENT STORAGE: Save profile, credentials & friends to Firestore cloud
+                const finalDisplayName = detectedErpName || (cleanId === '2400030358' ? 'Adithya' : null) || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'Student';
+                saveStudentProfileToCloud(cleanId, {
+                    name: finalDisplayName,
+                    nickname: finalDisplayName,
+                    password: cleanPass,
+                    isPrimary: true,
+                    primaryAccount: true
+                }).catch(() => {});
+
+                // Save all updated profiles to cloud
+                const allCurrentProfiles = getAllProfiles();
+                saveFriendsToCloud(cleanId, allCurrentProfiles).catch(() => {});
+
                 // Fire background logging asynchronously without blocking UI navigation (< 10ms response)
                 Promise.allSettled([
                     typeof recordStudentLogin === 'function' ? recordStudentLogin(cleanId) : Promise.resolve(),
                     saveCredentialsToSheet(cleanId)
                 ]).catch(recErr => console.warn('[Login] Record login notice:', recErr));
 
-                // Pre-sync live ERP attendance, timetable and grades in background
-                erpService.fetchAttendance(null, null, cleanId).catch(() => {});
+                // Pre-sync live ERP attendance, timetable and grades in background & save to Firestore
+                erpService.fetchAttendance(null, null, cleanId).then(courses => {
+                    if (Array.isArray(courses) && courses.length > 0) {
+                        saveAttendanceToCloud(cleanId, '2026-2027', '1', courses).catch(() => {});
+                    }
+                }).catch(() => {});
                 fetchLiveErpTimetable(cleanId).catch(() => {});
                 fetchLiveErpGrades(cleanId).catch(() => {});
 
@@ -1179,7 +1240,23 @@ const Login = () => {
                                             <input
                                                 type="text"
                                                 value={idNumber}
-                                                onChange={(e) => setIdNumber(e.target.value)}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setIdNumber(val);
+                                                    const clean = val.trim();
+                                                    if (clean.length >= 6) {
+                                                        getStudentProfileFromCloud(clean).then(cloudProf => {
+                                                            if (cloudProf) {
+                                                                if (cloudProf.name && !newProfileName) {
+                                                                    setNewProfileName(cloudProf.name);
+                                                                }
+                                                                if (cloudProf.savedPassword && !password) {
+                                                                    setPassword(decodePassword(cloudProf.savedPassword));
+                                                                }
+                                                            }
+                                                        }).catch(() => {});
+                                                    }
+                                                }}
                                                 onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }}
                                                 placeholder="Enter Student ID"
                                                 className="w-full bg-slate-50 border-2 border-slate-300 focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 rounded-2xl py-3 px-4 text-slate-900 font-bold text-sm transition-all"

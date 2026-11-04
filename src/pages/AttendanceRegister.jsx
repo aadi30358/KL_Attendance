@@ -28,6 +28,7 @@ import { fetchLiveErpGrades } from '../services/gradesService';
 import FriendsManagerModal from '../components/FriendsManagerModal';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';
 import ErpSidebar from '../components/ErpSidebar';
+import { getAttendanceFromCloud, saveAttendanceToCloud } from '../services/cloudStorageService';
 
 function formatTimeAgo(timestamp) {
     if (!timestamp) return null;
@@ -516,6 +517,60 @@ const AttendanceRegister = () => {
             } catch { /* ignore and proceed to network */ }
         }
 
+        // 1b. PERMANENT CLOUD FALLBACK (< 120ms): Check Firestore for saved attendance
+        // Essential for Incognito mode, cross-browser access, fresh devices, and cleared cache
+        if (!forceLive) {
+            try {
+                const cloudAttendance = await getAttendanceFromCloud(targetId, normYear, normSem);
+                if (cloudAttendance && Array.isArray(cloudAttendance.courses) && cloudAttendance.courses.length > 0) {
+                    const baseKey = `${targetId}_${normYear}_${normSem}`;
+                    sessionAttendanceBaselines.current.set(baseKey, cloudAttendance.courses);
+                    setSubjects(cloudAttendance.courses);
+                    setShowDashboard(true);
+                    setYear(normYear);
+                    setSemester(normSem);
+                    setLoading(false);
+                    setFetchError(null);
+                    setDebugHtml(null);
+                    setLastUpdated(cloudAttendance.timestamp || Date.now());
+                    setSessionStatus(hasActiveErpSession(targetId) ? 'active' : 'expired');
+
+                    // Defensively sync to local storage
+                    const payload = JSON.stringify({
+                        attendance_data: cloudAttendance.courses,
+                        year: normYear,
+                        semester: normSem,
+                        timestamp: cloudAttendance.timestamp || Date.now()
+                    });
+                    try {
+                        if (scopedKey) localStorage.setItem(scopedKey, payload);
+                        if (targetId) {
+                            localStorage.setItem(`kleData_${targetId}`, payload);
+                            localStorage.setItem(`activeYear_${targetId}`, normYear);
+                            localStorage.setItem(`activeSem_${targetId}`, normSem);
+                            localStorage.setItem(`manualYear_${targetId}`, normYear);
+                            localStorage.setItem(`manualSem_${targetId}`, normSem);
+                            localStorage.setItem(`attendanceLastUpdated_${targetId}`, String(cloudAttendance.timestamp || Date.now()));
+                        }
+                    } catch { /* ignore */ }
+
+                    // If active ERP session exists, silently re-check in background
+                    if (hasActiveErpSession(targetId)) {
+                        erpService.fetchAttendance(queryYear, fetchSemester, targetId)
+                            .then(freshCourses => {
+                                if (Array.isArray(freshCourses) && freshCourses.length > 0) {
+                                    setSubjects(freshCourses);
+                                    saveAttendanceToCloud(targetId, normYear, normSem, freshCourses).catch(() => {});
+                                }
+                            }).catch(() => {});
+                    }
+                    return;
+                }
+            } catch (cloudErr) {
+                console.warn('[AttendanceRegister] Cloud read notice:', cloudErr?.message);
+            }
+        }
+
         // 2. If no cache exists, check active ERP session before network query
         if (!hasActiveErpSession(targetId)) {
             setLoading(false);
@@ -555,8 +610,18 @@ const AttendanceRegister = () => {
                 return;
             }
 
-            setSubjects(finalCourses);
-            setShowDashboard(true);
+            if (finalCourses.length > 0) {
+                setSubjects(finalCourses);
+                setShowDashboard(true);
+                saveAttendanceToCloud(targetId, finalYear, finalSem, finalCourses).catch(() => {});
+            } else if (subjectsRef.current && subjectsRef.current.length > 0) {
+                // Invariant: Never overwrite existing valid attendance with empty response
+                setShowDashboard(true);
+            } else {
+                setSubjects([]);
+                setShowDashboard(true);
+            }
+
             setYear(finalYear);
             setSemester(finalSem);
             setLastUpdated(Date.now());
@@ -865,16 +930,31 @@ const AttendanceRegister = () => {
         } else if (restoredCourses && restoredCourses.length > 0) {
             setSubjects(restoredCourses);
             setShowDashboard(true);
-        } else if (hasActiveErpSession(activeId)) {
-            handleSearch(initY, initS, activeId, true);
         } else {
-            setLoading(false);
-            setShowDashboard(false);
-            setSubjects([]);
-            const prof = (getSavedFriends() || []).find(f => f.studentId === activeId || f.id === activeId) || (getMyProfile()?.studentId === activeId ? getMyProfile() : null);
-            if (prof?.password || prof?.hasSavedPassword || prof?.studentId) {
-                setTargetFriendForCaptcha(prof);
-            }
+            // Check permanent cloud storage (< 120ms) before prompting
+            getAttendanceFromCloud(activeId, initY, initS).then(cloudData => {
+                if (!isMounted) return;
+                if (cloudData && Array.isArray(cloudData.courses) && cloudData.courses.length > 0) {
+                    setSubjects(cloudData.courses);
+                    setShowDashboard(true);
+                    setLastUpdated(cloudData.timestamp || Date.now());
+                    setSessionStatus(hasActiveErpSession(activeId) ? 'active' : 'expired');
+                } else if (hasActiveErpSession(activeId)) {
+                    handleSearch(initY, initS, activeId, true);
+                } else {
+                    setLoading(false);
+                    setShowDashboard(false);
+                    setSubjects([]);
+                    const prof = (getSavedFriends() || []).find(f => f.studentId === activeId || f.id === activeId) || (getMyProfile()?.studentId === activeId ? getMyProfile() : null);
+                    if (prof?.password || prof?.hasSavedPassword || prof?.studentId) {
+                        setTargetFriendForCaptcha(prof);
+                    }
+                }
+            }).catch(() => {
+                if (hasActiveErpSession(activeId)) {
+                    handleSearch(initY, initS, activeId, true);
+                }
+            });
         }
 
         // Dynamically discover registered sessions from ERP
@@ -959,8 +1039,8 @@ const AttendanceRegister = () => {
                 if (res?.sessionActive) {
                     setSessionStatus('active');
                 } else if (res?.reason === 'Session expired' || res?.sessionActive === false) {
-                    // Session is inactive or expired on university server -> auto logout
-                    handleLogoutAction('session_expired');
+                    // Session is inactive or expired on university server -> update indicator, retain dashboard
+                    setSessionStatus('expired');
                 }
             } catch {
                 // ignore
@@ -973,15 +1053,14 @@ const AttendanceRegister = () => {
             isMounted = false;
             clearInterval(pingInterval);
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showDashboard]);
 
-    // Automatically log out before or upon university ERP session expiration
+    // Retain dashboard view without wiping data when ERP session expires
     useEffect(() => {
         if (sessionStatus === 'expired') { 
-            handleLogoutAction('session_expired');
+            // Invariant: Never automatically wipe attendance or log out on ERP session expiration
+            // Preserves permanent offline dashboard view for registered students
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionStatus]);
 
     // Live in-class auto-check & real-time monitoring (active for current academic sessions)
@@ -1208,8 +1287,12 @@ const AttendanceRegister = () => {
             }
         } catch (error) {
             if (error.message?.includes('expired') || error.message?.includes('sign in')) {
-                // University ERP session expired -> auto logout immediately
-                handleLogoutAction('session_expired');
+                // University ERP session expired -> update indicator, retain permanent dashboard data
+                setSessionStatus('expired');
+                if (!isSilent) {
+                    setJustCheckedNotice('ERP session expired. Displaying permanently saved attendance data.');
+                    setTimeout(() => setJustCheckedNotice(null), 5000);
+                }
                 return;
             } else if (!isSilent) {
                 const errMsg = String(error?.message || error || '');

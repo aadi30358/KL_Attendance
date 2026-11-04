@@ -9,6 +9,7 @@ import { useMaintenance } from '../services/useMaintenance';
 import { useAuth } from '../context/useAuth';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { broadcastAttendanceUpdate } from '../services/crossDomainSync';
+import { saveStudentProfileToCloud, saveFriendsToCloud } from '../services/cloudStorageService';
 
 export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess }) {
     const { setErpUser } = useAuth();
@@ -199,6 +200,16 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                         });
                     }
                 }
+
+                // PERMANENT STORAGE: Save profile, credentials & friends to Firestore cloud
+                saveStudentProfileToCloud(studentId, {
+                    name: friend.nickname || 'Student',
+                    nickname: friend.nickname || 'Student',
+                    password: rawPassword,
+                    isPrimary: friend.id === 'main',
+                    primaryAccount: friend.id === 'main'
+                }).catch(() => {});
+                saveFriendsToCloud(studentId, getSavedFriends()).catch(() => {});
 
                 // Determine target session
                 const targetYear = localStorage.getItem(`activeYear_${studentId}`) || localStorage.getItem('selectedAcademicYear') || '2026-2027';
