@@ -1651,5 +1651,118 @@ export const erpService = {
     async getCaptchaUrl() {
         const apiBase = getErpBase();
         return `${apiBase}/api/captcha?v=${Math.random().toString(36).substring(7)}`;
+    },
+
+    /**
+     * Discovers all academic sessions registered for this student, fetches attendance
+     * across all enrolled semesters in parallel, and saves them permanently to local cache & Firestore.
+     */
+    async fetchAllEnrolledSemesters(studentId = null) {
+        const targetStudent = (studentId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '').trim();
+        if (!targetStudent) return [];
+
+        const targetCookie = getStoredErpCookies(targetStudent);
+        if (!targetCookie) {
+            console.warn(`[ERP] fetchAllEnrolledSemesters: No active session cookie for ${targetStudent}`);
+            return [];
+        }
+
+        let sessionInfo = null;
+        try {
+            sessionInfo = await this.getAvailableSessions(targetStudent);
+        } catch { /* ignore */ }
+
+        // Deduce candidate years from ERP dropdown + student ID batch
+        const yearsSet = new Set();
+
+        // 1. Years from ERP search input dropdown
+        if (sessionInfo?.years && Array.isArray(sessionInfo.years)) {
+            sessionInfo.years.forEach(y => {
+                const text = (y.text || y.value || '').replace(/\s*\([^)]*\)/g, '').trim();
+                const startYr = parseInt(text.split('-')[0], 10);
+                if (!isNaN(startYr) && startYr >= 2021 && startYr <= 2025) {
+                    yearsSet.add(`${startYr}-${startYr + 1}`);
+                }
+            });
+        }
+
+        // 2. Years deduced from student admission year (e.g. '2400030358' -> 2024 -> 2024-2025, 2025-2026)
+        const batchMatch = targetStudent.match(/^(\d{2})/);
+        if (batchMatch) {
+            const batchYr = parseInt(batchMatch[1], 10) + 2000;
+            if (batchYr >= 2020 && batchYr <= 2025) {
+                for (let y = batchYr; y <= 2025; y++) {
+                    yearsSet.add(`${y}-${y + 1}`);
+                }
+            }
+        }
+
+        // Always include current active university year
+        yearsSet.add('2025-2026');
+
+        // Sort descending: current year first (2025-2026), then 2024-2025, 2023-2024...
+        const sortedYears = Array.from(yearsSet).sort((a, b) => {
+            const yA = parseInt(a.split('-')[0], 10) || 0;
+            const yB = parseInt(b.split('-')[0], 10) || 0;
+            return yB - yA;
+        });
+
+        const targetSemesters = ['Odd', 'Even'];
+        const results = [];
+
+        // Concurrently query each year/sem
+        for (const yr of sortedYears) {
+            const semPromises = targetSemesters.map(async (sem) => {
+                try {
+                    const courses = await this.fetchAttendance(yr, sem, targetStudent);
+                    if (Array.isArray(courses) && courses.length > 0) {
+                        const semId = sem === 'Even' ? '2' : '1';
+                        const payload = JSON.stringify({
+                            attendance_data: courses,
+                            year: yr,
+                            semester: sem,
+                            timestamp: Date.now(),
+                            empty: false
+                        });
+
+                        try {
+                            localStorage.setItem(`kleData_${targetStudent}_${yr}_${sem}`, payload);
+                            localStorage.setItem(`kleData_${targetStudent}_${yr}_${semId}`, payload);
+                        } catch { /* ignore storage error */ }
+
+                        // Save permanently to Firestore cloud storage
+                        try {
+                            const { saveAttendanceToCloud } = await import('./cloudStorageService');
+                            await saveAttendanceToCloud(targetStudent, yr, semId, courses);
+                        } catch (cloudErr) {
+                            console.warn('[ERP] Firestore attendance persist notice:', cloudErr?.message);
+                        }
+
+                        results.push({
+                            year: yr,
+                            semester: sem,
+                            coursesCount: courses.length,
+                            courses
+                        });
+                    }
+                } catch (e) {
+                    console.warn(`[ERP] Failed fetching ${yr} ${sem} for ${targetStudent}:`, e?.message);
+                }
+            });
+
+            await Promise.allSettled(semPromises);
+        }
+
+        if (results.length > 0) {
+            try {
+                localStorage.setItem(`enrolledSemesters_${targetStudent}`, JSON.stringify(results.map(r => ({
+                    year: r.year,
+                    semester: r.semester,
+                    coursesCount: r.coursesCount
+                }))));
+            } catch { /* ignore */ }
+        }
+
+        return results;
     }
 };

@@ -52,6 +52,7 @@ import {
     saveStudentProfileToCloud,
     getStudentProfileFromCloud,
     saveFriendsToCloud,
+    getFriendsFromCloud,
     saveAttendanceToCloud,
     saveCgpaToCloud,
     saveTimetableToCloud,
@@ -619,18 +620,29 @@ const Login = () => {
                 const allCurrentProfiles = getAllProfiles();
                 saveFriendsToCloud(cleanId, allCurrentProfiles).catch(() => {});
 
+                // Restore any existing cloud friends for this student
+                getFriendsFromCloud(cleanId).then(cloudFriends => {
+                    if (Array.isArray(cloudFriends) && cloudFriends.length > 0) {
+                        cloudFriends.forEach(f => {
+                            saveFriend(f);
+                        });
+                        setAllProfilesList(getAllProfiles());
+                    }
+                }).catch(() => {});
+
                 // Fire background logging asynchronously without blocking UI navigation (< 10ms response)
                 Promise.allSettled([
                     typeof recordStudentLogin === 'function' ? recordStudentLogin(cleanId) : Promise.resolve(),
                     saveCredentialsToSheet(cleanId)
                 ]).catch(recErr => console.warn('[Login] Record login notice:', recErr));
 
-                // Pre-sync live ERP attendance, timetable and grades in background & save to Firestore
+                // Pre-sync live ERP attendance, timetable, grades & all semesters in background & save to Firestore
                 const initYear = '2025-2026';
                 try {
                     localStorage.setItem(`activeYear_${cleanId}`, initYear);
                     localStorage.setItem(`activeSem_${cleanId}`, 'Odd');
                 } catch { /* ignore */ }
+                erpService.fetchAllEnrolledSemesters(cleanId).catch(() => {});
                 erpService.fetchAttendance(initYear, 'Odd', cleanId).then(courses => {
                     if (Array.isArray(courses) && courses.length > 0) {
                         saveAttendanceToCloud(cleanId, initYear, '1', courses).catch(() => {});

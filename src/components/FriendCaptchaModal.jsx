@@ -257,7 +257,9 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 window.dispatchEvent(new CustomEvent('kl_profile_switched', {
                     detail: {
                         profile: friend,
-                        studentId
+                        studentId,
+                        year: targetYear,
+                        sem: targetSem
                     }
                 }));
 
@@ -273,8 +275,9 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                     navigate('/attendance-register');
                 }
 
-                // High-speed parallel background sync: fetches attendance, timetable, and grades concurrently & saves to cloud
+                // High-speed parallel background sync: fetches attendance, timetable, grades & all semesters concurrently & saves to cloud
                 Promise.allSettled([
+                    erpService.fetchAllEnrolledSemesters(studentId),
                     fetchLiveErpTimetable(studentId, targetYear, targetSem).then(res => {
                         if (res?.timetable) {
                             saveTimetableToCloud(studentId, res.timetable, targetYear, targetSem).catch(() => {});

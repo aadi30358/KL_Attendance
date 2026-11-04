@@ -473,9 +473,16 @@ export async function restoreStudentDataInIncognito(studentId) {
         } catch { /* ignore storage quota/private restriction */ }
 
         // 2. Populate friends list if available
-        if (Array.isArray(profile.friends) && profile.friends.length > 0) {
+        let friendsToRestore = Array.isArray(profile.friends) && profile.friends.length > 0 ? profile.friends : [];
+        if (friendsToRestore.length === 0) {
+            friendsToRestore = await getFriendsFromCloud(cleanId);
+        }
+        if (Array.isArray(friendsToRestore) && friendsToRestore.length > 0) {
             try {
-                localStorage.setItem('kl_saved_friends', JSON.stringify(profile.friends));
+                localStorage.setItem('kl_saved_friends', JSON.stringify(friendsToRestore));
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('kl_active_profile_updated', { detail: { studentId: cleanId } }));
+                }
             } catch { /* ignore */ }
         }
 

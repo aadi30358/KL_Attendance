@@ -185,14 +185,12 @@ function BunkSimulator({ subject }) {
 
 // Dynamically generate modern academic years (current + future years down to 2021)
 const generateDefaultYears = () => {
-    const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().getMonth();
-    const startYear = (currentMonth >= 5) ? currentYear : currentYear - 1;
-    const topYear = Math.max(startYear + 1, 2026);
+    // Current operational academic year across KL University ERP with enrolled courses is 2025-2026
+    const topYear = 2026;
     const years = [];
     for (let y = topYear; y >= 2021; y--) {
         const text = `${y}-${y + 1}`;
-        years.push({ value: text, text, isCurrent: y === startYear });
+        years.push({ value: text, text, isCurrent: y === 2025 });
     }
     return years;
 };
@@ -832,11 +830,13 @@ const AttendanceRegister = () => {
             setDebugHtml(null);
 
             // Determine target academic year & semester for this student
+            const defaultStudentYear = '2025-2026';
+            const detailYear = detail?.year && detail?.year !== '2026-2027' ? detail.year : null;
             const savedYear = newId ? (localStorage.getItem(`manualYear_${newId}`) || localStorage.getItem(`activeYear_${newId}`)) : null;
             const savedSem = newId ? (localStorage.getItem(`manualSem_${newId}`) || localStorage.getItem(`activeSem_${newId}`)) : null;
-            const defaultStudentYear = '2025-2026';
-            let targetYear = (savedYear && savedYear !== '2026-2027') ? savedYear : defaultStudentYear;
-            const targetSem = savedSem || semester || 'Odd';
+            let targetYear = detailYear || ((savedYear && savedYear !== '2026-2027') ? savedYear : defaultStudentYear);
+            if (targetYear === '2026-2027') targetYear = '2025-2026';
+            const targetSem = detail?.sem || savedSem || semester || 'Odd';
 
             setYear(targetYear);
             setSemester(targetSem);
@@ -1058,7 +1058,8 @@ const AttendanceRegister = () => {
                 nextYear = normalizeAcademicYear(userManualYear);
                 setYear(nextYear);
             } else if (sessionData.selectedYear?.text) {
-                nextYear = normalizeAcademicYear(sessionData.selectedYear.text);
+                const rawSelected = normalizeAcademicYear(sessionData.selectedYear.text);
+                nextYear = (rawSelected === '2026-2027') ? '2025-2026' : rawSelected;
                 setYear(nextYear);
             } else {
                 nextYear = '2025-2026';
@@ -1081,10 +1082,36 @@ const AttendanceRegister = () => {
             }
 
             // If subjects are currently empty and discovered session differs from initial query, query immediately
-            const normNextYear = normalizeAcademicYear(nextYear);
+            let normNextYear = normalizeAcademicYear(nextYear);
+            if (normNextYear === '2026-2027') normNextYear = '2025-2026';
             const normNextSem = normalizeSemester(nextSem);
             if (subjectsRef.current.length === 0 && (normNextYear !== initY || normNextSem !== initS)) {
                 handleSearch(normNextYear, normNextSem, activeId);
+            }
+
+            // High-speed parallel background ingestion: fetch all enrolled semesters across student's academic history
+            if (activeId && hasActiveErpSession(activeId)) {
+                erpService.fetchAllEnrolledSemesters(activeId).then((allSemesters) => {
+                    if (Array.isArray(allSemesters) && allSemesters.length > 0 && isMounted) {
+                        // If current view has 0 courses or was empty, automatically present the latest populated semester
+                        if (subjectsRef.current.length === 0) {
+                            const latest = allSemesters[0];
+                            if (latest?.courses && latest.courses.length > 0) {
+                                setSubjects(latest.courses);
+                                setYear(latest.year);
+                                setSemester(latest.semester);
+                                setShowDashboard(true);
+                                setLastUpdated(Date.now());
+                                try {
+                                    localStorage.setItem(`activeYear_${activeId}`, latest.year);
+                                    localStorage.setItem(`activeSem_${activeId}`, latest.semester);
+                                    localStorage.setItem(`manualYear_${activeId}`, latest.year);
+                                    localStorage.setItem(`manualSem_${activeId}`, latest.semester);
+                                } catch { /* ignore */ }
+                            }
+                        }
+                    }
+                }).catch(() => {});
             }
         }).catch(err => {
             console.warn('[AttendanceRegister] Could not preload sessions:', err);
@@ -1493,7 +1520,8 @@ const AttendanceRegister = () => {
                                 // Resolve target year and semester for this student
                                 const profYear = localStorage.getItem(`manualYear_${newId}`) || localStorage.getItem(`activeYear_${newId}`) || year;
                                 const profSem = localStorage.getItem(`manualSem_${newId}`) || localStorage.getItem(`activeSem_${newId}`) || semester;
-                                const normY = normalizeAcademicYear(profYear);
+                                let normY = normalizeAcademicYear(profYear);
+                                if (normY === '2026-2027') normY = '2025-2026';
                                 const normS = normalizeSemester(profSem);
                                 setYear(normY);
                                 setSemester(normS);
@@ -1619,9 +1647,17 @@ const AttendanceRegister = () => {
                                     </div>
 
                             <div className="flex flex-wrap items-center gap-2 text-slate-500 text-xs sm:text-sm font-medium">
-                                <span className="font-semibold text-slate-700">
-                                    {year && semester ? `${displayYearText} · ${cleanSemesterLabel}` : 'Current Session'}
-                                </span>
+                                <button
+                                    type="button"
+                                    onClick={handleBack}
+                                    title="Click to switch Academic Year or Semester"
+                                    className="font-bold text-slate-800 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer transition-colors inline-flex items-center gap-1.5 group py-0.5 px-1.5 -ml-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                                >
+                                    <span>{year && semester ? `${displayYearText} · ${cleanSemesterLabel}` : 'Current Session'}</span>
+                                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-900/50 px-1.5 py-0.5 rounded-md border border-indigo-200/60 dark:border-indigo-800/60 group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                                        Change
+                                    </span>
+                                </button>
                                 {lastUpdated && (
                                     <>
                                         <span>•</span>
@@ -2366,7 +2402,13 @@ const AttendanceRegister = () => {
                     const sid = authFriend?.studentId || authFriend?.id || activeId;
                     setActiveId(sid);
                     setActiveProfile(authFriend || getActiveProfileDetails(sid));
-                    handleSearch(year, semester, sid);
+                    const savedY = localStorage.getItem(`manualYear_${sid}`) || localStorage.getItem(`activeYear_${sid}`);
+                    const targetY = (savedY && savedY !== '2026-2027') ? savedY : ((year && year !== '2026-2027') ? year : '2025-2026');
+                    const savedS = localStorage.getItem(`manualSem_${sid}`) || localStorage.getItem(`activeSem_${sid}`);
+                    const targetS = savedS || semester || 'Odd';
+                    setYear(targetY);
+                    setSemester(targetS);
+                    handleSearch(targetY, targetS, sid, true);
                 }}
             />
         </div>
