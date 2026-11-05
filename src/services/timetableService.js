@@ -1553,19 +1553,19 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
 
     // Candidate year IDs according to KLU ERP registration tables
     const firstYear = parseInt(cleanYear.split('-')[0], 10);
-    let yearCandidates = ['29', '18', '22'];
+    let yearCandidates = ['18', '29', '22'];
     if (firstYear >= 2026) {
         const offset = Math.max(0, firstYear - 2026);
-        yearCandidates = [String(29 + offset), String(18 + offset), '29', '18', '22'];
+        yearCandidates = [String(18 + offset), String(29 + offset), '18', '29', '22'];
     } else if (firstYear === 2025) {
-        yearCandidates = ['28', '17', '19', '18'];
+        yearCandidates = ['17', '28', '19', '18'];
     } else if (firstYear === 2024) {
-        yearCandidates = ['27', '16', '17'];
+        yearCandidates = ['16', '27', '17'];
     } else if (firstYear === 2023) {
-        yearCandidates = ['26', '15'];
+        yearCandidates = ['15', '26'];
     } else if (!isNaN(firstYear)) {
         const diff = firstYear - 2026;
-        yearCandidates = [String(29 + diff), String(18 + diff), '29', '18'];
+        yearCandidates = [String(18 + diff), String(29 + diff), '18', '29'];
     }
 
     // Direct fetch to authentic ERP route via reverse proxy

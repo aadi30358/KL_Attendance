@@ -659,7 +659,7 @@ export default {
 
                         const reqYearStr = (year || '').toString().trim();
                         const cleanYearStr = reqYearStr.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
-                        const legacyToYear = { '18': '2026', '17': '2025', '16': '2024', '15': '2023', '14': '2022' };
+                        const legacyToYear = { '18': '2026', '17': '2025', '16': '2024', '15': '2023', '14': '2022', '13': '2021', '10': '2020' };
                         const targetYearStart = legacyToYear[reqYearStr] || 
                             (cleanYearStr.includes('-') ? cleanYearStr.split('-')[0].trim() : (cleanYearStr.match(/\b(20\d\d)\b/)?.[1] || ''));
 
@@ -757,21 +757,21 @@ export default {
 
                     if (firstYear && firstYear > 2026) {
                         const offset = firstYear - 2026;
-                        list.push(String(29 + offset), String(18 + offset), `${firstYear}-${firstYear + 1}`);
+                        list.push(String(18 + offset), String(29 + offset), `${firstYear}-${firstYear + 1}`);
                     } else if (firstYear === 2026 || str === '18' || str === '29') {
-                        list.push('29', '18', '22', '19', '17', '20', '21', '2026-2027', '2026-27');
+                        list.push('18', '29', '22', '19', '17', '20', '21', '2026-2027', '2026-27');
                     } else if (firstYear === 2025 || str === '17' || str === '28' || str === '19') {
-                        list.push('28', '17', '19', '18', '16', '2025-2026', '2025-26');
+                        list.push('17', '28', '19', '18', '16', '2025-2026', '2025-26');
                     } else if (firstYear === 2024 || str === '16' || str === '27') {
-                        list.push('27', '16', '15', '17', '2024-2025', '2024-25');
+                        list.push('16', '27', '15', '17', '2024-2025', '2024-25');
                     } else if (firstYear === 2023 || str === '15' || str === '26') {
-                        list.push('26', '15', '14', '16', '2023-2024', '2023-24');
+                        list.push('15', '26', '14', '16', '2023-2024', '2023-24');
                     } else if (firstYear === 2022 || str === '14' || str === '25') {
-                        list.push('25', '14', '13', '2022-2023', '2022-23');
+                        list.push('14', '25', '13', '2022-2023', '2022-23');
                     } else if (firstYear === 2021 || str === '13' || str === '24') {
-                        list.push('24', '13', '2021-2022', '2021-22');
+                        list.push('13', '24', '2021-2022', '2021-22');
                     } else if (firstYear === 2020 || str === '10' || str === '23') {
-                        list.push('23', '10', '2020-2021', '2020-21');
+                        list.push('10', '23', '2020-2021', '2020-21');
                     }
 
                     return Array.from(new Set(list.filter(Boolean)));
@@ -844,28 +844,30 @@ export default {
                     }
                     currentCookieStr = serializeCookieMap(cookieMap);
 
-                    if (crResp.status >= 300 && crResp.status < 400) {
+                    let hopCount = 0;
+                    while (crResp.status >= 300 && crResp.status < 400 && hopCount < 5) {
+                        hopCount++;
                         const loc = crResp.headers.get('location') || crResp.headers.get('Location') || crResp.headers.get('x-redirect') || '';
-                        if (!loc.toLowerCase().includes('site%2Flogin') && !loc.toLowerCase().includes('site/login') && loc) {
-                            const nextUrl = loc.startsWith('http') ? loc : `${ERP_BASE}${loc.startsWith('/') ? '' : '/'}${loc}`;
-                            const followHeaders = { ...postHeaders };
-                            delete followHeaders['Content-Type'];
-                            crResp = await fetch(nextUrl, {
-                                method: 'GET',
-                                headers: followHeaders,
-                                redirect: 'manual',
-                                signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                            });
-                            const followSc = crResp.headers.getSetCookie ? crResp.headers.getSetCookie() : [crResp.headers.get('set-cookie')].filter(Boolean);
-                            parseCookieHeader(followSc).forEach((v, k) => {
-                                if (k.toLowerCase() === 'phpsessid' && originalPhpSessId) return; // Keep authenticated session!
-                                cookieMap.set(k, v);
-                            });
-                            if (originalPhpSessId) {
-                                cookieMap.set('PHPSESSID', originalPhpSessId);
-                            }
-                            currentCookieStr = serializeCookieMap(cookieMap);
+                        if (!loc || loc.toLowerCase().includes('site%2Flogin') || loc.toLowerCase().includes('site/login')) break;
+                        const nextUrl = loc.startsWith('http') ? loc : `${ERP_BASE}${loc.startsWith('/') ? '' : '/'}${loc}`;
+                        const followHeaders = { ...postHeaders };
+                        delete followHeaders['Content-Type'];
+                        followHeaders['Cookie'] = currentCookieStr;
+                        crResp = await fetch(nextUrl, {
+                            method: 'GET',
+                            headers: followHeaders,
+                            redirect: 'manual',
+                            signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                        });
+                        const followSc = crResp.headers.getSetCookie ? crResp.headers.getSetCookie() : [crResp.headers.get('set-cookie')].filter(Boolean);
+                        parseCookieHeader(followSc).forEach((v, k) => {
+                            if (k.toLowerCase() === 'phpsessid' && originalPhpSessId) return; // Keep authenticated session!
+                            cookieMap.set(k, v);
+                        });
+                        if (originalPhpSessId) {
+                            cookieMap.set('PHPSESSID', originalPhpSessId);
                         }
+                        currentCookieStr = serializeCookieMap(cookieMap);
                     }
 
                     const crHtml = await crResp.text();

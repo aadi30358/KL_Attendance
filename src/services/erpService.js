@@ -1228,9 +1228,9 @@ export const erpService = {
             (cleanReqStr.includes('-') ? cleanReqStr.split('-')[0].trim() : (cleanReqStr.match(/\b(20\d\d)\b/)?.[1] || ''));
 
         if (sessionInfo?.years && sessionInfo.years.length > 0) {
-            // Direct ERP DB value match first (e.g. '29')
+            // Direct ERP DB value match first (e.g. '18', '17', '16', '29')
             const valMatch = sessionInfo.years.find(y => y.value === reqYearStr);
-            if (valMatch && parseInt(reqYearStr, 10) > 20) {
+            if (valMatch && parseInt(reqYearStr, 10) > 0) {
                 matchedYearVal = valMatch.value;
             }
 

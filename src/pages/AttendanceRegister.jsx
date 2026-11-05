@@ -358,9 +358,8 @@ const AttendanceRegister = () => {
             const scopedRaw = localStorage.getItem(scopedKey);
             if (scopedRaw) {
                 const parsed = JSON.parse(scopedRaw);
-                if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
-                    return [];
-                }
+                // Do not let empty cache lock subjects state
+                    /* skip empty cache */
                 if (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
                     return parsed.attendance_data;
                 }
@@ -372,9 +371,8 @@ const AttendanceRegister = () => {
                 if (parsed.year && parsed.semester &&
                     normalizeAcademicYear(parsed.year) === initY &&
                     normalizeSemester(parsed.semester) === initS) {
-                    if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
-                        return [];
-                    }
+                    // Do not let empty cache lock subjects state
+                    /* skip empty cache */
                     if (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
                         return parsed.attendance_data;
                     }
@@ -754,14 +752,7 @@ const AttendanceRegister = () => {
                 setSubjects([]);
                 setShowDashboard(true);
                 try {
-                    const emptyPayload = JSON.stringify({
-                        attendance_data: [],
-                        year: finalYear,
-                        semester: finalSem,
-                        timestamp: Date.now(),
-                        empty: true
-                    });
-                    if (scopedKey) localStorage.setItem(scopedKey, emptyPayload);
+                    if (scopedKey) localStorage.removeItem(scopedKey);
                 } catch { /* ignore */ }
             }
 
