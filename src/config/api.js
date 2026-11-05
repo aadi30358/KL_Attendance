@@ -36,27 +36,20 @@ export const SEMESTER_MAP = {
 export const getAcademicYearCode = (academicYear) => {
   if (!academicYear) return null;
   const str = String(academicYear).trim();
-  // If it's already an ID number (e.g., '18', '22')
+  // If it's already an ID number (e.g., '19', '18', '29', '16')
   if (/^\d+$/.test(str) && parseInt(str, 10) < 50) return str;
 
   let firstYear = parseInt(str.split('-')[0], 10);
   if (isNaN(firstYear)) return null;
   if (firstYear < 100) firstYear += 2000;
   
-  const historicalMap = {
-    '2026': '18',
-    '2025': '17',
-    '2024': '16',
-    '2023': '15',
-    '2022': '14',
-    '2021': '13',
-    '2020': '10',
-    '2019': '9',
-    '2018': '8'
-  };
-  
-  if (historicalMap[firstYear]) return historicalMap[firstYear];
-  return (18 + (firstYear - 2026)).toString();
+  if (firstYear === 2026) return '29';
+  if (firstYear === 2025) return '19';
+  if (firstYear === 2024) return '16';
+  if (firstYear === 2023) return '13';
+  if (firstYear === 2022) return '10';
+
+  return (16 + (firstYear - 2024) * 3).toString();
 };
 
 export const getFormData = (username, password, captcha, semester, academicYear, sessionId) => {
@@ -116,22 +109,22 @@ export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId
     const nextYr = firstYear + 1;
     const shortYr = String(nextYr).slice(-2);
     candidates.push(
-      String(18 + offset),
       String(29 + offset),
+      String(18 + offset),
       `${firstYear}-${nextYr}`,
       `${firstYear}-${shortYr}`,
       `${String(firstYear).slice(-2)}-${shortYr}`
     );
-  } else if (firstYear === 2026 || strYear === '18' || strYear === '29') {
-    candidates.push('18', '29', '22', '19', '17', '20', '21', '2026-2027', '2026-27', '26-27');
-  } else if (firstYear === 2025 || strYear === '17' || strYear === '28' || strYear === '19') {
-    candidates.push('17', '28', '19', '18', '16', '2025-2026', '2025-26', '25-26');
+  } else if (firstYear === 2026 || strYear === '29' || strYear === '18') {
+    candidates.push('29', '18', '22', '2026-2027', '2026-27', '26-27');
+  } else if (firstYear === 2025 || strYear === '19' || strYear === '28' || strYear === '17') {
+    candidates.push('19', '28', '17', '18', '2025-2026', '2025-26', '25-26');
   } else if (firstYear === 2024 || strYear === '16' || strYear === '27') {
-    candidates.push('16', '27', '15', '17', '2024-2025', '2024-25', '24-25');
-  } else if (firstYear === 2023 || strYear === '15' || strYear === '26') {
-    candidates.push('15', '26', '14', '16', '2023-2024', '2023-24', '23-24');
-  } else if (firstYear === 2022 || strYear === '14' || strYear === '25') {
-    candidates.push('14', '25', '13', '2022-2023', '2022-23', '22-23');
+    candidates.push('16', '27', '15', '2024-2025', '2024-25', '24-25');
+  } else if (firstYear === 2023 || strYear === '13' || strYear === '15' || strYear === '26') {
+    candidates.push('13', '15', '26', '2023-2024', '2023-24', '23-24');
+  } else if (firstYear === 2022 || strYear === '10' || strYear === '14' || strYear === '25') {
+    candidates.push('10', '14', '25', '2022-2023', '2022-23', '22-23');
   } else if (firstYear === 2021 || strYear === '13' || strYear === '24') {
     candidates.push('13', '24', '2021-2022', '2021-22', '21-22');
   } else if (firstYear === 2020 || strYear === '10' || strYear === '23') {

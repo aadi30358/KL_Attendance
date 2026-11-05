@@ -1217,20 +1217,20 @@ export const erpService = {
             // silent fallback
         }
 
-        const effectiveCsrfToken = sessionInfo?.csrfToken || csrfToken;
+        let effectiveCsrfToken = sessionInfo?.csrfToken || csrfToken;
 
         // 3. Resolve matching year ID
         let matchedYearVal = null;
         const reqYearStr = String(year || '').trim();
         const cleanReqStr = reqYearStr.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
         const legacyToYear = { 
-            '29': '2026', '18': '2026', 
-            '28': '2025', '19': '2025', '17': '2025', 
-            '27': '2024', '16': '2024', 
-            '26': '2023', '15': '2023', 
-            '25': '2022', '14': '2022', 
-            '24': '2021', '13': '2021', 
-            '23': '2020', '10': '2020' 
+            '29': '2026', '18': '2026', '22': '2026',
+            '19': '2025', '28': '2025', '17': '2025', 
+            '16': '2024', '27': '2024', 
+            '13': '2023', '15': '2023', '26': '2023', 
+            '10': '2022', '14': '2022', '25': '2022', 
+            '24': '2021', 
+            '23': '2020' 
         };
         const targetYearStart = legacyToYear[reqYearStr] || 
             (cleanReqStr.includes('-') ? cleanReqStr.split('-')[0].trim() : (cleanReqStr.match(/\b(20\d\d)\b/)?.[1] || ''));
@@ -1295,11 +1295,11 @@ export const erpService = {
             if (semMatch) semId = semMatch.value;
         }
 
-        // 5. Candidate IDs to try (prioritize matched value for the requested year, then valid aliases)
+        // 5. Candidate IDs to try (prioritize verified student candidate IDs, then matched value)
         const fallbackCandidates = getCandidateYearIdsForYear(year, null, null);
         const candidateYearIds = Array.from(new Set([
-            matchedYearVal,
-            ...fallbackCandidates
+            ...fallbackCandidates,
+            matchedYearVal
         ].filter(Boolean)));
 
         // 2. High-speed single-trip Edge discovery via /api/fast-attendance (< 800ms)
@@ -1421,6 +1421,14 @@ export const erpService = {
                 }
 
                 lastHtml = html;
+
+                // Extract fresh CSRF token from response HTML if available to keep subsequent attempts valid
+                const refreshedCsrf = html.match(/name="csrf-token"\s+content="([^"]+)"/i)?.[1] ||
+                                      html.match(/content="([^"]+)"\s+name="csrf-token"/i)?.[1] ||
+                                      html.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i)?.[1];
+                if (refreshedCsrf) {
+                    effectiveCsrfToken = refreshedCsrf;
+                }
 
                 if (html.includes('id="login-form"') || html.includes('loginFormUserNameID')) {
                     throw new Error("Your session has expired. Please log out and sign in again.");

@@ -660,13 +660,13 @@ export default {
                         const reqYearStr = (year || '').toString().trim();
                         const cleanYearStr = reqYearStr.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
                         const legacyToYear = { 
-                            '29': '2026', '18': '2026', 
-                            '28': '2025', '19': '2025', '17': '2025', 
-                            '27': '2024', '16': '2024', 
-                            '26': '2023', '15': '2023', 
-                            '25': '2022', '14': '2022', 
-                            '24': '2021', '13': '2021', 
-                            '23': '2020', '10': '2020' 
+                            '29': '2026', '18': '2026', '22': '2026',
+                            '19': '2025', '28': '2025', '17': '2025', 
+                            '16': '2024', '27': '2024', 
+                            '13': '2023', '15': '2023', '26': '2023', 
+                            '10': '2022', '14': '2022', '25': '2022', 
+                            '24': '2021', 
+                            '23': '2020' 
                         };
                         const targetYearStart = legacyToYear[reqYearStr] || legacyToYear[yearId] || 
                             (cleanYearStr.includes('-') ? cleanYearStr.split('-')[0].trim() : (cleanYearStr.match(/\b(20\d\d)\b/)?.[1] || ''));
@@ -759,42 +759,42 @@ export default {
                         if (firstYear === 29 || firstYear === 18) firstYear = 2026;
                         else if (firstYear === 28 || firstYear === 17 || firstYear === 19) firstYear = 2025;
                         else if (firstYear === 27 || firstYear === 16) firstYear = 2024;
-                        else if (firstYear === 26 || firstYear === 15) firstYear = 2023;
-                        else if (firstYear === 25 || firstYear === 14) firstYear = 2022;
-                        else if (firstYear === 24 || firstYear === 13) firstYear = 2021;
-                        else if (firstYear === 23 || firstYear === 10) firstYear = 2020;
+                        else if (firstYear === 26 || firstYear === 15 || firstYear === 13) firstYear = 2023;
+                        else if (firstYear === 25 || firstYear === 14 || firstYear === 10) firstYear = 2022;
+                        else if (firstYear === 24) firstYear = 2021;
+                        else if (firstYear === 23) firstYear = 2020;
                         else firstYear += 2000;
                     }
 
-                    if (mVal) list.push(String(mVal).trim());
-                    if (yIdVal) list.push(String(yIdVal).trim());
-
                     if (firstYear && firstYear > 2026) {
                         const offset = firstYear - 2026;
-                        list.push(String(18 + offset), String(29 + offset), `${firstYear}-${firstYear + 1}`);
+                        list.push(String(29 + offset), String(18 + offset), `${firstYear}-${firstYear + 1}`);
                     } else if (firstYear === 2026 || str === '18' || str === '29') {
-                        list.push('18', '29', '22', '19', '17', '20', '21', '2026-2027', '2026-27');
+                        list.push('29', '18', '22', '2026-2027', '2026-27');
                     } else if (firstYear === 2025 || str === '17' || str === '28' || str === '19') {
-                        list.push('17', '19', '28', '18', '16', '2025-2026', '2025-26');
+                        list.push('19', '28', '17', '18', '2025-2026', '2025-26');
                     } else if (firstYear === 2024 || str === '16' || str === '27') {
-                        list.push('16', '27', '15', '17', '2024-2025', '2024-25');
+                        list.push('16', '27', '15', '2024-2025', '2024-25');
                     } else if (firstYear === 2023 || str === '15' || str === '26' || str === '13') {
-                        list.push('15', '13', '26', '14', '16', '2023-2024', '2023-24');
+                        list.push('13', '15', '26', '2023-2024', '2023-24');
                     } else if (firstYear === 2022 || str === '14' || str === '25' || str === '10') {
-                        list.push('14', '10', '25', '13', '2022-2023', '2022-23');
+                        list.push('10', '14', '25', '2022-2023', '2022-23');
                     } else if (firstYear === 2021 || str === '13' || str === '24') {
                         list.push('13', '24', '2021-2022', '2021-22');
                     } else if (firstYear === 2020 || str === '10' || str === '23') {
                         list.push('10', '23', '2020-2021', '2020-21');
                     }
 
+                    if (mVal) list.push(String(mVal).trim());
+                    if (yIdVal) list.push(String(yIdVal).trim());
+
                     return Array.from(new Set(list.filter(Boolean)));
                 };
 
                 const candidateYears = Array.from(new Set([
+                    ...getCandidateYearIds(year, yearId, resolvedYearId),
                     resolvedYearId,
-                    yearId,
-                    ...getCandidateYearIds(year, yearId, resolvedYearId)
+                    yearId
                 ].filter(Boolean)));
                 if (candidateYears.length === 0) {
                     candidateYears.push(resolvedYearId || yearId || '18');
@@ -885,6 +885,16 @@ export default {
                     }
 
                     const crHtml = await crResp.text();
+
+                    // Extract updated CSRF token from response to keep subsequent candidate queries valid
+                    const newCsrf = crHtml.match(/name="csrf-token"\s+content="([^"]+)"/i)?.[1] ||
+                                    crHtml.match(/content="([^"]+)"\s+name="csrf-token"/i)?.[1] ||
+                                    crHtml.match(/name="_csrf(?:-frontend)?"\s+value="([^"]+)"/i)?.[1];
+                    if (newCsrf) {
+                        currentCsrf = newCsrf;
+                        postHeaders['x-csrf-token'] = newCsrf;
+                    }
+
                     const isLoginForm = crHtml.includes('id="login-form"') || crHtml.includes('loginFormUserNameID');
                     if (isLoginForm) {
                         finalResp = crResp;
