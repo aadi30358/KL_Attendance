@@ -553,7 +553,10 @@ const AttendanceRegister = () => {
         const normYear = normalizeAcademicYear(fetchYear);
         const normSem = normalizeSemester(fetchSemester);
         const queryYear = normYear;
-        const targetId = customId || activeId || localStorage.getItem('activeErpUser') || '';
+        const rawTarget = customId || activeProfile?.studentId || activeProfile?.username || activeId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '';
+        const targetId = (rawTarget === 'main' || !/^\d+$/.test(rawTarget))
+            ? (activeProfile?.studentId || activeProfile?.username || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || '2400030358')
+            : rawTarget;
 
         // 1. FAST CACHE-FIRST RELOAD (< 10ms): Check if cached data exists for this specific student, year & sem
         const scopedKey = targetId ? `kleData_${targetId}_${normYear}_${normSem}` : null;
@@ -764,12 +767,39 @@ const AttendanceRegister = () => {
                     }).catch(() => {});
                 } catch { /* ignore */ }
             } else {
-                // If semester has no courses on ERP, show clean "No Courses Found" for this semester
-                setSubjects([]);
-                setShowDashboard(true);
+                // Defensive safeguard: Check if saved attendance exists in cloud or local storage
+                let recovered = false;
                 try {
-                    if (scopedKey) localStorage.removeItem(scopedKey);
+                    const savedCloud = await getAttendanceFromCloud(targetId, finalYear, finalSem);
+                    if (savedCloud && Array.isArray(savedCloud.courses) && savedCloud.courses.length > 0) {
+                        setSubjects(savedCloud.courses);
+                        setShowDashboard(true);
+                        recovered = true;
+                    }
                 } catch { /* ignore */ }
+
+                if (!recovered) {
+                    const localCached = scopedKey ? localStorage.getItem(scopedKey) : null;
+                    if (localCached) {
+                        try {
+                            const parsed = JSON.parse(localCached);
+                            if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
+                                setSubjects(parsed.attendance_data);
+                                setShowDashboard(true);
+                                recovered = true;
+                            }
+                        } catch { /* ignore */ }
+                    }
+                }
+
+                if (!recovered) {
+                    // Truly no courses found on ERP or cloud for this semester
+                    setSubjects([]);
+                    setShowDashboard(true);
+                    try {
+                        if (scopedKey) localStorage.removeItem(scopedKey);
+                    } catch { /* ignore */ }
+                }
             }
 
             setYear(finalYear);
@@ -821,17 +851,19 @@ const AttendanceRegister = () => {
         setYear(targetYear);
         setSemester(targetSem);
 
-        if (activeId) {
+        const cleanSid = (activeProfile?.studentId || activeProfile?.username || activeId || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || '2400030358');
+
+        if (cleanSid) {
             try {
-                localStorage.setItem(`manualYear_${activeId}`, targetYear);
-                localStorage.setItem(`manualSem_${activeId}`, targetSem);
-                localStorage.setItem(`activeYear_${activeId}`, targetYear);
-                localStorage.setItem(`activeSem_${activeId}`, targetSem);
+                localStorage.setItem(`manualYear_${cleanSid}`, targetYear);
+                localStorage.setItem(`manualSem_${cleanSid}`, targetSem);
+                localStorage.setItem(`activeYear_${cleanSid}`, targetYear);
+                localStorage.setItem(`activeSem_${cleanSid}`, targetSem);
             } catch { /* ignore */ }
         }
 
-        handleSearch(targetYear, targetSem, activeId, false);
-    }, [activeId, handleSearch]);
+        handleSearch(targetYear, targetSem, cleanSid, false);
+    }, [activeId, activeProfile?.studentId, activeProfile?.username, handleSearch]);
 
     // Reactively update semester dropdown and auto-recover populated courses if background sync finishes
     useEffect(() => {

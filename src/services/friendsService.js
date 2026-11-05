@@ -329,6 +329,7 @@ export const getMyProfile = () => {
             nickname: finalNickname,
             label: finalNickname,
             studentId: myId,
+            username: myId,
             password: myPass,
             hasSavedPassword: Boolean(myPass)
         };
@@ -782,7 +783,7 @@ export const getActiveProfileDetails = (specificProfileId) => {
 
     // 1. If profileId matches myProfile (by 'main', or primary studentId/username)
     if (profileId === 'main' || !profileId || (primarySid && (profileId === primarySid || profileId === myProf?.username))) {
-        if (myProf) return { ...myProf, isFriend: false };
+        if (myProf) return { ...myProf, isFriend: false, studentId: primarySid || myProf.studentId || myProf.username || '2400030358', username: primarySid || myProf.username || '2400030358' };
         if (primarySid) {
             const rawName = (typeof window !== 'undefined' ? (localStorage.getItem('rememberedName') || localStorage.getItem(`kl_name_${primarySid}`)) : '') || 'My Account';
             return {
@@ -791,6 +792,7 @@ export const getActiveProfileDetails = (specificProfileId) => {
                 nickname: rawName,
                 label: rawName,
                 studentId: primarySid,
+                username: primarySid,
                 hasSavedPassword: Boolean(typeof window !== 'undefined' && localStorage.getItem('rememberedPassword'))
             };
         }

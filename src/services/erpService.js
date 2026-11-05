@@ -1199,7 +1199,10 @@ export const erpService = {
     async fetchAttendance(year, semester, studentId = null) {
         const apiBase = getErpBase();
         const csrfToken = this.getCachedCsrfToken();
-        const targetStudent = studentId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null);
+        const rawStudent = studentId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null);
+        const targetStudent = (rawStudent === 'main' || !/^\d+$/.test(rawStudent))
+            ? (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser') || '2400030358') : '2400030358')
+            : rawStudent;
         if (!targetStudent) return [];
 
         // STRICT GUARD: Must have authentic session cookie for this specific student!
