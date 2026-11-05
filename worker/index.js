@@ -757,21 +757,21 @@ export default {
 
                     if (firstYear && firstYear > 2026) {
                         const offset = firstYear - 2026;
-                        list.push(String(18 + offset), String(29 + offset), `${firstYear}-${firstYear + 1}`);
+                        list.push(String(29 + offset), String(18 + offset), `${firstYear}-${firstYear + 1}`);
                     } else if (firstYear === 2026 || str === '18' || str === '29') {
-                        list.push('18', '29', '22', '19', '17', '20', '21', '2026-2027', '2026-27');
+                        list.push('29', '18', '22', '19', '17', '20', '21', '2026-2027', '2026-27');
                     } else if (firstYear === 2025 || str === '17' || str === '28' || str === '19') {
-                        list.push('17', '28', '19', '18', '16', '2025-2026', '2025-26');
+                        list.push('28', '17', '19', '18', '16', '2025-2026', '2025-26');
                     } else if (firstYear === 2024 || str === '16' || str === '27') {
-                        list.push('16', '27', '15', '17', '2024-2025', '2024-25');
+                        list.push('27', '16', '15', '17', '2024-2025', '2024-25');
                     } else if (firstYear === 2023 || str === '15' || str === '26') {
-                        list.push('15', '26', '14', '16', '2023-2024', '2023-24');
+                        list.push('26', '15', '14', '16', '2023-2024', '2023-24');
                     } else if (firstYear === 2022 || str === '14' || str === '25') {
-                        list.push('14', '25', '13', '2022-2023', '2022-23');
+                        list.push('25', '14', '13', '2022-2023', '2022-23');
                     } else if (firstYear === 2021 || str === '13' || str === '24') {
-                        list.push('13', '24', '2021-2022', '2021-22');
+                        list.push('24', '13', '2021-2022', '2021-22');
                     } else if (firstYear === 2020 || str === '10' || str === '23') {
-                        list.push('10', '23', '2020-2021', '2020-21');
+                        list.push('23', '10', '2020-2021', '2020-21');
                     }
 
                     return Array.from(new Set(list.filter(Boolean)));
@@ -845,11 +845,14 @@ export default {
                     currentCookieStr = serializeCookieMap(cookieMap);
 
                     if (crResp.status >= 300 && crResp.status < 400) {
-                        const loc = crResp.headers.get('location') || crResp.headers.get('x-redirect') || '';
-                        if (!loc.toLowerCase().includes('login') && loc) {
+                        const loc = crResp.headers.get('location') || crResp.headers.get('Location') || crResp.headers.get('x-redirect') || '';
+                        if (!loc.toLowerCase().includes('site%2Flogin') && !loc.toLowerCase().includes('site/login') && loc) {
                             const nextUrl = loc.startsWith('http') ? loc : `${ERP_BASE}${loc.startsWith('/') ? '' : '/'}${loc}`;
+                            const followHeaders = { ...postHeaders };
+                            delete followHeaders['Content-Type'];
                             crResp = await fetch(nextUrl, {
-                                headers: postHeaders,
+                                method: 'GET',
+                                headers: followHeaders,
                                 redirect: 'manual',
                                 signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
                             });
@@ -948,35 +951,54 @@ export default {
                 reqHeaders.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
 
                 const erpCookie = request.headers.get('x-erp-cookie');
-                if (erpCookie) {
-                    const merged = parseCookieHeader([request.headers.get('cookie') || '', erpCookie]);
-                    reqHeaders.set('Cookie', serializeCookieMap(merged));
-                }
+                const proxyCookieMap = parseCookieHeader([request.headers.get('cookie') || '', erpCookie || '']);
+                const clientSess = proxyCookieMap.get('PHPSESSID') || proxyCookieMap.get('phpsessid');
 
-                const erpRes = await fetch(targetUrl, {
-                    method: request.method,
-                    headers: reqHeaders,
-                    body: ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer(),
-                    redirect: 'manual',
-                    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                });
+                let currentUrl = targetUrl;
+                let currentMethod = request.method;
+                let currentBody = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer();
+                let erpRes = null;
+                let redirectHops = 0;
+                const maxHops = 5;
+
+                // Follow redirects on the edge isolate so relative 302s never leak to client SPA
+                while (redirectHops < maxHops) {
+                    reqHeaders.set('Cookie', serializeCookieMap(proxyCookieMap));
+                    erpRes = await fetch(currentUrl, {
+                        method: currentMethod,
+                        headers: reqHeaders,
+                        body: currentBody,
+                        redirect: 'manual',
+                        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                    });
+
+                    const scList = erpRes.headers.getSetCookie ? erpRes.headers.getSetCookie() : [erpRes.headers.get('set-cookie')].filter(Boolean);
+                    if (scList.length > 0) {
+                        const scMap = parseCookieHeader(scList);
+                        scMap.forEach((v, k) => {
+                            if (k.toLowerCase() === 'phpsessid' && clientSess) return; // Keep authenticated session!
+                            proxyCookieMap.set(k, v);
+                        });
+                        if (clientSess) proxyCookieMap.set('PHPSESSID', clientSess);
+                    }
+
+                    if (erpRes.status >= 300 && erpRes.status < 400) {
+                        const loc = erpRes.headers.get('location') || erpRes.headers.get('Location') || '';
+                        if (loc && !loc.toLowerCase().includes('site%2Flogin') && !loc.toLowerCase().includes('site/login')) {
+                            currentUrl = loc.startsWith('http') ? loc : `${ERP_BASE}${loc.startsWith('/') ? '' : '/'}${loc}`;
+                            currentMethod = 'GET';
+                            currentBody = undefined;
+                            reqHeaders.delete('Content-Type');
+                            redirectHops++;
+                            continue;
+                        }
+                    }
+                    break;
+                }
 
                 const resHeaders = new Headers(erpRes.headers);
                 Object.entries(cors).forEach(([k, v]) => resHeaders.set(k, v));
-
-                const scList = erpRes.headers.getSetCookie ? erpRes.headers.getSetCookie() : [erpRes.headers.get('set-cookie')].filter(Boolean);
-                if (scList.length > 0) {
-                    const scMap = parseCookieHeader(scList);
-                    const clientSess = cookieMap.get('PHPSESSID') || cookieMap.get('phpsessid');
-                    if (clientSess && scMap.has('PHPSESSID')) {
-                        scMap.set('PHPSESSID', clientSess); // Never overwrite client authenticated session on intermediate proxy calls
-                    }
-                    resHeaders.set('x-set-erp-cookie', serializeCookieMap(scMap));
-                }
-                const locHeader = erpRes.headers.get('location');
-                if (locHeader) {
-                    resHeaders.set('Location', locHeader.replace(/^https?:\/\/newerp\.kluniversity\.in/i, ''));
-                }
+                resHeaders.set('x-set-erp-cookie', serializeCookieMap(proxyCookieMap));
                 resHeaders.set('Server-Timing', `edge;dur=${Date.now() - startTime}`);
 
                 return new Response(erpRes.body, {

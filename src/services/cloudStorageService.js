@@ -251,6 +251,10 @@ export async function getAttendanceFromCloud(studentId, year = null, sem = null)
                     }
                 } catch { /* ignore */ }
             }
+
+            // Invariant: If a specific historical year & semester was requested and not found in cloud,
+            // strictly return null so live ERP query can fetch the real courses. Never cross-contaminate.
+            return null;
         }
 
         // Return latest active courses if available

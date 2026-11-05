@@ -1728,9 +1728,9 @@ export const erpService = {
         const targetSemesters = ['Odd', 'Even'];
         const results = [];
 
-        // Concurrently query each year/sem
+        // Sequentially query each year and semester with defensive pacing to prevent PHP session file locks
         for (const yr of sortedYears) {
-            const semPromises = targetSemesters.map(async (sem) => {
+            for (const sem of targetSemesters) {
                 try {
                     const courses = await this.fetchAttendance(yr, sem, targetStudent);
                     if (Array.isArray(courses) && courses.length > 0) {
@@ -1753,7 +1753,7 @@ export const erpService = {
                             const { saveAttendanceToCloud, saveTimetableToCloud } = await import('./cloudStorageService.js');
                             await saveAttendanceToCloud(targetStudent, yr, semId, courses);
 
-                            // Also fetch & save semester timetable concurrently in background
+                            // Also fetch & save semester timetable in background
                             const { fetchLiveErpTimetable } = await import('./timetableService.js');
                             fetchLiveErpTimetable(targetStudent, yr, sem).then(async (ttRes) => {
                                 if (ttRes?.timetable) {
@@ -1771,12 +1771,12 @@ export const erpService = {
                             courses
                         });
                     }
+                    // Gentle pause to ensure ERP PHP session lock settles
+                    await new Promise(res => setTimeout(res, 120));
                 } catch (e) {
                     console.warn(`[ERP] Failed fetching ${yr} ${sem} for ${targetStudent}:`, e?.message);
                 }
-            });
-
-            await Promise.allSettled(semPromises);
+            }
         }
 
         if (results.length > 0) {

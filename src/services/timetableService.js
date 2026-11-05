@@ -118,7 +118,19 @@ export function normalizeSemester(sem) {
     return 'Odd';
 }
 
-export function getTruePresentAcademicYearAndSem() {
+export function getTruePresentAcademicYearAndSem(studentId = null) {
+    const sid = String(studentId || '').trim();
+    const batchMatch = sid.match(/^(\d{2})/);
+    if (batchMatch) {
+        const batchYr = parseInt(batchMatch[1], 10) + 2000;
+        // Batch 2025: in 2025-2026 they are in 1st year (Odd Sem = Sem 1, Even Sem = Sem 2)
+        if (batchYr >= 2025) {
+            return {
+                year: '2025-2026',
+                sem: 'Odd'
+            };
+        }
+    }
     return {
         year: '2026-2027',
         sem: 'Odd'
