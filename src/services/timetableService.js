@@ -118,19 +118,7 @@ export function normalizeSemester(sem) {
     return 'Odd';
 }
 
-export function getTruePresentAcademicYearAndSem(studentId = null) {
-    const sid = String(studentId || '').trim();
-    const batchMatch = sid.match(/^(\d{2})/);
-    if (batchMatch) {
-        const batchYr = parseInt(batchMatch[1], 10) + 2000;
-        // Batch 2025: in 2025-2026 they are in 1st year (Odd Sem = Sem 1, Even Sem = Sem 2)
-        if (batchYr >= 2025) {
-            return {
-                year: '2025-2026',
-                sem: 'Odd'
-            };
-        }
-    }
+export function getTruePresentAcademicYearAndSem() {
     return {
         year: '2026-2027',
         sem: 'Odd'
@@ -1481,7 +1469,7 @@ export function saveStudentTimetable(studentId, timetableData, selectedYear = '2
 /**
  * Syncs timetable from persistent server database if client cache is empty
  */
-export async function syncTimetableWithServer(studentId, yearId = '2025-2026', semId = 'Odd') {
+export async function syncTimetableWithServer(studentId, yearId = '2026-2027', semId = 'Odd') {
     const cleanYear = normalizeAcademicYear(yearId);
     const cleanSem = normalizeSemester(semId);
     const activeUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
@@ -1508,9 +1496,30 @@ export async function syncTimetableWithServer(studentId, yearId = '2025-2026', s
                 return tt;
             }
         }
-    } catch (e) {
-        console.warn('[TimetableService] Server sync notice:', e.message);
+    } catch {
+        // Fallback to Firestore
     }
+
+    // Cloud Firestore Fallback (< 120ms): Check Firestore for saved timetable
+    try {
+        const { getTimetableFromCloud } = await import('./cloudStorageService.js');
+        const cloudData = await getTimetableFromCloud(targetId);
+        if (cloudData?.timetable && typeof cloudData.timetable === 'object') {
+            const tt = cloudData.timetable;
+            tt._source = 'cloud_firestore';
+            tt._last_synced = cloudData.lastTimetableFetch;
+            const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
+            try {
+                localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${cleanSem}`, JSON.stringify(tt));
+                localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${semDisplay}`, JSON.stringify(tt));
+            } catch { /* ignore */ }
+            window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
+            }));
+            return tt;
+        }
+    } catch { /* ignore */ }
+
     return null;
 }
 

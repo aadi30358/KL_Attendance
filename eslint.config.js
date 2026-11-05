@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import react from 'eslint-plugin-react'
 
 export default [
-  { ignores: ['dist', 'klu_erp_temp', 'public', '.firebase', 'build_output.log', 'lint_*.txt', 'lint*.json', 'out.txt', 'test*.js', 'scratch/**', '2.KL_Attendance/**'] },
+  { ignores: ['dist', 'klu_erp_temp', 'timetbale-copy/**', 'final_kl_attedance-copy/**', 'public', '.firebase', 'build_output.log', 'lint_*.txt', 'lint*.json', 'out.txt', 'test*.js', 'scratch/**', '2.KL_Attendance/**'] },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {

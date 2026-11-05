@@ -1223,7 +1223,15 @@ export const erpService = {
         let matchedYearVal = null;
         const reqYearStr = String(year || '').trim();
         const cleanReqStr = reqYearStr.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase();
-        const legacyToYear = { '18': '2026', '17': '2025', '16': '2024', '15': '2023', '14': '2022', '13': '2021', '10': '2020' };
+        const legacyToYear = { 
+            '29': '2026', '18': '2026', 
+            '28': '2025', '19': '2025', '17': '2025', 
+            '27': '2024', '16': '2024', 
+            '26': '2023', '15': '2023', 
+            '25': '2022', '14': '2022', 
+            '24': '2021', '13': '2021', 
+            '23': '2020', '10': '2020' 
+        };
         const targetYearStart = legacyToYear[reqYearStr] || 
             (cleanReqStr.includes('-') ? cleanReqStr.split('-')[0].trim() : (cleanReqStr.match(/\b(20\d\d)\b/)?.[1] || ''));
 

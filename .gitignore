@@ -7,6 +7,8 @@
 server/.env
 backend/firebase_credentials.json
 final_kl_attedance-copy/
+timetbale-copy/
+klu_erp_temp/
 pdf_text*.txt
 __pycache__/
 *.pyc

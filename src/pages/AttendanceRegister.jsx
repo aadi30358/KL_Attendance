@@ -25,7 +25,6 @@ import {
     DAYS_OF_WEEK,
     KLU_SESSIONS
 } from '../services/timetableService';
-import { fetchLiveErpGrades } from '../services/gradesService';
 import FriendsManagerModal from '../components/FriendsManagerModal';
 import FriendCaptchaModal from '../components/FriendCaptchaModal';
 import ErpSidebar from '../components/ErpSidebar';
@@ -746,79 +745,7 @@ const AttendanceRegister = () => {
                     });
                     localStorage.setItem(`kleData_${targetId}`, payload);
                     if (scopedKey) localStorage.setItem(scopedKey, payload);
-                } catch { /* ignore */ }
-            } else {
-                // If semester has no courses on ERP, show clean "No Courses Found" for this semester
-                setSubjects([]);
-                setShowDashboard(true);
-                try {
-                    if (scopedKey) localStorage.removeItem(scopedKey);
-                } catch { /* ignore */ }
-            }
 
-            setYear(finalYear);
-            setSemester(finalSem);
-            setLastUpdated(Date.now());
-            setSessionStatus('active');
-
-            if (finalCourses.length > 0) {
-                // Trigger live ERP timetable & grades sync in background and save to cloud
-                if (targetId) {
-                    fetchLiveErpTimetable(targetId, finalYear, finalSem).then((res) => {
-                        if (res?.timetable) {
-                            saveTimetableToCloud(targetId, res.timetable, finalYear, finalSem).catch(() => {});
-                            window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                                detail: { studentId: targetId, year: finalYear, sem: finalSem }
-                            }));
-                        }
-                    }).catch(() => null);
-
-                    fetchLiveErpGrades(targetId).then(res => {
-                        if (res?.courses && res.courses.length > 0) {
-                            saveCgpaToCloud(targetId, res.courses, res.cgpa).catch(() => {});
-                        }
-                    }).catch(() => null);
-                }
-
-                const keyToUse = targetId ? `kleData_${targetId}` : 'kleData';
-                try {
-                    const payload = JSON.stringify({ 
-                        attendance_data: finalCourses, 
-                        year: finalYear, 
-                        semester: finalSem, 
-                        timestamp: Date.now() 
-                    });
-                    localStorage.setItem(keyToUse, payload);
-                    if (targetId) {
-                        localStorage.setItem(`activeYear_${targetId}`, finalYear);
-                        localStorage.setItem(`activeSem_${targetId}`, finalSem);
-                        localStorage.setItem(`manualYear_${targetId}`, finalYear);
-                        localStorage.setItem(`manualSem_${targetId}`, finalSem);
-                        localStorage.setItem(`kleData_${targetId}_${finalYear}_${finalSem}`, payload);
-                        localStorage.setItem(`attendanceLastUpdated_${targetId}`, String(Date.now()));
-
-                        // Persist attendance to server SQLite database
-                        let totalCond = 0;
-                        let totalAtt = 0;
-                        finalCourses.forEach(c => {
-                            totalCond += Number(c.total_conducted || c.conducted || 0);
-                            totalAtt += Number(c.total_attended || c.attended || 0);
-                        });
-                        const overallPct = totalCond > 0 ? parseFloat(((totalAtt / totalCond) * 100).toFixed(2)) : null;
-
-                        fetch(`/api/user-data/${encodeURIComponent(targetId)}/attendance`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                academicYear: finalYear,
-                                semester: finalSem,
-                                attendanceData: finalCourses,
-                                overallPercentage: overallPct
-                            })
-                        }).catch(() => null);
-                    }
-
-                    // Instant Sub-Second Synchronization across all tabs, components & devices (< 1 second)
                     window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
                         detail: { studentId: targetId, year: finalYear, sem: finalSem, data: finalCourses }
                     }));
@@ -835,43 +762,22 @@ const AttendanceRegister = () => {
                         coursesCount: finalCourses.length,
                         timestamp: Date.now()
                     }).catch(() => {});
-                } catch (storageErr) {
-                    console.warn('[Storage] Quota exceeded or private browsing:', storageErr);
-                }
+                } catch { /* ignore */ }
             } else {
-                // Strict Semester Isolation: When 0 courses found for selected year & semester,
-                // do NOT resurrect old courses from other semesters or stale cache!
+                // If semester has no courses on ERP, show clean "No Courses Found" for this semester
                 setSubjects([]);
                 setShowDashboard(true);
-                const emptyPayload = JSON.stringify({
-                    attendance_data: [],
-                    year: finalYear,
-                    semester: finalSem,
-                    timestamp: Date.now(),
-                    empty: true
-                });
                 try {
-                    const scopedKey = targetId ? `kleData_${targetId}_${finalYear}_${finalSem}` : null;
-                    if (scopedKey) {
-                        localStorage.setItem(scopedKey, emptyPayload);
-                    }
-                    if (targetId) {
-                        localStorage.setItem(`kleData_${targetId}`, emptyPayload);
-                        localStorage.setItem(`activeYear_${targetId}`, finalYear);
-                        localStorage.setItem(`activeSem_${targetId}`, finalSem);
-                        localStorage.setItem(`manualYear_${targetId}`, finalYear);
-                        localStorage.setItem(`manualSem_${targetId}`, finalSem);
-                        localStorage.setItem(`attendanceLastUpdated_${targetId}`, String(Date.now()));
-                    }
-                    window.dispatchEvent(new CustomEvent('kl_attendance_updated', {
-                        detail: { studentId: targetId, year: finalYear, sem: finalSem, data: [] }
-                    }));
-                    window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                        detail: { studentId: targetId, year: finalYear, sem: finalSem }
-                    }));
-                } catch { /* ignore storage error */ }
+                    if (scopedKey) localStorage.removeItem(scopedKey);
+                } catch { /* ignore */ }
             }
-        } catch (error) {
+
+            setYear(finalYear);
+            setSemester(finalSem);
+            setLastUpdated(Date.now());
+            setSessionStatus('active');
+
+            } catch (error) {
             console.warn('[ERP] Attendance query notice:', error.message);
 
             // 1. Restore from scoped cache if available for this specific year & semester
