@@ -531,6 +531,7 @@ const Login = () => {
                 setErpUser(cleanId);
 
                 const detectedErpName = erpService.extractStudentNameFromHtml(loginResult.html);
+                const cleanName = (typeof newProfileName === 'string' ? stripEmojis(newProfileName).trim() : '') || '';
 
                 if (!isNewProfile && activeProfile) {
                     const primaryRemembered = (typeof window !== 'undefined' ? (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId')) : '') || '';
@@ -577,10 +578,11 @@ const Login = () => {
                         });
                         setActiveProfileId(matchedFriend.id);
                     } else {
-                        const cleanName = stripEmojis(newProfileName).trim();
+                        const profileInputName = stripEmojis(newProfileName).trim();
+                        const resolvedCleanName = profileInputName || cleanName;
                         // Invariant: The first student account in any browser session/incognito MUST ALWAYS be saved as Primary (id: 'main')
                         if (!hasExistingPrimary || cleanId === currentMy?.studentId || cleanId === primaryRemembered) {
-                            const resolvedName = cleanName || detectedErpName || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account';
+                            const resolvedName = resolvedCleanName || detectedErpName || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account';
                             saveMyProfile({
                                 nickname: resolvedName,
                                 studentId: cleanId,
@@ -597,7 +599,7 @@ const Login = () => {
                             } catch { /* ignore */ }
                         } else {
                             const newBuddy = saveFriend({
-                                nickname: cleanName || detectedErpName || 'Buddy',
+                                nickname: resolvedCleanName || detectedErpName || 'Buddy',
                                 studentId: cleanId,
                                 password: cleanPass
                             });
