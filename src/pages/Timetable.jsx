@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link, useNavigate } from 'react-router-dom';
-import { Users, ArrowLeft } from 'lucide-react';
-import ClassTimetable from '../components/ClassTimetable';
+import { Users, ArrowLeft, ArrowRight, CalendarDays, Clock, Sparkles, ShieldCheck, Zap } from 'lucide-react';
 import ErpSidebar from '../components/ErpSidebar';
 import { getActiveProfileDetails, getMyProfile, getAllProfiles, setActiveProfileId } from '../services/friendsService';
 import { normalizeAcademicYear, normalizeSemester } from '../services/timetableService';
@@ -48,13 +47,11 @@ export default function Timetable() {
         };
     }, [navigate]);
 
-    const [semesterChangeTrigger, setSemesterChangeTrigger] = useState(0);
-
     const selectedYear = useMemo(() => {
         const raw = activeId ? (localStorage.getItem(`manualYear_${activeId}`) || localStorage.getItem(`activeYear_${activeId}`)) : null;
-        const clean = raw || '2025-2026';
+        const clean = raw || '2026-2027';
         return normalizeAcademicYear(clean);
-    }, [activeId, semesterChangeTrigger]);
+    }, [activeId]);
 
     const selectedSem = useMemo(() => {
         const raw = (activeId && (localStorage.getItem(`manualSem_${activeId}`) || localStorage.getItem(`activeSem_${activeId}`))) || 'Odd';
@@ -63,38 +60,7 @@ export default function Timetable() {
         if (s === 'Term3') return 'Tri Sem / Term 3';
         if (s === 'Even') return 'Even Sem';
         return 'Odd Sem';
-    }, [activeId, semesterChangeTrigger]);
-
-    const erpCourses = useMemo(() => {
-        try {
-            const scopedKey = activeId ? `kleData_${activeId}_${selectedYear}_${selectedSem}` : null;
-            const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
-            if (scopedRaw) {
-                const parsed = JSON.parse(scopedRaw);
-                if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
-                    return [];
-                }
-                if (Array.isArray(parsed.attendance_data)) return parsed.attendance_data;
-            }
-
-            const cached = localStorage.getItem(`kleData_${activeId}`) || (activeId === myProfile?.studentId ? localStorage.getItem('kleData') : null);
-            if (cached) {
-                const parsed = JSON.parse(cached);
-                if (parsed.year && parsed.semester &&
-                    normalizeAcademicYear(parsed.year) === selectedYear &&
-                    normalizeSemester(parsed.semester) === normalizeSemester(selectedSem)) {
-                    if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
-                        return [];
-                    }
-                    const list = parsed.attendance_data || parsed.data || (Array.isArray(parsed) ? parsed : []);
-                    if (Array.isArray(list)) return list;
-                }
-            }
-        } catch {
-            /* ignore parse error */
-        }
-        return [];
-    }, [activeId, myProfile?.studentId, selectedYear, selectedSem]);
+    }, [activeId]);
 
     return (
         <div className="h-full flex flex-col font-sans selection:bg-indigo-500 selection:text-white overflow-hidden">
@@ -154,7 +120,7 @@ export default function Timetable() {
                 </div>
             </header>
 
-            {/* Page Body: Left Sidebar + Timetable View */}
+            {/* Page Body: Left Sidebar + Coming Soon View */}
             <div className="flex-1 flex overflow-hidden min-h-0 relative">
                 <ErpSidebar
                     isOpen={sidebarOpen}
@@ -171,66 +137,89 @@ export default function Timetable() {
                 />
 
                 <main className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-6 lg:p-8 font-sans">
-                    <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 pointer-events-none" />
+                    <div className="fixed inset-0 -z-10 bg-gradient-to-br from-slate-50 via-white to-amber-50/20 pointer-events-none" />
 
-                    <div className="max-w-7xl mx-auto">
-                        {!activeId ? (
-                            <div className="max-w-md mx-auto my-16 p-8 bg-white dark:bg-slate-800 rounded-3xl shadow-xl border border-slate-200/80 dark:border-slate-700 text-center space-y-4">
-                                <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-100 dark:border-indigo-800 flex items-center justify-center mx-auto text-indigo-600 dark:text-indigo-400 shadow-2xs">
-                                    <Users className="w-7 h-7" />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">ERP Attendance Login Required</h3>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                                        First login with ERP Attendance, then only the timetable will be shown.
+                    <div className="max-w-4xl mx-auto my-6 sm:my-10">
+                        {/* Coming Soon Showcase Card */}
+                        <div className="bg-white dark:bg-[#1e293b] rounded-3xl p-6 sm:p-10 border border-slate-200/90 dark:border-slate-700/80 shadow-xl shadow-slate-200/50 dark:shadow-none text-center space-y-6">
+                            
+                            {/* Animated Badge */}
+                            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-50 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-700/80 text-amber-800 dark:text-amber-300 text-xs font-black uppercase tracking-wider shadow-2xs">
+                                <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
+                                <span>Coming Soon</span>
+                            </div>
+
+                            {/* Big Icon */}
+                            <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto rounded-3xl bg-gradient-to-tr from-amber-500 to-amber-300 text-white flex items-center justify-center shadow-lg shadow-amber-500/25 ring-8 ring-amber-50 dark:ring-amber-950/40">
+                                <CalendarDays className="w-10 h-10 sm:w-12 sm:h-12" />
+                            </div>
+
+                            {/* Title & Description */}
+                            <div className="max-w-xl mx-auto space-y-3">
+                                <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+                                    Class Timetable is Coming Soon!
+                                </h2>
+                                <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 leading-relaxed font-normal">
+                                    We are currently integrating automated, live timetable synchronization directly from KL University ERP. You will soon be able to view your section schedules, room numbers, and real-time class tracking without manual entry.
+                                </p>
+                                {activeId && (
+                                    <div className="inline-block mt-2 px-3.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold">
+                                        Active Profile: <span className="font-bold text-slate-900 dark:text-white">{activeProfile?.nickname || 'Account'}</span> ({activeId}) · {selectedYear} ({selectedSem})
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Feature Preview Badges */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 max-w-2xl mx-auto pt-2 text-left">
+                                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 space-y-1.5">
+                                    <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-bold text-xs">
+                                        <Zap className="w-4 h-4" />
+                                        <span>Direct ERP Sync</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                                        Scrapes your official timetable and registered batch automatically.
                                     </p>
                                 </div>
-                                <div className="pt-2">
-                                    <Link
-                                        to="/login"
-                                        state={{ view: 'attendance' }}
-                                        className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
-                                    >
-                                        <span>ERP Portal Login</span>
-                                        <ArrowLeft className="w-3.5 h-3.5 rotate-180" />
-                                    </Link>
+
+                                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 space-y-1.5">
+                                    <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
+                                        <ShieldCheck className="w-4 h-4" />
+                                        <span>Accurate Rooms</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                                        Shows genuine classroom allocations and lab locations.
+                                    </p>
+                                </div>
+
+                                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 space-y-1.5">
+                                    <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 font-bold text-xs">
+                                        <Clock className="w-4 h-4" />
+                                        <span>Live Tracking</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-snug">
+                                        Highlights ongoing and upcoming classes in real time.
+                                    </p>
                                 </div>
                             </div>
-                        ) : (
-                            <ClassTimetable
-                                studentId={activeId}
-                                studentName={activeProfile?.nickname || 'Account'}
-                                erpCourses={erpCourses}
-                                selectedYear={selectedYear}
-                                selectedSem={selectedSem}
-                                onSemesterChange={() => setSemesterChangeTrigger(t => t + 1)}
-                                onChangeSelection={() => navigate('/attendance-register')}
-                                onViewCourseAttendance={() => navigate('/login', { state: { studentId: activeId, profileId: activeId, view: 'attendance' } })}
-                                onSelectFriend={(fid) => {
-                                    if (fid) {
-                                        try {
-                                            localStorage.setItem('activeErpUser', fid);
-                                        } catch { /* ignore */ }
-                                        setActiveProfileId(fid, fid);
-                                        setActiveId(fid);
-                                        const allP = getAllProfiles();
-                                        const match = allP.find(p => p.studentId === fid || p.username === fid);
-                                        if (match) setActiveProfile(match);
-                                    }
-                                }}
-                                onSelectProfile={(profile) => {
-                                    const newId = profile.studentId || profile.username || (profile.id !== 'main' ? profile.id : '');
-                                    if (newId) {
-                                        try {
-                                            localStorage.setItem('activeErpUser', newId);
-                                        } catch { /* ignore */ }
-                                        setActiveProfileId(profile.id || newId, newId);
-                                        setActiveId(newId);
-                                        setActiveProfile(profile);
-                                    }
-                                }}
-                            />
-                        )}
+
+                            {/* Action Buttons */}
+                            <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
+                                <Link
+                                    to="/attendance-register"
+                                    className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs sm:text-sm transition-all shadow-lg shadow-indigo-600/25 cursor-pointer"
+                                >
+                                    <span>Check Live Attendance</span>
+                                    <ArrowRight className="w-4 h-4" />
+                                </Link>
+                                <Link
+                                    to="/"
+                                    className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs sm:text-sm transition-all border border-slate-200 dark:border-slate-700 cursor-pointer"
+                                >
+                                    <span>Back to Home</span>
+                                </Link>
+                            </div>
+
+                        </div>
                     </div>
                 </main>
             </div>

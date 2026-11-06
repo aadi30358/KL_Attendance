@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck, CalendarDays, ArrowRight, AlertTriangle, LogOut, ChevronDown, Lock, LogIn } from 'lucide-react';
+import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck, CalendarDays, ArrowRight, AlertTriangle, LogOut, ChevronDown, Lock, LogIn, Clock } from 'lucide-react';
 import { erpService, hasActiveErpSession } from '../services/erpService';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -944,7 +944,7 @@ const AttendanceRegister = () => {
             setDebugHtml(null);
 
             // Determine target academic year & semester for this student
-            const defaultStudentYear = '2025-2026';
+            const defaultStudentYear = '2026-2027';
             const detailYear = detail?.year ? detail.year : null;
             const savedYear = newId ? (localStorage.getItem(`manualYear_${newId}`) || localStorage.getItem(`activeYear_${newId}`)) : null;
             const savedSem = newId ? (localStorage.getItem(`manualSem_${newId}`) || localStorage.getItem(`activeSem_${newId}`)) : null;
@@ -1221,7 +1221,7 @@ const AttendanceRegister = () => {
             }
             // Auto-select active year directly: prioritize saved manual selection if available
             const userManualYear = activeId ? (localStorage.getItem(`manualYear_${activeId}`) || localStorage.getItem(`activeYear_${activeId}`)) : null;
-            let nextYear = '2025-2026';
+            let nextYear = '2026-2027';
             if (userManualYear) {
                 nextYear = normalizeAcademicYear(userManualYear);
                 setYear(nextYear);
@@ -1229,8 +1229,8 @@ const AttendanceRegister = () => {
                 nextYear = normalizeAcademicYear(sessionData.selectedYear.text);
                 setYear(nextYear);
             } else {
-                nextYear = '2025-2026';
-                setYear('2025-2026');
+                nextYear = '2026-2027';
+                setYear('2026-2027');
             }
 
             const userManualSem = activeId ? (localStorage.getItem(`manualSem_${activeId}`) || localStorage.getItem(`activeSem_${activeId}`)) : null;
@@ -2053,204 +2053,57 @@ const AttendanceRegister = () => {
                         })}
                     </div>
 
-                    {/* Weekly Timetable Matrix Section */}
-                    <div className="mt-6 max-w-7xl mx-auto w-full bg-white dark:bg-[#1e293b] rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-slate-200/90 dark:border-slate-700/80 shadow-md shadow-indigo-100/30 dark:shadow-none space-y-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    {/* Weekly Timetable Section (Coming Soon) */}
+                    <div className="mt-6 max-w-7xl mx-auto w-full bg-white dark:bg-[#1e293b] rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-slate-200/90 dark:border-slate-700/80 shadow-md shadow-indigo-100/30 dark:shadow-none space-y-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
                             <div>
                                 <div className="flex items-center gap-2">
                                     <CalendarDays className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
                                     <h4 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
                                         <span>Weekly Timetable</span>
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/80 border border-amber-300 dark:border-amber-700/80 px-2 py-0.5 rounded-full">
+                                            Coming Soon
+                                        </span>
                                         <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200/80 dark:border-indigo-800 px-2 py-0.5 rounded-md">
                                             {activeProfile?.nickname || 'Account'} · {displayYearText} · {displaySemesterText}
                                         </span>
                                     </h4>
                                 </div>
                                 <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                                    Class schedules, classrooms, and timing breakdown for ID: {activeId}
+                                    Official class schedules, classrooms, and timing breakdown for ID: {activeId}
                                 </p>
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-2">
-                                {/* Aliases vs Codes Toggle */}
-                                <div className="inline-flex bg-slate-100 dark:bg-slate-800/90 p-0.5 rounded-xl border border-slate-200 dark:border-slate-700/80">
-                                    <button
-                                        type="button"
-                                        onClick={() => setTimetableDisplayMode('aliases')}
-                                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                            timetableDisplayMode === 'aliases'
-                                                ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
-                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                                        }`}
-                                    >
-                                        Aliases 🏷️
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setTimetableDisplayMode('codes')}
-                                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                            timetableDisplayMode === 'codes'
-                                                ? 'bg-white dark:bg-slate-700 text-indigo-900 dark:text-white shadow-2xs'
-                                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                                        }`}
-                                    >
-                                        Codes
-                                    </button>
-                                </div>
-
-                                <Link
-                                    to="/timetable"
-                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold transition-all border border-indigo-200/90 dark:border-indigo-700/60 shadow-2xs group"
-                                    title="Open full timetable page"
-                                >
-                                    <span>View Full Timetable</span>
-                                    <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-                                </Link>
-                            </div>
+                            <Link
+                                to="/timetable"
+                                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/80 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-300 text-xs font-bold transition-all border border-amber-300 dark:border-amber-700/60 shadow-2xs group self-start sm:self-auto"
+                                title="Open timetable page"
+                            >
+                                <span>Timetable Status</span>
+                                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                            </Link>
                         </div>
 
-                        {hasTimetableSlots ? (
-                            /* Compact Week Matrix Table */
-                            <div className="rounded-2xl border border-slate-200/90 dark:border-slate-700/70 overflow-hidden bg-white dark:bg-slate-900/60 shadow-2xs">
-                                <div className="overflow-x-auto scrollbar-thin">
-                                    <table className="w-full text-xs border-collapse text-center">
-                                        <thead>
-                                            <tr className="border-b border-slate-200 dark:border-slate-700/80 bg-slate-50 dark:bg-slate-800/80">
-                                                <th className="sticky left-0 bg-slate-100 dark:bg-slate-800 text-center p-1.5 sm:p-2 border-r border-slate-200 dark:border-slate-700 z-20 w-12 sm:w-14 min-w-[48px] sm:min-w-[56px]">
-                                                    <span className="text-[10px] sm:text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                                                        Day
-                                                    </span>
-                                                </th>
-                                                {activeSessions.map((sess) => (
-                                                    <th
-                                                        key={sess.id}
-                                                        className="p-1 sm:p-1.5 min-w-[85px] w-[85px] sm:min-w-[105px] sm:w-[105px] border-r border-slate-200 dark:border-slate-700/80 text-center font-bold text-slate-700 dark:text-slate-300 align-middle"
-                                                    >
-                                                        <div className="inline-block px-1.5 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 font-bold text-[9px] mb-0.5">
-                                                            {sess.id}
-                                                        </div>
-                                                        <div className="text-[8px] sm:text-[8.5px] text-slate-500 dark:text-slate-400 font-normal font-mono whitespace-nowrap">
-                                                            {sess.start}–{sess.end}
-                                                        </div>
-                                                    </th>
-                                                ))}
-                                            </tr>
-                                        </thead>
-
-                                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700/70">
-                                            {DAYS_OF_WEEK.map((day) => {
-                                                const slots = studentTimetable[day] || [];
-                                                const isToday = liveClassStatus?.dayName === day;
-
-                                                return (
-                                                    <tr
-                                                        key={day}
-                                                        className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors ${
-                                                            isToday ? 'bg-indigo-50/30 dark:bg-indigo-950/20' : ''
-                                                        }`}
-                                                    >
-                                                        <td
-                                                            className={`sticky left-0 p-1.5 sm:p-2 border-r border-slate-200 dark:border-slate-700 font-bold z-10 ${
-                                                                isToday
-                                                                    ? 'bg-indigo-100 dark:bg-indigo-950 text-indigo-900 dark:text-indigo-200'
-                                                                    : 'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
-                                                            }`}
-                                                        >
-                                                            <span className="block text-[10px] font-black uppercase">{day.slice(0, 3)}</span>
-                                                            {isToday && (
-                                                                <span className="text-[7.5px] font-black text-indigo-600 dark:text-sky-400 block mt-0.5">
-                                                                    TODAY
-                                                                </span>
-                                                            )}
-                                                        </td>
-
-                                                        {activeSessions.map((sess) => {
-                                                            const classItem = slots.find(
-                                                                (s) => s.period === sess.slot || s.slotId === sess.id || (s.period <= sess.slot && sess.slot <= (s.periodEnd || (s.period + (s.span || 1) - 1)))
-                                                            );
-                                                            if (!classItem) {
-                                                                return (
-                                                                    <td
-                                                                        key={sess.id}
-                                                                        className="p-1 sm:p-1.5 border-r border-slate-200 dark:border-slate-700/70 text-slate-300 dark:text-slate-600 font-mono text-center text-[10px]"
-                                                                    >
-                                                                        —
-                                                                    </td>
-                                                                );
-                                                            }
-
-                                                            const isLab =
-                                                                (classItem.component || classItem.type || '').toLowerCase().includes('pract') ||
-                                                                classItem.code.endsWith('-P');
-                                                            const isSkill =
-                                                                (classItem.component || classItem.type || '').toLowerCase().includes('skill') ||
-                                                                classItem.code.endsWith('-S');
-                                                            const isTut =
-                                                                (classItem.component || classItem.type || '').toLowerCase().includes('tut') ||
-                                                                classItem.code.endsWith('-T');
-
-                                                            const displayTitle =
-                                                                timetableDisplayMode === 'codes'
-                                                                    ? classItem.code
-                                                                    : getSubjectName(classItem.rawCode || classItem.code) || classItem.code;
-
-                                                            return (
-                                                                <td
-                                                                    key={sess.id}
-                                                                    className={`p-1 sm:p-1.5 border-r border-slate-200 dark:border-slate-700/70 align-middle ${
-                                                                        isLab
-                                                                            ? 'bg-emerald-50/85 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-200'
-                                                                            : isSkill
-                                                                            ? 'bg-purple-50/85 dark:bg-purple-950/40 text-purple-950 dark:text-purple-200'
-                                                                            : isTut
-                                                                            ? 'bg-amber-50/85 dark:bg-amber-950/40 text-amber-950 dark:text-amber-200'
-                                                                            : 'bg-blue-50/85 dark:bg-blue-950/40 text-blue-950 dark:text-blue-200'
-                                                                    }`}
-                                                                >
-                                                                    <div className="space-y-0.5">
-                                                                        <div
-                                                                            className="font-bold text-[9px] sm:text-[9.5px] leading-tight text-slate-900 dark:text-slate-100 line-clamp-2 overflow-hidden"
-                                                                            style={{
-                                                                                display: '-webkit-box',
-                                                                                WebkitLineClamp: 2,
-                                                                                WebkitBoxOrient: 'vertical',
-                                                                                overflow: 'hidden'
-                                                                            }}
-                                                                            title={displayTitle}
-                                                                        >
-                                                                            {displayTitle}
-                                                                        </div>
-                                                                        <div className="text-[8px] sm:text-[8.5px] text-slate-600 dark:text-slate-400 font-medium leading-none truncate mt-0.5">
-                                                                            {classItem.section ? `${classItem.section} · ` : ''}
-                                                                            {classItem.room ? `Rm ${cleanRoomNumber(classItem.room)}` : ''}
-                                                                        </div>
-                                                                    </div>
-                                                                </td>
-                                                            );
-                                                        })}
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
+                        {/* Coming Soon Timetable Card */}
+                        <div className="py-10 px-4 text-center rounded-2xl border border-dashed border-amber-300/80 dark:border-amber-800/60 bg-gradient-to-b from-amber-50/60 via-white to-amber-50/30 dark:from-slate-900 dark:via-slate-900/80 dark:to-slate-900 space-y-3">
+                            <div className="w-12 h-12 mx-auto rounded-2xl bg-amber-100 dark:bg-amber-950/80 border border-amber-200 dark:border-amber-700 flex items-center justify-center text-amber-600 dark:text-amber-400 shadow-sm">
+                                <Clock className="w-6 h-6" />
                             </div>
-                        ) : (
-                            <div className="py-8 px-4 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 space-y-2">
-                                <p className="text-xs font-semibold">
-                                    Timetable records for {activeProfile?.nickname || 'Account'} are being loaded...
+                            <div className="max-w-md mx-auto space-y-1">
+                                <h5 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
+                                    Class Timetable — Coming Soon
+                                </h5>
+                                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
+                                    Live ERP section timetable synchronization for {activeProfile?.nickname || 'Account'} ({displayYearText} • {displaySemesterText}) is currently being integrated and will be available soon!
                                 </p>
-                                <div className="pt-1">
-                                    <Link
-                                        to="/timetable"
-                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition-colors"
-                                    >
-                                        <span>Open Timetable Portal</span>
-                                        <ArrowRight className="w-3.5 h-3.5" />
-                                    </Link>
-                                </div>
                             </div>
-                        )}
+                            <div className="pt-1 flex items-center justify-center gap-2">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300/80 dark:border-amber-700">
+                                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                                    <span>Direct ERP Section Integration in Progress</span>
+                                </span>
+                            </div>
+                        </div>
                     </div>
                     </>
                 ) : targetFriendForCaptcha ? (
@@ -2343,7 +2196,7 @@ const AttendanceRegister = () => {
                         setActiveId(sid);
                         setActiveProfile(authFriend || getActiveProfileDetails(sid));
                         const savedY = localStorage.getItem(`manualYear_${sid}`) || localStorage.getItem(`activeYear_${sid}`);
-                        const targetY = year || savedY || '2025-2026';
+                        const targetY = year || savedY || '2026-2027';
                         const savedS = localStorage.getItem(`manualSem_${sid}`) || localStorage.getItem(`activeSem_${sid}`);
                         const targetS = semester || savedS || 'Odd';
                         setYear(targetY);
@@ -2635,7 +2488,7 @@ const AttendanceRegister = () => {
                     setActiveId(sid);
                     setActiveProfile(authFriend || getActiveProfileDetails(sid));
                     const savedY = localStorage.getItem(`manualYear_${sid}`) || localStorage.getItem(`activeYear_${sid}`);
-                    const targetY = year || savedY || '2025-2026';
+                    const targetY = year || savedY || '2026-2027';
                     const savedS = localStorage.getItem(`manualSem_${sid}`) || localStorage.getItem(`activeSem_${sid}`);
                     const targetS = semester || savedS || 'Odd';
                     setYear(targetY);

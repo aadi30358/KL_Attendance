@@ -113,8 +113,8 @@ export default function ErpSidebar({
         {
             id: 'timetable',
             label: 'Class Timetable',
-            badge: 'ERP',
-            badgeClass: 'bg-indigo-100 text-indigo-700',
+            badge: 'COMING SOON',
+            badgeClass: 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 font-bold border border-amber-300/80 dark:border-amber-700',
             icon: CalendarDays,
             isActive: currentPath === '/timetable' || activePage === 'timetable',
             onClick: () => handleNavigation('/timetable')
