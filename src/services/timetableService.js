@@ -120,7 +120,7 @@ export function normalizeSemester(sem) {
 
 export function getTruePresentAcademicYearAndSem() {
     return {
-        year: '2025-2026',
+        year: '2026-2027',
         sem: 'Odd'
     };
 }
@@ -148,8 +148,8 @@ export const KLU_COURSE_NAMES = {
     '24SDCS03': 'SOA Programming and Microservices',
     '24EDS3308HF': 'Principles of Deep Neural Networks',
     '24EDS3308': 'Principles of Deep Neural Networks',
-    '24GMI3101': 'Embedded AI – Edge Intelligence and TinyML',
-    '24CC3014': 'Cloud Computing',
+    '24GMI3101': 'Embedded AI - Edge Intelligence and TinyML',
+    '24CC3014': 'AWS Certified Solutions Architect - Associate',
     '24CS3206': 'Theory of Computation',
     '24CS3105': 'Information Assurance and Security',
 
@@ -176,7 +176,7 @@ export const KLU_COURSE_NAMES = {
     'CRTCODL2V2': 'Coding Skills Training - DS',
     '23UC0013': 'Logic Building Contest Practicum',
     '24AD2001A': 'Artificial Intelligence and Machine Learning',
-    '24MT2012': 'Mathematical Optimization',
+    '24MT2012': 'Mathematical Foundations for Computing',
 
     // 1st Year (2024-2025) Even Sem
     '24SC1203': 'Data Structures',
@@ -255,42 +255,48 @@ export const ADITHYA_AUTHENTIC_TIMETABLE_2026_ODD = {
 export const ADITHYA_AUTHENTIC_TIMETABLE_2025_ODD = {
     Monday: [
         { period: 1, periodEnd: 1, span: 1, slotId: 'S1', time: '07:10 – 08:00', code: '24CC3145', rawCode: '24CC3145', title: 'GitHub Copilot Certification', component: 'Skill', type: 'Skill', section: 'S-6', room: 'C421', weight: 25, isLab: false },
-        { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: 'CRTCODL2V2', rawCode: 'CRTCODL2V2', title: 'Campus Recruitment: Coding Skills Training - DS', component: 'Skill', type: 'Skill', section: 'S-6', room: 'C421', weight: 25, isLab: false },
+        { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: 'CRTCODL2V2', rawCode: 'CRTCODL2V2', title: 'Coding Skills Training - DS', component: 'Skill', type: 'Skill', section: 'S-6', room: 'C421', weight: 25, isLab: false },
         { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: '24CS2101R', rawCode: '24CS2101R', title: 'Operating Systems', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
-        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24UC0022', rawCode: '24UC0022', title: 'Social Immersive Learning', component: 'Practical', type: 'Practical', section: 'S-6', room: 'C421', weight: 50, isLab: false },
+        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24UC0022', rawCode: '24UC0022', title: 'Social Immersive Learning', component: 'Practical', type: 'Practical', section: 'S-6', room: 'C219', weight: 50, isLab: false },
         { period: 5, periodEnd: 5, span: 1, slotId: 'S5', time: '11:10 – 12:00', code: '24UC0022', rawCode: '24UC0022', title: 'Social Immersive Learning', component: 'Practical', type: 'Practical', section: 'S-6', room: 'C219', weight: 50, isLab: false }
     ],
     Tuesday: [
         { period: 1, periodEnd: 1, span: 1, slotId: 'S1', time: '07:10 – 08:00', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
-        { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: 'CRTCODL2V2', rawCode: 'CRTCODL2V2', title: 'Campus Recruitment: Coding Skills Training - DS', component: 'Skill', type: 'Skill', section: 'S-6', room: 'C421', weight: 25, isLab: false },
-        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: '24DC501E', rawCode: '24DC501E', title: 'Front End Development Frameworks', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
-        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24CS2202', rawCode: '24CS2202', title: 'Computer Networks', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false }
+        { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24DC501E', rawCode: '24DC501E', title: 'Front End Development Frameworks', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 5, periodEnd: 5, span: 1, slotId: 'S5', time: '11:10 – 12:00', code: '24DC501E', rawCode: '24DC501E', title: 'Front End Development Frameworks', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 7, periodEnd: 7, span: 1, slotId: 'S7', time: '13:00 – 13:50', code: '24CS2202', rawCode: '24CS2202', title: 'Computer Networks', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false }
     ],
     Wednesday: [
         { period: 1, periodEnd: 1, span: 1, slotId: 'S1', time: '07:10 – 08:00', code: '24DC501E', rawCode: '24DC501E', title: 'Front End Development Frameworks', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
-        { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C619', weight: 100, isLab: false },
-        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C619', weight: 100, isLab: false },
-        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24CC3145', rawCode: '24CC3145', title: 'GitHub Copilot Certification', component: 'Skill', type: 'Skill', section: 'S-6', room: 'C421', weight: 25, isLab: false },
+        { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24DC501E', rawCode: '24DC501E', title: 'Front End Development Frameworks', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
         { period: 5, periodEnd: 5, span: 1, slotId: 'S5', time: '11:10 – 12:00', code: '24CS2101R', rawCode: '24CS2101R', title: 'Operating Systems', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false }
     ],
     Thursday: [
-        { period: 1, periodEnd: 1, span: 1, slotId: 'S1', time: '07:10 – 08:00', code: '24MT2012', rawCode: '24MT2012', title: 'Mathematical Optimization', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 1, periodEnd: 1, span: 1, slotId: 'S1', time: '07:10 – 08:00', code: '24MT2012', rawCode: '24MT2012', title: 'Mathematical Foundations for Computing', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
         { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
-        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: 'CRTCODL1V1', rawCode: 'CRTCODL1V1', title: 'Campus Recruitment: Logic Building Skills Training', component: 'Skill', type: 'Skill', section: 'S-6', room: 'C421', weight: 25, isLab: false },
+        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: 'CRTCODL1V1', rawCode: 'CRTCODL1V1', title: 'Logic Building Skills Training', component: 'Skill', type: 'Skill', section: 'S-6', room: 'C421', weight: 25, isLab: false },
         { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24CS2101R', rawCode: '24CS2101R', title: 'Operating Systems', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false }
     ],
     Friday: [
         { period: 1, periodEnd: 1, span: 1, slotId: 'S1', time: '07:10 – 08:00', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
         { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: '24DC501E', rawCode: '24DC501E', title: 'Front End Development Frameworks', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
-        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: '24MT2012', rawCode: '24MT2012', title: 'Mathematical Optimization', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
-        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24CS2101R', rawCode: '24CS2101R', title: 'Operating Systems', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
-        { period: 5, periodEnd: 5, span: 1, slotId: 'S5', time: '11:10 – 12:00', code: '24CS2101R', rawCode: '24CS2101R', title: 'Operating Systems', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C219', weight: 100, isLab: false }
+        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: '24MT2012', rawCode: '24MT2012', title: 'Mathematical Foundations for Computing', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 5, periodEnd: 5, span: 1, slotId: 'S5', time: '11:10 – 12:00', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 6, periodEnd: 6, span: 1, slotId: 'S6', time: '12:00 – 12:50', code: '24CS2101R', rawCode: '24CS2101R', title: 'Operating Systems', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C219', weight: 100, isLab: false },
+        { period: 7, periodEnd: 7, span: 1, slotId: 'S7', time: '13:00 – 13:50', code: '23UC0013', rawCode: '23UC0013', title: 'Logic Building Contest Practicum', component: 'Practical', type: 'Practical', section: 'S-6', room: 'C421', weight: 50, isLab: false }
     ],
     Saturday: [
         { period: 1, periodEnd: 1, span: 1, slotId: 'S1', time: '07:10 – 08:00', code: '24DC501E', rawCode: '24DC501E', title: 'Front End Development Frameworks', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
-        { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: '24UC0022', rawCode: '24UC0022', title: 'Social Immersive Learning', component: 'Practical', type: 'Practical', section: 'S-6', room: 'C219', weight: 50, isLab: false },
-        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: '24UC0022', rawCode: '24UC0022', title: 'Social Immersive Learning', component: 'Practical', type: 'Practical', section: 'S-6', room: 'C219', weight: 50, isLab: false },
-        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false }
+        { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: '14UC0022', rawCode: '14UC0022', title: 'Social Immersive Learning', component: 'Practical', type: 'Practical', section: 'S-6', room: 'C219', weight: 50, isLab: false },
+        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: '14UC0022', rawCode: '14UC0022', title: 'Social Immersive Learning', component: 'Practical', type: 'Practical', section: 'S-6', room: 'C219', weight: 50, isLab: false },
+        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24MT2012', rawCode: '24MT2012', title: 'Mathematical Foundations for Computing', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 5, periodEnd: 5, span: 1, slotId: 'S5', time: '11:10 – 12:00', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false },
+        { period: 6, periodEnd: 6, span: 1, slotId: 'S6', time: '12:00 – 12:50', code: '24AD2001A', rawCode: '24AD2001A', title: 'Artificial Intelligence and Machine Learning', component: 'Lecture', type: 'Lecture', section: 'S-6', room: 'C421', weight: 100, isLab: false }
     ],
     Sunday: []
 };
@@ -361,10 +367,10 @@ export const ADITHYA_AUTHENTIC_TIMETABLE_2024_ODD = {
         { period: 10, periodEnd: 10, span: 1, slotId: 'S10', time: '15:40 – 16:20', code: '24SDCS03A-S', rawCode: '24SDCS03A', title: 'SOA Programming and Microservices (Skill)', component: 'Skill', type: 'Skill', section: 'S-55', room: 'C307', weight: 25, isLab: false }
     ],
     Wednesday: [
-        { period: 1, periodEnd: 1, span: 1, slotId: 'S1', time: '07:10 – 08:00', code: '24CC3014-S', rawCode: '24CC3014', title: 'Cloud Computing (Skill)', component: 'Skill', type: 'Skill', section: 'S-53', room: 'C219', weight: 25, isLab: false },
-        { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: '24CC3014-S', rawCode: '24CC3014', title: 'Cloud Computing (Skill)', component: 'Skill', type: 'Skill', section: 'S-53', room: 'C219', weight: 25, isLab: false },
-        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: '24CC3014-P', rawCode: '24CC3014', title: 'Cloud Computing (Hands-on)', component: 'Practical', type: 'Practical Lab', section: 'S-53', room: 'L502', weight: 50, isLab: true },
-        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24CC3014-P', rawCode: '24CC3014', title: 'Cloud Computing (Hands-on)', component: 'Practical', type: 'Practical Lab', section: 'S-53', room: 'L502', weight: 50, isLab: true }
+        { period: 1, periodEnd: 1, span: 1, slotId: 'S1', time: '07:10 – 08:00', code: '24CC3014-S', rawCode: '24CC3014', title: 'AWS Certified Solutions Architect - Associate', component: 'Skill', type: 'Skill', section: 'S-53', room: 'C219', weight: 25, isLab: false },
+        { period: 2, periodEnd: 2, span: 1, slotId: 'S2', time: '08:00 – 08:50', code: '24CC3014-S', rawCode: '24CC3014', title: 'AWS Certified Solutions Architect - Associate', component: 'Skill', type: 'Skill', section: 'S-53', room: 'C219', weight: 25, isLab: false },
+        { period: 3, periodEnd: 3, span: 1, slotId: 'S3', time: '09:20 – 10:10', code: '24CC3014-P', rawCode: '24CC3014', title: 'AWS Certified Solutions Architect (Hands-on)', component: 'Practical', type: 'Practical Lab', section: 'S-53', room: 'L502', weight: 50, isLab: true },
+        { period: 4, periodEnd: 4, span: 1, slotId: 'S4', time: '10:10 – 11:00', code: '24CC3014-P', rawCode: '24CC3014', title: 'AWS Certified Solutions Architect (Hands-on)', component: 'Practical', type: 'Practical Lab', section: 'S-53', room: 'L502', weight: 50, isLab: true }
     ],
     Thursday: [],
     Friday: [
@@ -434,7 +440,7 @@ export const KLU_SEMESTER_CURRICULUM = {
         { code: '24GMI3101', title: 'Embedded AI - Edge Intelligence and TinyML', components: { Lecture: {}, Practical: {}, Tutorial: {} } },
         { code: '24CS3206', title: 'Theory of Computation', components: { Lecture: {}, Tutorial: {} } },
         { code: '24CS3105', title: 'Information Assurance and Security', components: { Lecture: {}, Tutorial: {} } },
-        { code: '24CC3014', title: 'Cloud Computing', components: { Lecture: {}, Skill: {} } }
+        { code: '24CC3014', title: 'AWS Certified Solutions Architect - Associate', components: { Practical: {}, Skill: {} } }
     ]
 };
 
@@ -451,25 +457,9 @@ export const getSubjectName = (courseCode) => {
     const mainCode = extractMainCode(courseCode);
     try {
         if (typeof window !== 'undefined') {
-            const rawMappings = localStorage.getItem('subjectMappings');
-            if (rawMappings) {
-                const subjectMappings = JSON.parse(rawMappings);
-                // Self-healing: purge any stale swapped or corrupt legacy subject mappings
-                let cleaned = false;
-                if (subjectMappings[mainCode] && (
-                    (mainCode === '24CC3014' && subjectMappings[mainCode].includes('AWS')) ||
-                    (mainCode === '24EDS3308' && subjectMappings[mainCode].includes('Embedded AI')) ||
-                    (mainCode === '24GMI3101' && subjectMappings[mainCode].includes('Deep Neural'))
-                )) {
-                    delete subjectMappings[mainCode];
-                    cleaned = true;
-                }
-                if (cleaned) {
-                    try { localStorage.setItem('subjectMappings', JSON.stringify(subjectMappings)); } catch {}
-                }
-                if (subjectMappings[mainCode]) return subjectMappings[mainCode];
-                if (subjectMappings[courseCode]) return subjectMappings[courseCode];
-            }
+            const subjectMappings = JSON.parse(localStorage.getItem('subjectMappings') || '{}');
+            if (subjectMappings[mainCode]) return subjectMappings[mainCode];
+            if (subjectMappings[courseCode]) return subjectMappings[courseCode];
         }
     } catch { /* ignore */ }
     return KLU_COURSE_NAMES[mainCode] || KLU_COURSE_NAMES[courseCode] || courseCode;
@@ -1195,8 +1185,8 @@ export function getCurriculumForStudent(studentId, cleanYear = '2025-2026', clea
         } else {
             // Odd Sem (Sem 5)
             return [
-                { code: '24EDS3308', title: 'Principles of Deep Neural Networks', components: { Lecture: {}, Practical: {} } },
-                { code: '24GMI3101', title: 'Embedded AI – Edge Intelligence and TinyML', components: { Lecture: {}, Practical: {} } },
+                { code: '24GMI3101', title: 'Principles of Deep Neural Computation', components: { Lecture: {}, Practical: {} } },
+                { code: '24EDS3308', title: 'Enterprise Data Science', components: { Lecture: {}, Practical: {} } },
                 { code: '24SDCS03A', title: 'SOA Programming and Microservices', components: { Lecture: {}, Tutorial: {}, Skill: {} } },
                 { code: '24CC3014', title: 'Cloud Computing', components: { Skill: {} } },
                 { code: '24CS3206', title: 'Theory of Computation', components: { Lecture: {}, Tutorial: {} } },
@@ -1300,7 +1290,7 @@ export function isTimetableMatchingSemester(timetable, cleanYear = '2026-2027', 
     // 2. Reject present 2026-2027 courses from appearing in past academic years
     if (normYear !== '2026-2027') {
         const presentCodes = ['24SDCS03A', '24EDS3308HF', '24GMI3101', '24CS3206', '24CS3105', '24CC3014'];
-        const presentKeywords = ['DEEP NEURAL', 'EMBEDDED AI', 'SOA PROGRAMMING', 'CLOUD COMPUTING', 'INFORMATION ASSURANCE'];
+        const presentKeywords = ['DEEP NEURAL', 'EMBEDDED AI', 'SOA PROGRAMMING', 'AWS CERTIFIED', 'INFORMATION ASSURANCE'];
         const hasPresent = slots.some(s => {
             const c = String(s.code || s.rawCode || '').toUpperCase();
             const t = String(s.title || '').toUpperCase();
@@ -1526,7 +1516,7 @@ export function buildTimetableFromErpCourses(courses = [], studentId = 'default'
 /**
  * Retrieves the stored or freshly synthesized timetable for a student and academic session.
  */
-export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '2025-2026', selectedSem = 'Odd') {
+export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '2026-2027', selectedSem = 'Odd') {
     const activeErpUser = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null;
     const targetId = studentId || activeErpUser || '';
     if (!targetId) return null;
@@ -1535,7 +1525,7 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
 
     const cleanYear = normalizeAcademicYear(selectedYear);
     const cleanSem = normalizeSemester(selectedSem);
-    const isPresentSemester = (cleanYear === '2025-2026' && cleanSem === 'Odd');
+    const isPresentSemester = (cleanYear === '2026-2027' && cleanSem === 'Odd');
 
     // 0. Verified schedule for Adithya (if targetId matches exactly)
     const targetDigits = String(targetId).replace(/\D/g, '');
@@ -1639,8 +1629,8 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         }
     }
 
-    // 2. Check if TimeTablekl stored friend in localStorage.getItem("maddys")
-    if (typeof window !== 'undefined') {
+    // 2. Check if TimeTablekl stored friend in localStorage.getItem("maddys") ONLY for present semester
+    if (typeof window !== 'undefined' && isPresentSemester) {
         try {
             const rawMaddys = localStorage.getItem('maddys');
             if (rawMaddys) {
@@ -1653,19 +1643,10 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
                         (m.name && targetId.toLowerCase().includes(m.name.toLowerCase()))
                     );
                     if (match?.timetable && typeof match.timetable === 'object') {
-                        const mYear = match.academicYear ? normalizeAcademicYear(match.academicYear) : null;
-                        const mSem = match.semester ? normalizeSemester(match.semester) : null;
-                        if ((!mYear || mYear === cleanYear) && (!mSem || mSem === cleanSem)) {
-                            if (isTimetableMatchingSemester(match.timetable, cleanYear, cleanSem, erpCourses) && isTimetableValidForStudent(match.timetable, targetId)) {
-                                const normalized = normalizeTimetableFormat(match.timetable, targetId);
-                                if (normalized) {
-                                    return {
-                                        ...normalized,
-                                        _source: 'erp_synced',
-                                        _year: cleanYear,
-                                        _sem: cleanSem
-                                    };
-                                }
+                        if (isTimetableMatchingSemester(match.timetable, cleanYear, cleanSem, erpCourses) && isTimetableValidForStudent(match.timetable, targetId)) {
+                            const normalized = normalizeTimetableFormat(match.timetable, targetId);
+                            if (normalized) {
+                                return normalized;
                             }
                         }
                     }
@@ -1674,23 +1655,18 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         } catch { /* ignore */ }
     }
 
-    // 3. Check if TimeTablekl stored a timetable in localStorage.getItem("timetable")
-    if (typeof window !== 'undefined' && isSelf) {
+    // 3. Check if TimeTablekl stored a timetable in localStorage.getItem("timetable") ONLY for present semester
+    if (typeof window !== 'undefined' && isSelf && isPresentSemester) {
         try {
             const rawTt = localStorage.getItem('timetable');
-            const ttOwner = localStorage.getItem('timetable_studentId') || localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser');
-            if (rawTt && (!ttOwner || ttOwner === targetId)) {
+            const ttOwner = localStorage.getItem('timetable_studentId') || localStorage.getItem('rememberedId');
+            if (rawTt && ttOwner && ttOwner === targetId) {
                 const parsed = JSON.parse(rawTt);
                 if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
                     if (isTimetableMatchingSemester(parsed, cleanYear, cleanSem, erpCourses) && isTimetableValidForStudent(parsed, targetId)) {
                         const normalized = normalizeTimetableFormat(parsed, targetId);
                         if (normalized) {
-                            return {
-                                ...normalized,
-                                _source: 'erp_synced',
-                                _year: cleanYear,
-                                _sem: cleanSem
-                            };
+                            return normalized;
                         }
                     }
                 }
@@ -1933,7 +1909,7 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
         const offset = Math.max(0, firstYear - 2026);
         yearCandidates = [String(18 + offset), String(29 + offset), '18', '29', '22'];
     } else if (firstYear === 2025) {
-        yearCandidates = ['19', '28', '17', '18'];
+        yearCandidates = ['17', '28', '19'];
     } else if (firstYear === 2024) {
         yearCandidates = ['16', '27', '15'];
     } else if (firstYear === 2023) {

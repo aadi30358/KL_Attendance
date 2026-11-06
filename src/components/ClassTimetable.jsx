@@ -56,11 +56,10 @@ export default function ClassTimetable({
     erpCourses = [],
     onViewCourseAttendance,
     onChangeSelection,
-    onSemesterChange,
     onRefreshErp,
     onSelectFriend,
     onSelectProfile,
-    selectedYear = '2025-2026',
+    selectedYear = '2026-2027',
     selectedSem = 'Odd Sem'
 }) {
     const navigate = useNavigate();
@@ -148,60 +147,15 @@ export default function ClassTimetable({
         });
     }, [allFriends, primaryMyId]);
 
-    // Dynamic Academic Year & Semester derived directly from props, storage & modal selection
-    const [overrideYear, setOverrideYear] = useState(null);
-    const [overrideSem, setOverrideSem] = useState(null);
-    const [showSemModal, setShowSemModal] = useState(false);
-
-    const currentYear = useMemo(() => normalizeAcademicYear(overrideYear || selectedYear), [overrideYear, selectedYear]);
+    // Dynamic Academic Year & Semester derived directly from props & selection
+    const currentYear = useMemo(() => normalizeAcademicYear(selectedYear), [selectedYear]);
     const currentSem = useMemo(() => {
-        const s = normalizeSemester(overrideSem || selectedSem);
+        const s = normalizeSemester(selectedSem);
         if (s === 'Summer') return 'Summer Term';
         if (s === 'Term3') return 'Tri Sem / Term 3';
         if (s === 'Even') return 'Even Sem';
         return 'Odd Sem';
-    }, [overrideSem, selectedSem]);
-
-    const [tempYear, setTempYear] = useState(currentYear);
-    const [tempSem, setTempSem] = useState(currentSem);
-
-    useEffect(() => {
-        setTempYear(currentYear);
-        setTempSem(currentSem);
-    }, [currentYear, currentSem]);
-
-    const availableYearsList = useMemo(() => {
-        const topYear = new Date().getFullYear();
-        const yrs = [];
-        for (let y = topYear; y >= 2021; y--) {
-            yrs.push(`${y}-${y + 1}`);
-        }
-        return yrs;
-    }, []);
-
-    const availableSemsList = ['Odd Sem', 'Even Sem', 'Summer Term', 'Tri Sem / Term 3'];
-
-    const handleApplySemester = (newYear, newSem) => {
-        const cleanY = normalizeAcademicYear(newYear);
-        const cleanS = normalizeSemester(newSem);
-        setOverrideYear(cleanY);
-        setOverrideSem(cleanS);
-        if (effectiveId) {
-            try {
-                localStorage.setItem(`manualYear_${effectiveId}`, cleanY);
-                localStorage.setItem(`activeYear_${effectiveId}`, cleanY);
-                localStorage.setItem(`manualSem_${effectiveId}`, cleanS);
-                localStorage.setItem(`activeSem_${effectiveId}`, cleanS);
-            } catch { /* ignore */ }
-        }
-        window.dispatchEvent(new CustomEvent('kl_active_profile_updated', {
-            detail: { studentId: effectiveId, year: cleanY, sem: cleanS }
-        }));
-        if (typeof onSemesterChange === 'function') {
-            onSemesterChange(cleanY, cleanS);
-        }
-        setShowSemModal(false);
-    };
+    }, [selectedSem]);
 
     const getStudentCourses = useCallback((id) => {
         if (!id) return [];
@@ -419,8 +373,10 @@ export default function ClassTimetable({
     // Verify whether authentic live ERP timetable was fetched for this student
     const isVerifiedErpTimetable = useMemo(() => {
         if (!effectiveId) return false;
+        // 1. Mandatory check: This student MUST have logged into ERP Attendance
+        if (!hasActiveErpSession(effectiveId)) return false;
 
-        // Must have valid timetable slots
+        // 2. Must have valid timetable slots
         if (!safeTimetable || typeof safeTimetable !== 'object') return false;
         const totalSlots = Object.values(safeTimetable).reduce((acc, curr) => acc + (Array.isArray(curr) ? curr.length : 0), 0);
         if (totalSlots === 0) return false;
@@ -429,20 +385,17 @@ export default function ClassTimetable({
             return true;
         }
 
-        if (hasActiveErpSession(effectiveId)) return true;
-
         if (typeof window !== 'undefined') {
             const scopedKey = `kl_timetable_${effectiveId}_${currentYear}_${currentSem}`;
             const raw = localStorage.getItem(scopedKey) || localStorage.getItem(`kl_timetable_${effectiveId}`);
             if (raw) {
                 try {
                     const parsed = JSON.parse(raw);
-                    if (parsed?._source === 'erp_live' || parsed?._userCustomized || parsed?._source === 'erp_synced') return true;
+                    if (parsed?._source === 'erp_live' || parsed?._userCustomized) return true;
                 } catch { /* ignore */ }
             }
-            if (localStorage.getItem('maddys') || localStorage.getItem('timetable')) return true;
         }
-        return totalSlots > 0;
+        return false;
     }, [safeTimetable, timetable, effectiveId, currentYear, currentSem]);
 
     // Unique Course Codes for Alias Editing
@@ -497,18 +450,13 @@ export default function ClassTimetable({
         if (!slot) return '';
         const raw = (slot.rawCode || (slot.code || '').replace(/-[LPTS]$/, '')).trim();
 
-        if (displayMode === 'codes') {
-            return slot.code || slot.rawCode || 'COURSE';
+        if (displayMode === 'aliases') {
+            const custom = getSubjectName(raw) || getSubjectName(slot.code);
+            if (custom) return custom;
         }
 
-        // 1. If slot already carries an authentic verified title from ERP or authentic timetable, prioritize it!
-        if (slot.title && slot.title !== raw && slot.title !== slot.code && !slot.title.toLowerCase().includes('subject')) {
-            const cleanBase = slot.title.replace(/\s*\((Lab|Tut|Tutorial|Lecture|Skill|Practical)\)$/i, '').trim();
-            const compSuffix = slot.code?.endsWith('-P') ? ' (Lab)'
-                : slot.code?.endsWith('-T') ? ' (Tut)'
-                : slot.code?.endsWith('-S') ? ' (Skill)'
-                : '';
-            return `${cleanBase}${compSuffix}`;
+        if (displayMode === 'codes') {
+            return slot.code || slot.rawCode || 'COURSE';
         }
 
         const baseWithoutSuffix = raw.replace(/HF$/, '');
@@ -523,14 +471,17 @@ export default function ClassTimetable({
             }
         }
 
+        if (!baseName && slot.title && slot.title !== raw && slot.title !== slot.code) {
+            baseName = slot.title;
+        }
+
         if (!baseName) {
             baseName = getSubjectName(raw) || getSubjectName(baseWithoutSuffix) || KLU_COURSE_NAMES[raw] || KLU_COURSE_NAMES[baseWithoutSuffix];
         }
 
         if (!baseName || baseName === raw || baseName === slot.code) {
-            if (raw.includes('24EDS3308')) baseName = 'Principles of Deep Neural Networks';
-            else if (raw.includes('24GMI3101')) baseName = 'Embedded AI – Edge Intelligence and TinyML';
-            else if (raw.includes('24CC3014')) baseName = 'Cloud Computing';
+            if (raw.includes('24EDS3308')) baseName = 'Embedded AI – Edge Intelligence and TinyML';
+            else if (raw.includes('24GMI3101')) baseName = 'Principles of Deep Neural Computation';
             else if (raw.includes('23EC1202')) baseName = 'Digital Design and Computer Architecture';
         }
 
@@ -1352,23 +1303,14 @@ export default function ClassTimetable({
                 {/* Header & View Switcher */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-5">
                     <div>
-                        <div className="flex items-center gap-2.5 flex-wrap">
-                            <CalendarDays className="w-5 h-5 text-indigo-600 shrink-0" />
+                        <div className="flex items-center gap-2">
+                            <CalendarDays className="w-5 h-5 text-indigo-600" />
                             <h3 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
                                 Weekly Timetable
                             </h3>
-                            <button
-                                type="button"
-                                onClick={() => setShowSemModal(true)}
-                                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 transition-all cursor-pointer shadow-2xs active:scale-95"
-                                title="Click to change Academic Year & Semester"
-                            >
-                                <span>{effectiveName} · {currentYear} · {currentSem}</span>
-                                <ChevronDown className="w-3.5 h-3.5 text-indigo-500" />
-                            </button>
                         </div>
                         <p className="text-xs text-slate-500 font-medium mt-1">
-                            Class schedules, classrooms, and timing breakdown for ID: {effectiveId}
+                            Class schedules, classrooms, and timing breakdown
                         </p>
                     </div>
 
@@ -2042,87 +1984,6 @@ export default function ClassTimetable({
                                     className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 cursor-pointer"
                                 >
                                     Parse & Save
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-
-            {/* ── Semester Switcher Modal for Timetable ── */}
-            <AnimatePresence>
-                {showSemModal && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md" style={{ backgroundColor: 'rgba(0, 0, 0, 0.85)' }}>
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                            animate={{ opacity: 1, scale: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                            className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl border border-slate-200 space-y-5 text-slate-900 transform-gpu"
-                        >
-                            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                                <div className="flex items-center gap-2">
-                                    <CalendarDays className="w-5 h-5 text-indigo-600" />
-                                    <h3 className="text-lg font-black text-slate-900">Select Academic Semester</h3>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowSemModal(false)}
-                                    className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-all cursor-pointer"
-                                >
-                                    <X className="w-5 h-5" />
-                                </button>
-                            </div>
-
-                            <p className="text-xs text-slate-500 font-medium">
-                                Choose academic session for <strong className="text-slate-800">{effectiveName} ({effectiveId})</strong>
-                            </p>
-
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="text-xs font-bold text-slate-700 block mb-1.5 uppercase tracking-wider">
-                                        Academic Year
-                                    </label>
-                                    <select
-                                        value={tempYear}
-                                        onChange={(e) => setTempYear(e.target.value)}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all cursor-pointer"
-                                    >
-                                        {availableYearsList.map(y => (
-                                            <option key={y} value={y}>{y}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div>
-                                    <label className="text-xs font-bold text-slate-700 block mb-1.5 uppercase tracking-wider">
-                                        Semester
-                                    </label>
-                                    <select
-                                        value={tempSem}
-                                        onChange={(e) => setTempSem(e.target.value)}
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all cursor-pointer"
-                                    >
-                                        {availableSemsList.map(s => (
-                                            <option key={s} value={s}>{s}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowSemModal(false)}
-                                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all cursor-pointer"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => handleApplySemester(tempYear, tempSem)}
-                                    className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-500/20 active:scale-95 transition-all cursor-pointer"
-                                >
-                                    Apply Schedule
                                 </button>
                             </div>
                         </motion.div>

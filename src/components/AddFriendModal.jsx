@@ -67,7 +67,7 @@ function AddFriendForm({ initialFriend, isMyProfile, onClose, onFriendSaved }) {
                 localStorage.setItem('activeErpUser', cleanId);
                 const profId = saved?.id || (isSelf ? 'main' : cleanId);
                 setActiveProfileId(profId);
-                const currentYr = '2025-2026';
+                const currentYr = '2026-2027';
                 const existingManualYr = localStorage.getItem(`manualYear_${cleanId}`);
                 if (!existingManualYr) {
                     localStorage.setItem(`manualYear_${cleanId}`, currentYr);
