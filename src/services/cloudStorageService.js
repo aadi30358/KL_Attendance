@@ -564,22 +564,68 @@ export async function restoreStudentDataInIncognito(studentId) {
             } catch { /* ignore */ }
         }
 
-        // 3. Populate attendance courses
+        // 3. Populate attendance courses across all saved semesters in subcollection
+        try {
+            const allAttDocs = await getDocs(collection(db, 'users', cleanId, 'attendance'));
+            if (allAttDocs && !allAttDocs.empty) {
+                allAttDocs.forEach(d => {
+                    const docData = d.data();
+                    if (Array.isArray(docData?.courses) && docData.courses.length > 0) {
+                        const rawY = docData.academicYear || d.id.split('_')[0];
+                        const rawS = docData.semester || d.id.split('_')[1];
+                        const startY = String(rawY).split('-')[0].trim();
+                        const dYear = startY.length === 4 ? `${startY}-${parseInt(startY, 10) + 1}` : String(rawY).trim();
+                        const sStr = String(rawS).trim().toLowerCase();
+                        const isOdd = sStr.includes('odd') || sStr === '1';
+                        const isEven = sStr.includes('even') || sStr === '2';
+                        const isSummer = sStr.includes('summer') || sStr === '3';
+                        const dSemName = isOdd ? 'Odd' : isEven ? 'Even' : isSummer ? 'Summer' : 'Term3';
+                        const dSemNum = isOdd ? '1' : isEven ? '2' : isSummer ? '3' : '4';
+                        const attPayload = JSON.stringify({
+                            attendance_data: docData.courses,
+                            year: dYear,
+                            semester: dSemName,
+                            timestamp: docData.timestamp || Date.now(),
+                            empty: false
+                        });
+                        localStorage.setItem(`kleData_${cleanId}_${dYear}_${dSemName}`, attPayload);
+                        localStorage.setItem(`kleData_${cleanId}_${dYear}_${dSemNum}`, attPayload);
+                        if (dYear.includes('2026') && isOdd) {
+                            localStorage.setItem(`kleData_${cleanId}`, attPayload);
+                            localStorage.setItem('kleData', attPayload);
+                        }
+                    }
+                });
+            }
+        } catch { /* ignore */ }
+
+        // Also query direct primary semester
         const attendance = await getAttendanceFromCloud(cleanId, resolvedYear, resolvedSem);
         if (attendance && Array.isArray(attendance.courses) && attendance.courses.length > 0) {
+            const rawY = resolvedYear || '2026-2027';
+            const startY = String(rawY).split('-')[0].trim();
+            const normY = startY.length === 4 ? `${startY}-${parseInt(startY, 10) + 1}` : String(rawY).trim();
+            const sStr = String(resolvedSem || '1').trim().toLowerCase();
+            const isOdd = sStr.includes('odd') || sStr === '1';
+            const isEven = sStr.includes('even') || sStr === '2';
+            const isSummer = sStr.includes('summer') || sStr === '3';
+            const normS = isOdd ? 'Odd' : isEven ? 'Even' : isSummer ? 'Summer' : 'Term3';
+            const semNum = isOdd ? '1' : isEven ? '2' : isSummer ? '3' : '4';
             const payload = JSON.stringify({
                 attendance_data: attendance.courses,
-                year: resolvedYear,
-                semester: resolvedSem,
-                timestamp: attendance.timestamp || Date.now()
+                year: normY,
+                semester: normS,
+                timestamp: attendance.timestamp || Date.now(),
+                empty: false
             });
 
             try {
                 localStorage.setItem(`kleData_${cleanId}`, payload);
-                localStorage.setItem(`kleData_${cleanId}_${resolvedYear}_${resolvedSem}`, payload);
+                localStorage.setItem(`kleData_${cleanId}_${normY}_${normS}`, payload);
+                localStorage.setItem(`kleData_${cleanId}_${normY}_${semNum}`, payload);
                 localStorage.setItem('kleData', payload);
-                localStorage.setItem(`activeYear_${cleanId}`, resolvedYear);
-                localStorage.setItem(`activeSem_${cleanId}`, resolvedSem);
+                localStorage.setItem(`activeYear_${cleanId}`, normY);
+                localStorage.setItem(`activeSem_${cleanId}`, normS);
                 localStorage.setItem(`attendanceLastUpdated_${cleanId}`, String(attendance.timestamp || Date.now()));
             } catch { /* ignore */ }
         }

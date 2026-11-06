@@ -1298,11 +1298,11 @@ export const erpService = {
             if (semMatch) semId = semMatch.value;
         }
 
-        // 5. Candidate IDs to try (prioritize verified student candidate IDs, then matched value)
+        // 5. Candidate IDs to try (prioritize dynamic dropdown match, then verified student candidate IDs)
         const fallbackCandidates = getCandidateYearIdsForYear(year, null, null);
         const candidateYearIds = Array.from(new Set([
-            ...fallbackCandidates,
-            matchedYearVal
+            matchedYearVal,
+            ...fallbackCandidates
         ].filter(Boolean)));
 
         // 2. High-speed single-trip Edge discovery via /api/fast-attendance (< 800ms)

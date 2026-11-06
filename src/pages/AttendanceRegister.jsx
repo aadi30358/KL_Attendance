@@ -560,7 +560,24 @@ const AttendanceRegister = () => {
 
         // 1. FAST CACHE-FIRST RELOAD (< 10ms): Check if cached data exists for this specific student, year & sem
         const scopedKey = targetId ? `kleData_${targetId}_${normYear}_${normSem}` : null;
-        const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
+        const semNum = normSem === 'Odd' ? '1' : normSem === 'Even' ? '2' : normSem === 'Summer' ? '3' : '4';
+        const numKey = targetId ? `kleData_${targetId}_${normYear}_${semNum}` : null;
+        let scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
+        if (!scopedRaw && numKey) scopedRaw = localStorage.getItem(numKey);
+        if (!scopedRaw && targetId) {
+            const generalRaw = localStorage.getItem(`kleData_${targetId}`);
+            if (generalRaw) {
+                try {
+                    const parsed = JSON.parse(generalRaw);
+                    if (parsed.year && parsed.semester &&
+                        normalizeAcademicYear(parsed.year) === normYear &&
+                        normalizeSemester(parsed.semester) === normSem &&
+                        Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
+                        scopedRaw = generalRaw;
+                    }
+                } catch { /* ignore */ }
+            }
+        }
         if (scopedRaw && !forceLive) {
             try {
                 const parsed = JSON.parse(scopedRaw);
@@ -576,7 +593,7 @@ const AttendanceRegister = () => {
                     setFetchError(null);
                     setDebugHtml(null);
                     setLastUpdated(parsed.timestamp || Date.now());
-                    setSessionStatus('active');
+                    setSessionStatus(hasActiveErpSession(targetId) ? 'active' : 'expired');
 
                     if (targetId) {
                         try {
@@ -585,6 +602,8 @@ const AttendanceRegister = () => {
                             localStorage.setItem(`manualYear_${targetId}`, normYear);
                             localStorage.setItem(`manualSem_${targetId}`, normSem);
                             localStorage.setItem(`kleData_${targetId}`, scopedRaw);
+                            if (scopedKey) localStorage.setItem(scopedKey, scopedRaw);
+                            if (numKey) localStorage.setItem(numKey, scopedRaw);
                         } catch { /* ignore */ }
                     }
 
@@ -608,6 +627,7 @@ const AttendanceRegister = () => {
                                     });
                                     try {
                                         if (scopedKey) localStorage.setItem(scopedKey, payload);
+                                        if (numKey) localStorage.setItem(numKey, payload);
                                         if (targetId) localStorage.setItem(`kleData_${targetId}`, payload);
                                     } catch { /* ignore */ }
                                 }
@@ -646,6 +666,7 @@ const AttendanceRegister = () => {
                     });
                     try {
                         if (scopedKey) localStorage.setItem(scopedKey, payload);
+                        if (numKey) localStorage.setItem(numKey, payload);
                         if (targetId) {
                             localStorage.setItem(`kleData_${targetId}`, payload);
                             localStorage.setItem(`activeYear_${targetId}`, normYear);
@@ -676,21 +697,24 @@ const AttendanceRegister = () => {
         // 2. If no cache exists, check active ERP session before network query
         if (!hasActiveErpSession(targetId)) {
             setLoading(false);
-            setShowDashboard(false);
-            const targetProfile = (getSavedFriends() || []).find(f => f.studentId === targetId || f.id === targetId) || (getMyProfile()?.studentId === targetId ? getMyProfile() : null);
-            if (targetProfile?.password || targetProfile?.hasSavedPassword) {
-                setTargetFriendForCaptcha(targetProfile);
-                return;
-            } else {
-                navigate('/login', {
-                    state: {
-                        studentId: targetId,
-                        profileId: targetProfile?.id || targetId,
-                        view: 'attendance'
-                    }
-                });
-                return;
+            setShowDashboard(true);
+            setSubjects([]);
+            setSessionStatus('expired');
+            if (forceLive) {
+                const targetProfile = (getSavedFriends() || []).find(f => f.studentId === targetId || f.id === targetId) || (getMyProfile()?.studentId === targetId ? getMyProfile() : null);
+                if (targetProfile?.password || targetProfile?.hasSavedPassword) {
+                    setTargetFriendForCaptcha(targetProfile);
+                } else {
+                    navigate('/login', {
+                        state: {
+                            studentId: targetId,
+                            profileId: targetProfile?.id || targetId,
+                            view: 'attendance'
+                        }
+                    });
+                }
             }
+            return;
         }
 
         setLoading(true); 
@@ -909,23 +933,15 @@ const AttendanceRegister = () => {
             setYear(targetYear);
             setSemester(targetSem);
 
-            // If the switched profile does not have an active ERP session, DO NOT display private attendance data!
-            if (!hasActiveErpSession(newId)) {
-                setLoading(false);
-                setSubjects([]);
-                setShowDashboard(false);
-                const profToVerify = newProfile || (getSavedFriends() || []).find(f => f.studentId === newId || f.id === newId) || (getMyProfile()?.studentId === newId ? getMyProfile() : null);
-                if (profToVerify?.password || profToVerify?.hasSavedPassword || profToVerify?.studentId) {
-                    setTargetFriendForCaptcha(profToVerify);
-                    return;
-                }
-            }
+            const normY = normalizeAcademicYear(targetYear);
+            const normS = normalizeSemester(targetSem);
+            const semNum = normS === 'Odd' ? '1' : normS === 'Even' ? '2' : normS === 'Summer' ? '3' : '4';
+            const scopedKey = newId ? `kleData_${newId}_${normY}_${normS}` : null;
+            const numKey = newId ? `kleData_${newId}_${normY}_${semNum}` : null;
+            let dataToParse = (scopedKey ? localStorage.getItem(scopedKey) : null) ||
+                              (numKey ? localStorage.getItem(numKey) : null) ||
+                              (newId ? localStorage.getItem(`kleData_${newId}`) : null);
 
-            // Only if authenticated: check if cached data exists for quick display while refreshing
-            const scopedKey = newId ? `kleData_${newId}_${targetYear}_${targetSem}` : null;
-            const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
-            const fallbackRaw = (!scopedRaw && newId) ? localStorage.getItem(`kleData_${newId}`) : null;
-            const dataToParse = scopedRaw || fallbackRaw;
             let hasValidCache = false;
             if (dataToParse) {
                 try {
@@ -933,19 +949,35 @@ const AttendanceRegister = () => {
                     if (parsed.attendance_data && Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
                         setSubjects(parsed.attendance_data);
                         setShowDashboard(true);
+                        setSessionStatus(hasActiveErpSession(newId) ? 'active' : 'expired');
                         hasValidCache = true;
                     }
-                } catch {
-                    // ignore
-                }
-            }
-            if (!hasValidCache) {
-                setSubjects([]);
-                setShowDashboard(false);
+                } catch { /* ignore */ }
             }
 
-            // Immediately fetch fresh live attendance from ERP for the switched person
-            handleSearch(targetYear, targetSem, newId);
+            if (!hasValidCache) {
+                // Check permanent cloud storage for the switched student
+                getAttendanceFromCloud(newId, normY, normS).then(cData => {
+                    if (cData && Array.isArray(cData.courses) && cData.courses.length > 0) {
+                        setSubjects(cData.courses);
+                        setShowDashboard(true);
+                        setSessionStatus(hasActiveErpSession(newId) ? 'active' : 'expired');
+                    } else {
+                        setSubjects([]);
+                        setShowDashboard(true);
+                        setSessionStatus(hasActiveErpSession(newId) ? 'active' : 'expired');
+                    }
+                }).catch(() => {
+                    setSubjects([]);
+                    setShowDashboard(true);
+                    setSessionStatus(hasActiveErpSession(newId) ? 'active' : 'expired');
+                });
+            }
+
+            // Only if authenticated: fetch fresh live attendance from ERP in background
+            if (hasActiveErpSession(newId)) {
+                handleSearch(normY, normS, newId, false);
+            }
 
             // Also trigger live ERP timetable sync for the switched person
             fetchLiveErpTimetable(newId, targetYear, targetSem).then((res) => {
@@ -1014,7 +1046,24 @@ const AttendanceRegister = () => {
         let initY = normalizeAcademicYear(savedYear || present.year);
         const initS = normalizeSemester(savedSem || present.sem);
         const scopedKey = activeId ? `kleData_${activeId}_${initY}_${initS}` : null;
-        const scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
+        const semNum = initS === 'Odd' ? '1' : initS === 'Even' ? '2' : initS === 'Summer' ? '3' : '4';
+        const numKey = activeId ? `kleData_${activeId}_${initY}_${semNum}` : null;
+        let scopedRaw = scopedKey ? localStorage.getItem(scopedKey) : null;
+        if (!scopedRaw && numKey) scopedRaw = localStorage.getItem(numKey);
+        if (!scopedRaw && activeId) {
+            const generalRaw = localStorage.getItem(`kleData_${activeId}`);
+            if (generalRaw) {
+                try {
+                    const parsed = JSON.parse(generalRaw);
+                    if (parsed.year && parsed.semester &&
+                        normalizeAcademicYear(parsed.year) === initY &&
+                        normalizeSemester(parsed.semester) === initS &&
+                        Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
+                        scopedRaw = generalRaw;
+                    }
+                } catch { /* ignore */ }
+            }
+        }
 
         setYear(initY);
         setSemester(initS);
@@ -1056,12 +1105,22 @@ const AttendanceRegister = () => {
         if (isRestoredEmpty) {
             setSubjects([]);
             setShowDashboard(true);
+            setSessionStatus(hasActiveErpSession(activeId) ? 'active' : 'expired');
             if (hasActiveErpSession(activeId)) {
-                handleSearch(initY, initS, activeId, true);
+                handleSearch(initY, initS, activeId, false);
             }
         } else if (restoredCourses && restoredCourses.length > 0) {
             setSubjects(restoredCourses);
             setShowDashboard(true);
+            setSessionStatus(hasActiveErpSession(activeId) ? 'active' : 'expired');
+            if (hasActiveErpSession(activeId)) {
+                erpService.fetchAttendance(initY, initS, activeId).then(fresh => {
+                    if (Array.isArray(fresh) && fresh.length > 0) {
+                        setSubjects(fresh);
+                        saveAttendanceToCloud(activeId, initY, initS, fresh).catch(() => {});
+                    }
+                }).catch(() => {});
+            }
         } else {
             // Check permanent cloud storage (< 120ms) before prompting
             getAttendanceFromCloud(activeId, initY, initS).then(cloudData => {
@@ -1072,19 +1131,22 @@ const AttendanceRegister = () => {
                     setLastUpdated(cloudData.timestamp || Date.now());
                     setSessionStatus(hasActiveErpSession(activeId) ? 'active' : 'expired');
                 } else if (hasActiveErpSession(activeId)) {
-                    handleSearch(initY, initS, activeId, true);
+                    handleSearch(initY, initS, activeId, false);
                 } else {
                     setLoading(false);
-                    setShowDashboard(false);
+                    setShowDashboard(true);
                     setSubjects([]);
-                    const prof = (getSavedFriends() || []).find(f => f.studentId === activeId || f.id === activeId) || (getMyProfile()?.studentId === activeId ? getMyProfile() : null);
-                    if (prof?.password || prof?.hasSavedPassword || prof?.studentId) {
-                        setTargetFriendForCaptcha(prof);
-                    }
+                    setSessionStatus('expired');
                 }
             }).catch(() => {
+                if (!isMounted) return;
                 if (hasActiveErpSession(activeId)) {
-                    handleSearch(initY, initS, activeId, true);
+                    handleSearch(initY, initS, activeId, false);
+                } else {
+                    setLoading(false);
+                    setShowDashboard(true);
+                    setSubjects([]);
+                    setSessionStatus('expired');
                 }
             });
         }
@@ -1825,14 +1887,6 @@ const AttendanceRegister = () => {
                             Retrieving course registered records for <span className="font-bold text-indigo-600">{displayYearText} ({cleanSemesterLabel})</span> from KL ERP...
                         </p>
                     </div>
-                ) : targetFriendForCaptcha ? (
-                    <div className="max-w-2xl mx-auto bg-white border-2 border-slate-900 rounded-[2.5rem] p-12 text-center shadow-lg my-8">
-                        <div className="w-14 h-14 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-5" />
-                        <h3 className="text-xl font-black text-slate-900 mb-2">Authenticating Session</h3>
-                        <p className="text-slate-500 text-sm font-medium">
-                            Please solve the Captcha verification above to view attendance records.
-                        </p>
-                    </div>
                 ) : subjects.length > 0 ? (
                     <>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-7xl mx-auto">
@@ -2136,6 +2190,14 @@ const AttendanceRegister = () => {
                         )}
                     </div>
                     </>
+                ) : targetFriendForCaptcha ? (
+                    <div className="max-w-2xl mx-auto bg-white border-2 border-slate-900 rounded-[2.5rem] p-12 text-center shadow-lg my-8">
+                        <div className="w-14 h-14 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-5" />
+                        <h3 className="text-xl font-black text-slate-900 mb-2">Authenticating Session</h3>
+                        <p className="text-slate-500 text-sm font-medium">
+                            Please solve the Captcha verification above to view attendance records.
+                        </p>
+                    </div>
                 ) : (
                     <motion.div 
                         initial={{ opacity: 0, scale: 0.9 }}
