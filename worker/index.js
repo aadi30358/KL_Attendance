@@ -505,9 +505,10 @@ export default {
         if (pathname === '/api/fetch-timetable' || pathname === '/api/fetch_timetable' || pathname === '/fetch-timetable') {
             try {
                 const body = await request.json().catch(() => ({}));
-                const { year, semester, studentId } = body;
-                const semId = String(semester || '').includes('even') || semester === '2' ? '2' : '1';
-                const yCode = String(year || '').includes('2025') ? '19' : String(year || '').includes('2024') ? '16' : '29';
+                const year = String(body.year || body.yearId || body.academic_year_code || '');
+                const semester = String(body.semester || body.semId || body.semester_id || '').toLowerCase();
+                const semId = semester.includes('even') || semester === '2' ? '2' : (semester.includes('summer') || semester === '3' ? '3' : (semester.includes('term') || semester === '4' ? '4' : '1'));
+                const yCode = year.includes('2025') ? '19' : year.includes('2024') ? '16' : '29';
 
                 const ttUrl = `${ERP_BASE}/index.php?r=timetables%2Funiversitymasteracademictimetableview%2Findividualstudenttimetableget&UniversityMasterAcademicTimetableView%5Bacademicyear%5D=${yCode}&UniversityMasterAcademicTimetableView%5Bsemesterid%5D=${semId}`;
                 const ttResp = await fetch(ttUrl, {

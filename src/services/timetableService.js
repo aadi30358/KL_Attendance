@@ -1106,6 +1106,54 @@ export function isTimetableValidForStudent(timetable) {
 }
 
 /**
+ * Validates whether a timetable object corresponds to the requested academic year and semester.
+ * Strictly prevents 2026-2027 present courses from polluting past academic years (2024-2025, 2025-2026).
+ */
+export function isTimetableMatchingSemester(timetable, cleanYear = '2026-2027', cleanSem = 'Odd', erpCourses = []) {
+    if (!timetable || typeof timetable !== 'object') return false;
+    const slots = Object.values(timetable).flatMap(val => Array.isArray(val) ? val : (val && typeof val === 'object' ? Object.values(val) : []));
+    if (slots.length === 0) return false;
+
+    const normYear = normalizeAcademicYear(cleanYear);
+    const normSem = normalizeSemester(cleanSem);
+
+    // 1. Explicit metadata checks
+    if (timetable._year && normalizeAcademicYear(timetable._year) !== normYear) return false;
+    if (timetable._sem && normalizeSemester(timetable._sem) !== normSem) return false;
+
+    // 2. Reject present 2026-2027 courses from appearing in past academic years
+    if (normYear !== '2026-2027') {
+        const presentCodes = ['24SDCS03A', '24EDS3308HF', '24GMI3101', '24CS3206', '24CS3105', '24CC3014'];
+        const presentKeywords = ['DEEP NEURAL', 'EMBEDDED AI', 'SOA PROGRAMMING', 'AWS CERTIFIED', 'INFORMATION ASSURANCE'];
+        const hasPresent = slots.some(s => {
+            const c = String(s.code || s.rawCode || '').toUpperCase();
+            const t = String(s.title || '').toUpperCase();
+            return presentCodes.some(p => c.includes(p)) || presentKeywords.some(k => t.includes(k));
+        });
+        if (hasPresent) return false;
+    }
+
+    // 3. If registered courses for this semester are provided, verify the timetable aligns with them
+    if (Array.isArray(erpCourses) && erpCourses.length > 0) {
+        const erpCodeSet = new Set(
+            erpCourses.map(c => String(c.code || '').replace(/-[LPTS]$/, '').toUpperCase().trim()).filter(Boolean)
+        );
+        const erpTitleList = erpCourses.map(c => String(c.title || c.name || '').toUpperCase().trim()).filter(Boolean);
+        
+        const hasMatchingCourse = slots.some(s => {
+            const rawCode = String(s.rawCode || s.code || '').replace(/-[LPTS]$/, '').toUpperCase().trim();
+            const title = String(s.title || '').toUpperCase().trim();
+            if (rawCode && erpCodeSet.has(rawCode)) return true;
+            return erpTitleList.some(et => (et && title.includes(et)) || (title && et.includes(title)));
+        });
+
+        if (!hasMatchingCourse) return false;
+    }
+
+    return true;
+}
+
+/**
  * Builds a deterministic, realistic KLU timetable mapped to the student's actual ERP courses or semester curriculum.
  */
 export function buildTimetableFromErpCourses(courses = [], studentId = 'default', selectedYear = '2026-2027', selectedSem = 'Odd') {
@@ -1254,6 +1302,7 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
 
     const cleanYear = normalizeAcademicYear(selectedYear);
     const cleanSem = normalizeSemester(selectedSem);
+    const isPresentSemester = (cleanYear === '2026-2027' && cleanSem === 'Odd');
 
     const semVariants = [
         cleanSem,
@@ -1265,15 +1314,19 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         cleanSem === 'Even' ? 'Even Sem' : null
     ].filter(Boolean);
 
-    // 1. Check all candidate scoped keys in localStorage (strictly matching term first)
+    // 1. Check all candidate scoped keys in localStorage (strictly matching requested year and sem)
     if (typeof window !== 'undefined') {
         const candidateKeys = [];
         semVariants.forEach(s => {
             candidateKeys.push(`kl_timetable_${targetId}_${cleanYear}_${s}`);
         });
-        candidateKeys.push(`kl_timetable_${targetId}_${cleanYear}`);
-        candidateKeys.push(`kl_timetable_${targetId}`);
-        candidateKeys.push(`timetable_${targetId}`);
+
+        // ONLY allow unscoped candidate keys if this is the present semester (2026-2027 Odd)
+        if (isPresentSemester) {
+            candidateKeys.push(`kl_timetable_${targetId}_${cleanYear}`);
+            candidateKeys.push(`kl_timetable_${targetId}`);
+            candidateKeys.push(`timetable_${targetId}`);
+        }
 
         for (const storageKey of candidateKeys) {
             try {
@@ -1281,7 +1334,7 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
                 if (cached) {
                     let parsed = JSON.parse(cached);
                     if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-                        if (isTimetableValidForStudent(parsed, targetId)) {
+                        if (isTimetableMatchingSemester(parsed, cleanYear, cleanSem, erpCourses) && isTimetableValidForStudent(parsed, targetId)) {
                             const normalized = normalizeTimetableFormat(parsed, targetId);
                             if (normalized) {
                                 const totalSlots = Object.values(normalized).reduce((acc, curr) => acc + (Array.isArray(curr) ? curr.length : 0), 0);
@@ -1290,9 +1343,16 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
                                         ...normalized, 
                                         _source: parsed._source || 'saved', 
                                         _userCustomized: parsed._userCustomized,
-                                        _last_synced: parsed._last_synced || parsed.last_synced_at
+                                        _last_synced: parsed._last_synced || parsed.last_synced_at,
+                                        _year: cleanYear,
+                                        _sem: cleanSem
                                     };
                                 }
+                            }
+                        } else {
+                            // Purge poisoned/mismatched cache so it won't persist
+                            if (storageKey.includes(cleanYear)) {
+                                localStorage.removeItem(storageKey);
                             }
                         }
                     }
@@ -1303,8 +1363,8 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         }
     }
 
-    // 2. Check if TimeTablekl stored friend in localStorage.getItem("maddys")
-    if (typeof window !== 'undefined') {
+    // 2. Check if TimeTablekl stored friend in localStorage.getItem("maddys") ONLY for present semester
+    if (typeof window !== 'undefined' && isPresentSemester) {
         try {
             const rawMaddys = localStorage.getItem('maddys');
             if (rawMaddys) {
@@ -1317,7 +1377,7 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
                         (m.name && targetId.toLowerCase().includes(m.name.toLowerCase()))
                     );
                     if (match?.timetable && typeof match.timetable === 'object') {
-                        if (isTimetableValidForStudent(match.timetable, targetId)) {
+                        if (isTimetableMatchingSemester(match.timetable, cleanYear, cleanSem, erpCourses) && isTimetableValidForStudent(match.timetable, targetId)) {
                             const normalized = normalizeTimetableFormat(match.timetable, targetId);
                             if (normalized) {
                                 return normalized;
@@ -1329,15 +1389,15 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         } catch { /* ignore */ }
     }
 
-    // 3. Check if TimeTablekl stored a timetable in localStorage.getItem("timetable")
-    if (typeof window !== 'undefined' && isSelf) {
+    // 3. Check if TimeTablekl stored a timetable in localStorage.getItem("timetable") ONLY for present semester
+    if (typeof window !== 'undefined' && isSelf && isPresentSemester) {
         try {
             const rawTt = localStorage.getItem('timetable');
             const ttOwner = localStorage.getItem('timetable_studentId') || localStorage.getItem('rememberedId');
             if (rawTt && ttOwner && ttOwner === targetId) {
                 const parsed = JSON.parse(rawTt);
                 if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-                    if (isTimetableValidForStudent(parsed, targetId)) {
+                    if (isTimetableMatchingSemester(parsed, cleanYear, cleanSem, erpCourses) && isTimetableValidForStudent(parsed, targetId)) {
                         const normalized = normalizeTimetableFormat(parsed, targetId);
                         if (normalized) {
                             return normalized;
@@ -1351,8 +1411,16 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
     // 4. Resolve real student courses for THIS exact student and THIS exact year/semester
     let coursesToUse = [];
 
-    // 4a. Check scoped cache for this student + year + sem
-    if (typeof window !== 'undefined') {
+    // 4a. If erpCourses was passed with valid courses, prioritize it!
+    if (Array.isArray(erpCourses) && erpCourses.length > 0) {
+        const validList = filterCoursesForStudent(erpCourses, targetId);
+        if (validList.length > 0) {
+            coursesToUse = validList;
+        }
+    }
+
+    // 4b. Check scoped cache for this student + year + sem
+    if (coursesToUse.length === 0 && typeof window !== 'undefined') {
         const scopedKeys = semVariants.map(s => `kleData_${targetId}_${cleanYear}_${s}`);
         scopedKeys.push(`kleData_${targetId}_${cleanYear}`);
         for (const scopedKey of scopedKeys) {
@@ -1371,16 +1439,8 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         }
     }
 
-    // 4b. If erpCourses is passed for targetId, check if it matches student department
-    if (coursesToUse.length === 0 && Array.isArray(erpCourses) && erpCourses.length > 0) {
-        const validList = filterCoursesForStudent(erpCourses, targetId);
-        if (validList.length > 0) {
-            coursesToUse = validList;
-        }
-    }
-
-    // 4c. Check generic student cache (strictly scoped to targetId)
-    if (coursesToUse.length === 0 && typeof window !== 'undefined') {
+    // 4c. Check generic student cache ONLY for present semester
+    if (coursesToUse.length === 0 && typeof window !== 'undefined' && isPresentSemester) {
         try {
             const raw = localStorage.getItem(`kleData_${targetId}`) || (isSelf && targetId === localStorage.getItem('rememberedId') ? localStorage.getItem('kleData') : null);
             if (raw) {
@@ -1394,7 +1454,7 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         } catch { /* ignore */ }
     }
 
-    // 4d. Fall back to curriculum ONLY IF student has an active ERP session AND semester is not explicitly empty
+    // 4d. Fall back to curriculum for this student + year + sem
     let isCurriculumFallback = false;
     if (coursesToUse.length === 0) {
         if (typeof window !== 'undefined') {
@@ -1413,20 +1473,20 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
         isCurriculumFallback = true;
     }
 
-    // 5. Build fresh timetable mapped to the actual registered courses for this semester
+    // 5. Build fresh timetable mapped to the actual registered courses for THIS semester
     const generated = buildTimetableFromErpCourses(coursesToUse, targetId, cleanYear, cleanSem);
-    if (isCurriculumFallback) {
-        generated._source = 'curriculum';
-    } else {
-        generated._source = 'erp_live';
-    }
+    generated._source = isCurriculumFallback ? 'curriculum' : 'erp_live';
+    generated._year = cleanYear;
+    generated._sem = cleanSem;
 
-    // Only persist to localStorage if it came from real ERP courses AND student has active ERP session
+    // Only persist to localStorage scoped to this exact student, year, and sem
     try {
-        if (!isCurriculumFallback && hasActiveErpSession(targetId) && Object.keys(generated).length > 0) {
+        if (typeof window !== 'undefined' && Object.keys(generated).length > 0) {
             const primaryKey = `kl_timetable_${targetId}_${cleanYear}_${cleanSem}`;
             localStorage.setItem(primaryKey, JSON.stringify(generated));
-            localStorage.setItem(`kl_timetable_${targetId}`, JSON.stringify(generated));
+            if (isPresentSemester) {
+                localStorage.setItem(`kl_timetable_${targetId}`, JSON.stringify(generated));
+            }
         }
     } catch {
         // ignore storage quota
@@ -1482,18 +1542,24 @@ export async function syncTimetableWithServer(studentId, yearId = '2026-2027', s
         if (res.ok) {
             const data = await res.json();
             if (data?.profile?.timetable) {
-                const tt = data.profile.timetable;
-                tt._source = data.profile.timetable_meta?.source || 'database_cached';
-                tt._last_synced = data.profile.timetable_meta?.last_synced_at;
-                const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
-                try {
-                    localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${cleanSem}`, JSON.stringify(tt));
-                    localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${semDisplay}`, JSON.stringify(tt));
-                } catch { /* ignore */ }
-                window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                    detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
-                }));
-                return tt;
+                const dataYear = normalizeAcademicYear(data.profile.timetable_meta?.year || data.profile.academicYear || '2026-2027');
+                const dataSem = normalizeSemester(data.profile.timetable_meta?.sem || data.profile.semester || 'Odd');
+                if (dataYear === cleanYear && dataSem === cleanSem) {
+                    const tt = data.profile.timetable;
+                    tt._source = data.profile.timetable_meta?.source || 'database_cached';
+                    tt._last_synced = data.profile.timetable_meta?.last_synced_at;
+                    tt._year = cleanYear;
+                    tt._sem = cleanSem;
+                    const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
+                    try {
+                        localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${cleanSem}`, JSON.stringify(tt));
+                        localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${semDisplay}`, JSON.stringify(tt));
+                    } catch { /* ignore */ }
+                    window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                        detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
+                    }));
+                    return tt;
+                }
             }
         }
     } catch {
@@ -1505,18 +1571,25 @@ export async function syncTimetableWithServer(studentId, yearId = '2026-2027', s
         const { getTimetableFromCloud } = await import('./cloudStorageService.js');
         const cloudData = await getTimetableFromCloud(targetId);
         if (cloudData?.timetable && typeof cloudData.timetable === 'object') {
-            const tt = cloudData.timetable;
-            tt._source = 'cloud_firestore';
-            tt._last_synced = cloudData.lastTimetableFetch;
-            const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
-            try {
-                localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${cleanSem}`, JSON.stringify(tt));
-                localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${semDisplay}`, JSON.stringify(tt));
-            } catch { /* ignore */ }
-            window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
-                detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
-            }));
-            return tt;
+            const cloudYear = normalizeAcademicYear(cloudData.year || '2026-2027');
+            const cloudSem = normalizeSemester(cloudData.sem || 'Odd');
+            // ONLY accept if the cloud timetable matches the requested year and semester!
+            if (cloudYear === cleanYear && cloudSem === cleanSem) {
+                const tt = cloudData.timetable;
+                tt._source = 'cloud_firestore';
+                tt._last_synced = cloudData.lastTimetableFetch;
+                tt._year = cleanYear;
+                tt._sem = cleanSem;
+                const semDisplay = cleanSem === 'Summer' ? 'Summer Term' : cleanSem === 'Term3' ? 'Tri Sem / Term 3' : cleanSem === 'Even' ? 'Even Sem' : 'Odd Sem';
+                try {
+                    localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${cleanSem}`, JSON.stringify(tt));
+                    localStorage.setItem(`kl_timetable_${targetId}_${cleanYear}_${semDisplay}`, JSON.stringify(tt));
+                } catch { /* ignore */ }
+                window.dispatchEvent(new CustomEvent('kl_timetable_updated', {
+                    detail: { studentId: targetId, year: cleanYear, sem: cleanSem }
+                }));
+                return tt;
+            }
         }
     } catch { /* ignore */ }
 
