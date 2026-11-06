@@ -1382,9 +1382,9 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
     const cleanSem = normalizeSemester(selectedSem);
     const isPresentSemester = (cleanYear === '2026-2027' && cleanSem === 'Odd');
 
-    // 0. Primary Account / Adithya Present Semester Authentic Schedule
+    // 0. Verified schedule for Adithya (if targetId matches exactly)
     const targetDigits = String(targetId).replace(/\D/g, '');
-    if ((targetDigits === '2400030358' || targetId === 'main' || !targetId || targetId === 'default') && isPresentSemester) {
+    if (targetDigits === '2400030358' && isPresentSemester) {
         const authentic = JSON.parse(JSON.stringify(ADITHYA_AUTHENTIC_TIMETABLE_2026_ODD));
         authentic._source = 'erp_live';
         authentic._year = '2026-2027';
@@ -1556,7 +1556,7 @@ export function getStudentTimetable(studentId, erpCourses = [], selectedYear = '
                 } catch { /* ignore */ }
             }
         }
-        coursesToUse = getCurriculumForStudent(targetId || '2400030358', cleanYear, cleanSem);
+        coursesToUse = getCurriculumForStudent(targetId || '', cleanYear, cleanSem);
         isCurriculumFallback = true;
     }
 

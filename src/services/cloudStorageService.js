@@ -20,7 +20,7 @@ export function sanitizeStudentId(id) {
         }
         const match = str.match(/\b\d{9,12}\b/);
         if (match) return match[0];
-        return '2400030358';
+        return '';
     }
     const match = str.match(/\b\d{9,12}\b/);
     return match ? match[0] : str.replace(/[^0-9A-Za-z]/g, '');
@@ -39,7 +39,7 @@ export async function saveStudentProfileToCloud(studentId, profileData = {}) {
         const existing = existingSnap?.exists() ? existingSnap.data() : {};
 
         const rawName = stripEmojis(profileData.name || profileData.nickname || existing.name || existing.nickname || '');
-        const cleanName = rawName && !rawName.startsWith('Friend (') ? rawName : (cleanId === '2400030358' ? 'Adithya' : (existing.name || 'Student'));
+        const cleanName = rawName && !rawName.startsWith('Friend (') ? rawName : (existing.name || 'Student');
         
         let storedPassword = existing.savedPassword || '';
         if (profileData.password) {
@@ -377,7 +377,7 @@ export async function saveFriendsToCloud(studentId, friendsList = []) {
         const sanitizedFriends = friendsList.map(f => {
             const sid = sanitizeStudentId(f.studentId || f.username || f.id);
             const raw = stripEmojis(f.nickname || f.name || '');
-            const cleanNick = raw && !raw.startsWith('Friend (') ? raw : (sid === '2400030358' ? 'Adithya' : (sid ? `Friend (${sid.slice(-4)})` : 'Buddy'));
+            const cleanNick = raw && !raw.startsWith('Friend (') ? raw : (sid ? `Friend (${sid.slice(-4)})` : 'Buddy');
             let pass = f.password || '';
             if (pass && typeof pass === 'string' && pass.length < 25) {
                 pass = encodePassword(pass);
@@ -543,7 +543,7 @@ export async function restoreStudentDataInIncognito(studentId) {
         const profile = await getStudentProfileFromCloud(cleanId);
         if (!profile) return false;
 
-        const resolvedName = profile.name || profile.nickname || (cleanId === '2400030358' ? 'Adithya' : 'Student');
+        const resolvedName = profile.name || profile.nickname || 'Student';
         const resolvedYear = profile.academicYear || '2026-2027';
         const resolvedSem = profile.semester || '1';
 
@@ -653,7 +653,7 @@ export async function restoreStudentDataInIncognito(studentId) {
                 const strGrades = JSON.stringify(profile.grades);
                 localStorage.setItem(`kl_grades_${cleanId}`, strGrades);
                 localStorage.setItem(`cgpa_${cleanId}`, strGrades);
-                if (cleanId === '2400030358' || profile.isPrimary) {
+                if (profile.isPrimary) {
                     localStorage.setItem('cgpa_data', strGrades);
                 }
             } catch { /* ignore */ }
@@ -683,23 +683,8 @@ export async function restoreStudentDataInIncognito(studentId) {
 }
 
 /**
- * Seed initial profile for target user (e.g. Adithya 2400030358) if missing in Firestore
+ * Safe no-op kept for backwards compatibility
  */
 export async function seedAdithyaProfileIfEmpty() {
-    try {
-        const snap = await getDoc(doc(db, 'users', '2400030358')).catch(() => null);
-        const data = snap?.exists() ? snap.data() : null;
-        if (!data || !data.name || data.name === 'Student') {
-            await setDoc(doc(db, 'users', '2400030358'), {
-                studentId: '2400030358',
-                name: 'Adithya',
-                nickname: 'Adithya',
-                isPrimary: true,
-                primaryAccount: true,
-                academicYear: '2026-2027',
-                semester: '1',
-                updatedAt: new Date().toISOString()
-            }, { merge: true });
-        }
-    } catch { /* non-blocking */ }
+    return Promise.resolve();
 }

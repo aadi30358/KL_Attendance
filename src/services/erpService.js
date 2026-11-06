@@ -1201,7 +1201,7 @@ export const erpService = {
         const csrfToken = this.getCachedCsrfToken();
         const rawStudent = studentId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : null);
         const targetStudent = (rawStudent === 'main' || !/^\d+$/.test(rawStudent))
-            ? (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser') || '2400030358') : '2400030358')
+            ? (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser') || '') : '')
             : rawStudent;
         if (!targetStudent) return [];
 

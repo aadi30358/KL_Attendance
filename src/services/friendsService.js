@@ -192,7 +192,7 @@ export const getSavedFriends = () => {
                         !list.some(f => f.studentId === foundSid || f.username === foundSid || f.id === foundSid)
                     ) {
                         const custom = localStorage.getItem(`kl_name_${foundSid}`);
-                        const nameToUse = custom || (foundSid === '2400030358' ? 'Adithya' : null) || foundName || (foundSid ? `Friend (${foundSid.slice(-4)})` : 'Friend');
+                        const nameToUse = custom || foundName || (foundSid ? `Friend (${foundSid.slice(-4)})` : 'Friend');
                         list.push({
                             id: `friend_${foundSid}`,
                             nickname: nameToUse,
@@ -309,9 +309,6 @@ export const getMyProfile = () => {
         const customName = myId ? localStorage.getItem(`kl_name_${myId}`) : null;
         if (customName) rawName = customName;
         let cleanName = customName || stripEmojis(rawName);
-        if ((!cleanName || cleanName === 'My Profile' || cleanName.startsWith('Friend (')) && myId === '2400030358') {
-            cleanName = 'Adithya';
-        }
 
         // Strictly return null if neither ID nor password is saved, OR if deleted
         if (!myId && !myPass) {
@@ -321,7 +318,7 @@ export const getMyProfile = () => {
             return null;
         }
 
-        const finalNickname = cleanName || (myId === '2400030358' ? 'Adithya' : (myId ? myId : 'My Profile'));
+        const finalNickname = cleanName || (myId ? myId : 'My Profile');
 
         return {
             id: 'main',
@@ -783,7 +780,7 @@ export const getActiveProfileDetails = (specificProfileId) => {
 
     // 1. If profileId matches myProfile (by 'main', or primary studentId/username)
     if (profileId === 'main' || !profileId || (primarySid && (profileId === primarySid || profileId === myProf?.username))) {
-        if (myProf) return { ...myProf, isFriend: false, studentId: primarySid || myProf.studentId || myProf.username || '2400030358', username: primarySid || myProf.username || '2400030358' };
+        if (myProf) return { ...myProf, isFriend: false, studentId: primarySid || myProf.studentId || myProf.username || '', username: primarySid || myProf.username || '' };
         if (primarySid) {
             const rawName = (typeof window !== 'undefined' ? (localStorage.getItem('rememberedName') || localStorage.getItem(`kl_name_${primarySid}`)) : '') || 'My Account';
             return {

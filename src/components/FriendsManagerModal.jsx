@@ -239,7 +239,7 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                                     Currently Viewing
                                 </span>
                                 <span className="text-sm font-black text-slate-900">
-                                    {activeProfile?.label || 'Adithya'}
+                                    {activeProfile?.label || activeProfile?.name || 'Primary Account'}
                                 </span>
                             </div>
                         </div>
@@ -279,7 +279,7 @@ export default function FriendsManagerModal({ isOpen, onClose }) {
                                             <div className="min-w-0">
                                                 <div className="flex items-center gap-1.5">
                                                     <h4 className="font-black text-sm text-slate-900 truncate">
-                                                        {myProfile.nickname || 'Adithya'}
+                                                        {myProfile.nickname || myProfile.name || 'Primary Student'}
                                                     </h4>
                                                     {!activeProfile?.isFriend && (
                                                         <span className="bg-indigo-600 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full shrink-0">

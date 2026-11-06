@@ -733,7 +733,8 @@ export default function Home() {
     // Retrieve authentic saved timetable (cached in localStorage or server SQLite DB)
     const studentTimetable = useMemo(() => {
         void timetableTick;
-        const targetId = activeStudentId || (typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : '') || '2400030358';
+        const targetId = activeStudentId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '';
+        if (!targetId) return {};
         return getStudentTimetable(targetId, [], activeYear, activeSem) || {};
     }, [activeStudentId, activeYear, activeSem, timetableTick]);
 
@@ -759,10 +760,82 @@ export default function Home() {
     // Live lecture status is active whenever valid timetable slots are present
     const liveClassStatus = useMemo(() => {
         void nowTick;
-        const targetId = activeStudentId || (typeof window !== 'undefined' ? localStorage.getItem('rememberedId') : '') || '2400030358';
-        if (!hasTimetableSlots) return null;
+        const targetId = activeStudentId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '';
+        if (!targetId || !hasTimetableSlots) return null;
         return getLiveClassStatus(studentTimetable, targetId);
     }, [studentTimetable, activeStudentId, nowTick, hasTimetableSlots]);
+
+    // Compute student attendance summary for the authenticated student
+    const studentAttendanceSummary = useMemo(() => {
+        void timetableTick;
+        const targetId = activeStudentId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '';
+        if (!targetId) return null;
+
+        let raw = null;
+        try {
+            raw = localStorage.getItem(`kleData_${targetId}_${activeYear}_${activeSem}`) ||
+                  localStorage.getItem(`kleData_${targetId}`) ||
+                  localStorage.getItem('kleData');
+        } catch { /* ignore */ }
+
+        if (!raw) return null;
+
+        let parsed = null;
+        try {
+            parsed = JSON.parse(raw);
+        } catch {
+            return null;
+        }
+
+        const courses = Array.isArray(parsed) ? parsed : (parsed.attendance_data || parsed.courses || []);
+        if (!Array.isArray(courses) || courses.length === 0) return null;
+
+        let totalConducted = 0;
+        let totalAttended = 0;
+
+        courses.forEach(c => {
+            let cond = 0;
+            let att = 0;
+            if (c.rawConducted !== undefined && c.rawAttended !== undefined) {
+                cond = Number(c.rawConducted) || 0;
+                att = Number(c.rawAttended) || 0;
+            } else if (typeof c.attended === 'string' && c.attended.includes('/')) {
+                const parts = c.attended.split('/');
+                att = parseInt(parts[0], 10) || 0;
+                cond = parseInt(parts[1], 10) || 0;
+            } else if (c.components) {
+                Object.values(c.components).forEach(comp => {
+                    cond += Number(comp.conducted) || 0;
+                    att += Number(comp.attended) || 0;
+                });
+            }
+            totalConducted += cond;
+            totalAttended += att;
+        });
+
+        const totalAbsent = Math.max(0, totalConducted - totalAttended);
+        const overallPercentage = totalConducted > 0 ? Math.ceil((totalAttended / totalConducted) * 100) : 0;
+        const lastSyncTime = parsed.timestamp || (typeof window !== 'undefined' ? localStorage.getItem(`attendanceLastUpdated_${targetId}`) : null);
+
+        let bunkMargin = 0;
+        let classesToAttend = 0;
+        if (overallPercentage >= 85) {
+            bunkMargin = Math.floor((totalAttended - (0.85 * totalConducted)) / 0.85);
+        } else {
+            classesToAttend = Math.ceil(((0.85 * totalConducted) - totalAttended) / (1 - 0.85));
+        }
+
+        return {
+            courses,
+            totalConducted,
+            totalAttended,
+            totalAbsent,
+            overallPercentage,
+            lastSyncTime,
+            bunkMargin: Math.max(0, bunkMargin),
+            classesToAttend: Math.max(0, classesToAttend)
+        };
+    }, [activeStudentId, activeYear, activeSem, timetableTick]);
 
     // Automatic server database synchronization on load / revisit
     useEffect(() => {
@@ -1407,6 +1480,130 @@ export default function Home() {
                                     </div>
                                 )}
 
+                                {studentAttendanceSummary && (
+                                    <div className="mt-8 pt-6 border-t border-slate-200/70 dark:border-slate-700/60 space-y-4">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <BarChart3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                                    <h4 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                                                        <span>Attendance Overview</span>
+                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                                            studentAttendanceSummary.overallPercentage >= 85
+                                                                ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                                                : studentAttendanceSummary.overallPercentage >= 75
+                                                                    ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                                                    : 'bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                                                        }`}>
+                                                            {studentAttendanceSummary.overallPercentage >= 85 ? '✓ Safe (85%+)' : studentAttendanceSummary.overallPercentage >= 75 ? '⚠️ Warning' : '🚨 Shortage'}
+                                                        </span>
+                                                    </h4>
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                                                    {effectiveProfile?.nickname || effectiveProfile?.name || 'Student'} ({activeStudentId})
+                                                    {studentAttendanceSummary.lastSyncTime ? ` · Last synced ${new Date(studentAttendanceSummary.lastSyncTime).toLocaleDateString()} at ${new Date(studentAttendanceSummary.lastSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                                                </p>
+                                            </div>
+
+                                            <Link
+                                                to="/attendance-register"
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold transition-all border border-indigo-200 dark:border-indigo-800/80 shadow-2xs self-start sm:self-auto cursor-pointer"
+                                            >
+                                                <span>Full Attendance Register</span>
+                                                <ArrowRight className="w-3.5 h-3.5" />
+                                            </Link>
+                                        </div>
+
+                                        {/* 4 Metric Cards */}
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                            <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70">
+                                                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Overall Percentage</span>
+                                                <span className={`text-xl sm:text-2xl font-black ${
+                                                    studentAttendanceSummary.overallPercentage >= 85 ? 'text-emerald-600 dark:text-emerald-400' :
+                                                    studentAttendanceSummary.overallPercentage >= 75 ? 'text-amber-600 dark:text-amber-400' :
+                                                    'text-rose-600 dark:text-rose-400'
+                                                }`}>
+                                                    {studentAttendanceSummary.overallPercentage}%
+                                                </span>
+                                            </div>
+
+                                            <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70">
+                                                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Present Classes</span>
+                                                <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+                                                    {studentAttendanceSummary.totalAttended}
+                                                    <span className="text-xs font-bold text-slate-400 ml-1">/ {studentAttendanceSummary.totalConducted}</span>
+                                                </span>
+                                            </div>
+
+                                            <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70">
+                                                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Absent Classes</span>
+                                                <span className={`text-xl sm:text-2xl font-black ${studentAttendanceSummary.totalAbsent > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                                                    {studentAttendanceSummary.totalAbsent}
+                                                </span>
+                                            </div>
+
+                                            <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70">
+                                                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">
+                                                    {studentAttendanceSummary.overallPercentage >= 85 ? 'Safe Bunk Margin' : 'Classes to 85%'}
+                                                </span>
+                                                <span className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400">
+                                                    {studentAttendanceSummary.overallPercentage >= 85
+                                                        ? `${studentAttendanceSummary.bunkMargin} classes`
+                                                        : `${studentAttendanceSummary.classesToAttend} classes`}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Subject-Wise Attendance Breakdown */}
+                                        {studentAttendanceSummary.courses && studentAttendanceSummary.courses.length > 0 && (
+                                            <div className="space-y-2 pt-2">
+                                                <h5 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Subject-Wise Attendance</h5>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                                                    {studentAttendanceSummary.courses.map((subj, idx) => {
+                                                        const pct = subj.percent !== undefined ? Number(subj.percent) : (subj.percentage ? parseInt(subj.percentage, 10) : 0);
+                                                        const isSafe = pct >= 85;
+                                                        const isCaution = pct >= 75 && pct < 85;
+                                                        const title = subj.title || subj.name || subj.code;
+                                                        const code = subj.code || '';
+                                                        const attendedStr = subj.attended || (subj.rawAttended !== undefined ? `${subj.rawAttended}/${subj.rawConducted}` : '');
+
+                                                        return (
+                                                            <div
+                                                                key={idx}
+                                                                className="p-3 rounded-xl bg-white dark:bg-slate-800/90 border border-slate-200/90 dark:border-slate-700/70 shadow-2xs space-y-1.5"
+                                                            >
+                                                                <div className="flex items-start justify-between gap-2">
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <h6 className="text-xs font-bold text-slate-900 dark:text-white line-clamp-1 truncate" title={title}>
+                                                                            {title}
+                                                                        </h6>
+                                                                        <span className="text-[10px] font-mono text-slate-400 block">
+                                                                            {code}
+                                                                        </span>
+                                                                    </div>
+                                                                    <span className={`text-xs font-black px-1.5 py-0.5 rounded ${
+                                                                        isSafe ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300' :
+                                                                        isCaution ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300' :
+                                                                        'bg-rose-50 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300'
+                                                                    }`}>
+                                                                        {pct}%
+                                                                    </span>
+                                                                </div>
+                                                                <div className="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400 font-medium pt-1 border-t border-slate-100 dark:border-slate-700/50">
+                                                                    <span>Attended: <strong className="text-slate-800 dark:text-slate-200">{attendedStr}</strong></span>
+                                                                    <span className={isSafe ? 'text-emerald-600 dark:text-emerald-400 font-bold' : isCaution ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold'}>
+                                                                        {isSafe ? 'Safe' : isCaution ? 'Caution' : 'Shortage'}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
                                 {/* Weekly Timetable Matrix Section */}
                                 <div className="mt-8 pt-6 border-t border-slate-200/70 dark:border-slate-700/60 space-y-4">
                                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1644,7 +1841,84 @@ export default function Home() {
                             </div>
                         ) : (
                             /* CASE 2: Connected Account, but No Timetable Slots for this Term */
-                            <div className="py-7 px-4 sm:px-6 text-center space-y-4 rounded-2xl bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-slate-800/60 dark:via-slate-800/40 dark:to-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
+                            <div className="space-y-4">
+                                {studentAttendanceSummary && (
+                                    <div className="space-y-4 pb-4 border-b border-slate-200/70 dark:border-slate-700/60">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <BarChart3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                                                    <h4 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+                                                        <span>Attendance Overview</span>
+                                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                                            studentAttendanceSummary.overallPercentage >= 85
+                                                                ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                                                : studentAttendanceSummary.overallPercentage >= 75
+                                                                    ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                                                    : 'bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                                                        }`}>
+                                                            {studentAttendanceSummary.overallPercentage >= 85 ? '✓ Safe (85%+)' : studentAttendanceSummary.overallPercentage >= 75 ? '⚠️ Warning' : '🚨 Shortage'}
+                                                        </span>
+                                                    </h4>
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                                                    {effectiveProfile?.nickname || effectiveProfile?.name || 'Student'} ({activeStudentId})
+                                                    {studentAttendanceSummary.lastSyncTime ? ` · Last synced ${new Date(studentAttendanceSummary.lastSyncTime).toLocaleDateString()} at ${new Date(studentAttendanceSummary.lastSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                                                </p>
+                                            </div>
+
+                                            <Link
+                                                to="/attendance-register"
+                                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs font-bold transition-all border border-indigo-200 dark:border-indigo-800/80 shadow-2xs self-start sm:self-auto cursor-pointer"
+                                            >
+                                                <span>Full Attendance Register</span>
+                                                <ArrowRight className="w-3.5 h-3.5" />
+                                            </Link>
+                                        </div>
+
+                                        {/* 4 Metric Cards */}
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                            <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70">
+                                                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Overall Percentage</span>
+                                                <span className={`text-xl sm:text-2xl font-black ${
+                                                    studentAttendanceSummary.overallPercentage >= 85 ? 'text-emerald-600 dark:text-emerald-400' :
+                                                    studentAttendanceSummary.overallPercentage >= 75 ? 'text-amber-600 dark:text-amber-400' :
+                                                    'text-rose-600 dark:text-rose-400'
+                                                }`}>
+                                                    {studentAttendanceSummary.overallPercentage}%
+                                                </span>
+                                            </div>
+
+                                            <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70">
+                                                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Present Classes</span>
+                                                <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white">
+                                                    {studentAttendanceSummary.totalAttended}
+                                                    <span className="text-xs font-bold text-slate-400 ml-1">/ {studentAttendanceSummary.totalConducted}</span>
+                                                </span>
+                                            </div>
+
+                                            <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70">
+                                                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">Absent Classes</span>
+                                                <span className={`text-xl sm:text-2xl font-black ${studentAttendanceSummary.totalAbsent > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                                                    {studentAttendanceSummary.totalAbsent}
+                                                </span>
+                                            </div>
+
+                                            <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/70">
+                                                <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">
+                                                    {studentAttendanceSummary.overallPercentage >= 85 ? 'Safe Bunk Margin' : 'Classes to 85%'}
+                                                </span>
+                                                <span className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400">
+                                                    {studentAttendanceSummary.overallPercentage >= 85
+                                                        ? `${studentAttendanceSummary.bunkMargin} classes`
+                                                        : `${studentAttendanceSummary.classesToAttend} classes`}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="py-7 px-4 sm:px-6 text-center space-y-4 rounded-2xl bg-gradient-to-br from-slate-50 via-white to-slate-50 dark:from-slate-800/60 dark:via-slate-800/40 dark:to-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 shadow-2xs">
                                 <div className="w-12 h-12 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 flex items-center justify-center mx-auto shadow-2xs">
                                     <CalendarDays className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
                                 </div>
@@ -1676,6 +1950,7 @@ export default function Home() {
                                         <ArrowRight className="w-4 h-4" />
                                     </Link>
                                 </div>
+                            </div>
                             </div>
                         )}
                     </div>

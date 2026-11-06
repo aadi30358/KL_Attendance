@@ -872,10 +872,12 @@ export const fetchLiveMarksDetail = async (targetHref, studentId, courseCode) =>
     }
 
     // 4. Authentic record fallbacks if offline or session expired
+    const resolvedStudentName = (typeof window !== 'undefined' ? (localStorage.getItem(`kl_name_${targetId}`) || localStorage.getItem('erp_student_name') || localStorage.getItem('rememberedName')) : '') || 'Student';
+
     if (cleanCode.includes('23EC1203')) {
         const authentic23EC1203 = {
-            university_id: targetId || '2400030358',
-            sname: 'GARLAPATI YASWANTH ADITHYA REDDY',
+            university_id: targetId || '',
+            sname: resolvedStudentName,
             acy: '2024-2025',
             sem: 'Even Sem',
             offering_year: '1',
@@ -896,8 +898,8 @@ export const fetchLiveMarksDetail = async (targetHref, studentId, courseCode) =>
 
     if (cleanCode.includes('23EC1202')) {
         const authentic23EC1202 = {
-            university_id: targetId || '2400030358',
-            sname: 'GARLAPATI YASWANTH ADITHYA REDDY',
+            university_id: targetId || '',
+            sname: resolvedStudentName,
             acy: '2024-2025',
             sem: 'Even Sem',
             offering_year: '1',

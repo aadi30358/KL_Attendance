@@ -223,13 +223,13 @@ const Login = () => {
         };
     }, [selectedProfileId]);
 
-    // Automatic cloud sync on mount for Incognito, new devices, and fresh tabs
+    // Automatic cloud sync on mount for remembered student account
     useEffect(() => {
-        seedAdithyaProfileIfEmpty().catch(() => {});
+        const rememberedStudentId = (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || '';
         const currentProfiles = getAllProfiles();
-        if (currentProfiles.length === 0) {
-            // In Incognito / fresh browser, restore registered profile
-            restoreStudentDataInIncognito('2400030358').then(restored => {
+        if (currentProfiles.length === 0 && rememberedStudentId) {
+            // Restore registered profile if previously saved on this device
+            restoreStudentDataInIncognito(rememberedStudentId).then(restored => {
                 if (restored) {
                     const updated = getAllProfiles();
                     setAllProfilesList(updated);
@@ -238,6 +238,8 @@ const Login = () => {
                     }
                 }
             }).catch(() => {});
+        } else if (currentProfiles.length === 0) {
+            setSelectedProfileId('new');
         }
     }, []);
 
@@ -528,13 +530,13 @@ const Login = () => {
                 } catch { /* ignore storage error */ }
                 setErpUser(cleanId);
 
-                const detectedErpName = erpService.extractStudentNameFromHtml(loginResult.html) || (cleanId === '2400030358' ? 'Adithya' : null);
+                const detectedErpName = erpService.extractStudentNameFromHtml(loginResult.html);
 
                 if (!isNewProfile && activeProfile) {
                     const primaryRemembered = (typeof window !== 'undefined' ? (localStorage.getItem('original_my_id') || localStorage.getItem('rememberedId')) : '') || '';
                     const isSelf = activeProfile.id === 'main' || !activeProfile.isFriend || (primaryRemembered && cleanId === primaryRemembered);
                     if (isSelf) {
-                        const selfName = (activeProfile.nickname && activeProfile.nickname !== 'My Account') ? activeProfile.nickname : (detectedErpName || (cleanId === '2400030358' ? 'Adithya' : null) || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account');
+                        const selfName = (activeProfile.nickname && activeProfile.nickname !== 'My Account') ? activeProfile.nickname : (detectedErpName || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account');
                         saveMyProfile({
                             nickname: selfName,
                             studentId: cleanId,
@@ -578,7 +580,7 @@ const Login = () => {
                         const cleanName = stripEmojis(newProfileName).trim();
                         // Invariant: The first student account in any browser session/incognito MUST ALWAYS be saved as Primary (id: 'main')
                         if (!hasExistingPrimary || cleanId === currentMy?.studentId || cleanId === primaryRemembered) {
-                            const resolvedName = cleanName || detectedErpName || (cleanId === '2400030358' ? 'Adithya' : null) || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account';
+                            const resolvedName = cleanName || detectedErpName || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'My Account';
                             saveMyProfile({
                                 nickname: resolvedName,
                                 studentId: cleanId,
@@ -595,7 +597,7 @@ const Login = () => {
                             } catch { /* ignore */ }
                         } else {
                             const newBuddy = saveFriend({
-                                nickname: cleanName || detectedErpName || (cleanId === '2400030358' ? 'Adithya' : 'Buddy'),
+                                nickname: cleanName || detectedErpName || 'Buddy',
                                 studentId: cleanId,
                                 password: cleanPass
                             });
@@ -607,7 +609,7 @@ const Login = () => {
                 }
 
                 // PERMANENT STORAGE: Save profile, credentials & friends to Firestore cloud
-                const finalDisplayName = detectedErpName || (cleanId === '2400030358' ? 'Adithya' : null) || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'Student';
+                const finalDisplayName = detectedErpName || cleanName || (typeof window !== 'undefined' ? localStorage.getItem('rememberedName') : null) || 'Student';
                 saveStudentProfileToCloud(cleanId, {
                     name: finalDisplayName,
                     nickname: finalDisplayName,

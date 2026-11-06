@@ -555,7 +555,7 @@ const AttendanceRegister = () => {
         const queryYear = normYear;
         const rawTarget = customId || activeProfile?.studentId || activeProfile?.username || activeId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '';
         const targetId = (rawTarget === 'main' || !/^\d+$/.test(rawTarget))
-            ? (activeProfile?.studentId || activeProfile?.username || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || '2400030358')
+            ? (activeProfile?.studentId || activeProfile?.username || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || '')
             : rawTarget;
 
         // 1. FAST CACHE-FIRST RELOAD (< 10ms): Check if cached data exists for this specific student, year & sem
@@ -893,7 +893,7 @@ const AttendanceRegister = () => {
         setYear(targetYear);
         setSemester(targetSem);
 
-        const cleanSid = (activeProfile?.studentId || activeProfile?.username || activeId || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || '2400030358');
+        const cleanSid = (activeProfile?.studentId || activeProfile?.username || activeId || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || '');
 
         if (cleanSid) {
             try {
@@ -1034,23 +1034,30 @@ const AttendanceRegister = () => {
         );
 
         if ((!html || html.includes('site-error') || html.includes('The above error occurred') || html.includes('id="login-form"')) && !hasSavedData && !hasSavedProfile) {
-            // Attempt fast cloud restore before giving up to login (essential for Incognito direct opens)
-            const fallbackStudent = activeUser || '2400030358';
-            restoreStudentDataInIncognito(fallbackStudent).then(restored => {
-                if (restored) {
-                    setActiveId(fallbackStudent);
-                    setActiveProfile(getActiveProfileDetails(fallbackStudent));
-                    const presentFallback = getPresentAcademicYearAndSem(fallbackStudent);
-                    handleSearch(presentFallback.year, presentFallback.sem, fallbackStudent);
-                } else {
-                    localStorage.removeItem('erpDashboardHtml');
-                    localStorage.removeItem('activeErpUser');
-                    sessionStorage.removeItem('erp_authenticated');
+            // Attempt fast cloud restore if remembered student exists before giving up to login
+            const fallbackStudent = activeUser;
+            if (fallbackStudent) {
+                restoreStudentDataInIncognito(fallbackStudent).then(restored => {
+                    if (restored) {
+                        setActiveId(fallbackStudent);
+                        setActiveProfile(getActiveProfileDetails(fallbackStudent));
+                        const presentFallback = getPresentAcademicYearAndSem(fallbackStudent);
+                        handleSearch(presentFallback.year, presentFallback.sem, fallbackStudent);
+                    } else {
+                        localStorage.removeItem('erpDashboardHtml');
+                        localStorage.removeItem('activeErpUser');
+                        sessionStorage.removeItem('erp_authenticated');
+                        navigate('/login');
+                    }
+                }).catch(() => {
                     navigate('/login');
-                }
-            }).catch(() => {
+                });
+            } else {
+                localStorage.removeItem('erpDashboardHtml');
+                localStorage.removeItem('activeErpUser');
+                sessionStorage.removeItem('erp_authenticated');
                 navigate('/login');
-            });
+            }
             return;
         }
 
@@ -2271,7 +2278,7 @@ const AttendanceRegister = () => {
                         setRecentlyUpdatedCodes(new Set());
                         const sid = (authFriend?.studentId && authFriend.studentId !== 'main')
                             ? authFriend.studentId
-                            : (authFriend?.username || activeId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : '') || '2400030358');
+                            : (authFriend?.username || activeId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '');
                         setActiveId(sid);
                         setActiveProfile(authFriend || getActiveProfileDetails(sid));
                         const savedY = localStorage.getItem(`manualYear_${sid}`) || localStorage.getItem(`activeYear_${sid}`);
@@ -2563,7 +2570,7 @@ const AttendanceRegister = () => {
                     setRecentlyUpdatedCodes(new Set());
                     const sid = (authFriend?.studentId && authFriend.studentId !== 'main')
                         ? authFriend.studentId
-                        : (authFriend?.username || activeId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : '') || '2400030358');
+                        : (authFriend?.username || activeId || (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '');
                     setActiveId(sid);
                     setActiveProfile(authFriend || getActiveProfileDetails(sid));
                     const savedY = localStorage.getItem(`manualYear_${sid}`) || localStorage.getItem(`activeYear_${sid}`);

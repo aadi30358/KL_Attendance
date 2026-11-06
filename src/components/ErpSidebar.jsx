@@ -65,16 +65,18 @@ export default function ErpSidebar({
         };
     }, []);
 
-    // In incognito mode or fresh tab, automatically restore saved accounts from Firestore
+    // In incognito mode or fresh tab, automatically restore saved accounts from Firestore if remembered
     useEffect(() => {
         if (allProfiles.length === 0) {
-            const sid = (typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '') || '2400030358';
-            restoreStudentDataInIncognito(sid).then(restored => {
-                if (restored) {
-                    setAllProfiles(getAllProfiles());
-                    setActiveProfile(getActiveProfileDetails());
-                }
-            }).catch(() => {});
+            const sid = typeof window !== 'undefined' ? (localStorage.getItem('activeErpUser') || localStorage.getItem('rememberedId')) : '';
+            if (sid) {
+                restoreStudentDataInIncognito(sid).then(restored => {
+                    if (restored) {
+                        setAllProfiles(getAllProfiles());
+                        setActiveProfile(getActiveProfileDetails());
+                    }
+                }).catch(() => {});
+            }
         }
     }, [allProfiles.length]);
 

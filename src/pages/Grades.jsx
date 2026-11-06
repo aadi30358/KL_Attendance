@@ -408,8 +408,8 @@ export default function Grades() {
             }
         }
 
-        const universityId = findField(['university_id', 'universityId', 'student_id', 'studentId', 'University ID'], selectedStudentId || getPrimaryUserId() || '2400030358');
-        const sname = findField(['sname', 'student_name', 'name', 's_name', 'Sname'], (activeProfileName && !activeProfileName.includes('(') ? activeProfileName : null) || getMyProfile()?.name || localStorage.getItem('erp_student_name') || localStorage.getItem('profileName') || 'GARLAPATI YASWANTH ADITHYA REDDY');
+        const universityId = findField(['university_id', 'universityId', 'student_id', 'studentId', 'University ID'], selectedStudentId || getPrimaryUserId() || (typeof window !== 'undefined' ? (localStorage.getItem('rememberedId') || localStorage.getItem('activeErpUser')) : '') || '');
+        const sname = findField(['sname', 'student_name', 'name', 's_name', 'Sname'], (activeProfileName && !activeProfileName.includes('(') ? activeProfileName : null) || getMyProfile()?.name || (typeof window !== 'undefined' ? (localStorage.getItem('erp_student_name') || localStorage.getItem('profileName')) : '') || 'Student');
 
         const rows = [
             { label: 'University ID', value: universityId },
