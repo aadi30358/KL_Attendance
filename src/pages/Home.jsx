@@ -868,10 +868,15 @@ export default function Home() {
     const getCourseTitle = (slot) => {
         if (!slot) return '';
         const raw = (slot.rawCode || slot.code || '').replace(/-[LPTS]$/, '').trim();
+        // If slot already carries an authentic verified title from ERP or authentic timetable, prioritize it!
+        if (slot.title && slot.title !== raw && slot.title !== slot.code && !slot.title.toLowerCase().includes('subject')) {
+            return slot.title;
+        }
         const baseName = getSubjectName(raw) || getSubjectName(slot.code) || slot.displayName || slot.title;
         if (!baseName || baseName === raw || baseName === slot.code) {
-            if (raw.includes('24EDS3308')) return 'Embedded AI – Edge Intelligence and TinyML';
-            if (raw.includes('24GMI3101')) return 'Principles of Deep Neural Computation';
+            if (raw.includes('24EDS3308')) return 'Principles of Deep Neural Networks';
+            if (raw.includes('24GMI3101')) return 'Embedded AI – Edge Intelligence and TinyML';
+            if (raw.includes('24CC3014')) return 'Cloud Computing';
             if (raw.includes('23EC1202')) return 'Digital Design and Computer Architecture';
         }
         return baseName || raw || slot.code;

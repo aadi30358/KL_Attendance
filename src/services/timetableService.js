@@ -148,8 +148,8 @@ export const KLU_COURSE_NAMES = {
     '24SDCS03': 'SOA Programming and Microservices',
     '24EDS3308HF': 'Principles of Deep Neural Networks',
     '24EDS3308': 'Principles of Deep Neural Networks',
-    '24GMI3101': 'Embedded AI - Edge Intelligence and TinyML',
-    '24CC3014': 'AWS Certified Solutions Architect - Associate',
+    '24GMI3101': 'Embedded AI – Edge Intelligence and TinyML',
+    '24CC3014': 'Cloud Computing',
     '24CS3206': 'Theory of Computation',
     '24CS3105': 'Information Assurance and Security',
 
@@ -440,7 +440,7 @@ export const KLU_SEMESTER_CURRICULUM = {
         { code: '24GMI3101', title: 'Embedded AI - Edge Intelligence and TinyML', components: { Lecture: {}, Practical: {}, Tutorial: {} } },
         { code: '24CS3206', title: 'Theory of Computation', components: { Lecture: {}, Tutorial: {} } },
         { code: '24CS3105', title: 'Information Assurance and Security', components: { Lecture: {}, Tutorial: {} } },
-        { code: '24CC3014', title: 'AWS Certified Solutions Architect - Associate', components: { Practical: {}, Skill: {} } }
+        { code: '24CC3014', title: 'Cloud Computing', components: { Lecture: {}, Skill: {} } }
     ]
 };
 
@@ -457,9 +457,25 @@ export const getSubjectName = (courseCode) => {
     const mainCode = extractMainCode(courseCode);
     try {
         if (typeof window !== 'undefined') {
-            const subjectMappings = JSON.parse(localStorage.getItem('subjectMappings') || '{}');
-            if (subjectMappings[mainCode]) return subjectMappings[mainCode];
-            if (subjectMappings[courseCode]) return subjectMappings[courseCode];
+            const rawMappings = localStorage.getItem('subjectMappings');
+            if (rawMappings) {
+                const subjectMappings = JSON.parse(rawMappings);
+                // Self-healing: purge any stale swapped or corrupt legacy subject mappings
+                let cleaned = false;
+                if (subjectMappings[mainCode] && (
+                    (mainCode === '24CC3014' && subjectMappings[mainCode].includes('AWS')) ||
+                    (mainCode === '24EDS3308' && subjectMappings[mainCode].includes('Embedded AI')) ||
+                    (mainCode === '24GMI3101' && subjectMappings[mainCode].includes('Deep Neural'))
+                )) {
+                    delete subjectMappings[mainCode];
+                    cleaned = true;
+                }
+                if (cleaned) {
+                    try { localStorage.setItem('subjectMappings', JSON.stringify(subjectMappings)); } catch {}
+                }
+                if (subjectMappings[mainCode]) return subjectMappings[mainCode];
+                if (subjectMappings[courseCode]) return subjectMappings[courseCode];
+            }
         }
     } catch { /* ignore */ }
     return KLU_COURSE_NAMES[mainCode] || KLU_COURSE_NAMES[courseCode] || courseCode;
@@ -1185,8 +1201,8 @@ export function getCurriculumForStudent(studentId, cleanYear = '2025-2026', clea
         } else {
             // Odd Sem (Sem 5)
             return [
-                { code: '24GMI3101', title: 'Principles of Deep Neural Computation', components: { Lecture: {}, Practical: {} } },
-                { code: '24EDS3308', title: 'Enterprise Data Science', components: { Lecture: {}, Practical: {} } },
+                { code: '24EDS3308', title: 'Principles of Deep Neural Networks', components: { Lecture: {}, Practical: {} } },
+                { code: '24GMI3101', title: 'Embedded AI – Edge Intelligence and TinyML', components: { Lecture: {}, Practical: {} } },
                 { code: '24SDCS03A', title: 'SOA Programming and Microservices', components: { Lecture: {}, Tutorial: {}, Skill: {} } },
                 { code: '24CC3014', title: 'Cloud Computing', components: { Skill: {} } },
                 { code: '24CS3206', title: 'Theory of Computation', components: { Lecture: {}, Tutorial: {} } },

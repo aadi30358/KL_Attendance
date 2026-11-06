@@ -450,13 +450,18 @@ export default function ClassTimetable({
         if (!slot) return '';
         const raw = (slot.rawCode || (slot.code || '').replace(/-[LPTS]$/, '')).trim();
 
-        if (displayMode === 'aliases') {
-            const custom = getSubjectName(raw) || getSubjectName(slot.code);
-            if (custom) return custom;
-        }
-
         if (displayMode === 'codes') {
             return slot.code || slot.rawCode || 'COURSE';
+        }
+
+        // 1. If slot already carries an authentic verified title from ERP or authentic timetable, prioritize it!
+        if (slot.title && slot.title !== raw && slot.title !== slot.code && !slot.title.toLowerCase().includes('subject')) {
+            const cleanBase = slot.title.replace(/\s*\((Lab|Tut|Tutorial|Lecture|Skill|Practical)\)$/i, '').trim();
+            const compSuffix = slot.code?.endsWith('-P') ? ' (Lab)'
+                : slot.code?.endsWith('-T') ? ' (Tut)'
+                : slot.code?.endsWith('-S') ? ' (Skill)'
+                : '';
+            return `${cleanBase}${compSuffix}`;
         }
 
         const baseWithoutSuffix = raw.replace(/HF$/, '');
@@ -471,17 +476,14 @@ export default function ClassTimetable({
             }
         }
 
-        if (!baseName && slot.title && slot.title !== raw && slot.title !== slot.code) {
-            baseName = slot.title;
-        }
-
         if (!baseName) {
             baseName = getSubjectName(raw) || getSubjectName(baseWithoutSuffix) || KLU_COURSE_NAMES[raw] || KLU_COURSE_NAMES[baseWithoutSuffix];
         }
 
         if (!baseName || baseName === raw || baseName === slot.code) {
-            if (raw.includes('24EDS3308')) baseName = 'Embedded AI – Edge Intelligence and TinyML';
-            else if (raw.includes('24GMI3101')) baseName = 'Principles of Deep Neural Computation';
+            if (raw.includes('24EDS3308')) baseName = 'Principles of Deep Neural Networks';
+            else if (raw.includes('24GMI3101')) baseName = 'Embedded AI – Edge Intelligence and TinyML';
+            else if (raw.includes('24CC3014')) baseName = 'Cloud Computing';
             else if (raw.includes('23EC1202')) baseName = 'Digital Design and Computer Architecture';
         }
 
