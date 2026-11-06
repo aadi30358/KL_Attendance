@@ -534,16 +534,31 @@ export default {
         // 6. /api/fetch-cgpa
         if (pathname === '/api/fetch-cgpa' || pathname === '/api/fetch_cgpa' || pathname === '/fetch-cgpa') {
             try {
-                const cgpaUrl = `${ERP_BASE}/index.php?r=student%2Fstudentgrade%2Fgradecard`;
-                const cgpaResp = await fetch(cgpaUrl, {
-                    headers: {
-                        'Cookie': serializeCookieMap(cookieMap),
-                        'Referer': `${ERP_BASE}/index.php`,
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-                    },
+                const cgpaHeaders = {
+                    'Cookie': serializeCookieMap(cookieMap),
+                    'Referer': `${ERP_BASE}/index.php`,
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                };
+
+                let cgpaResp = await fetch(`${ERP_BASE}/index.php?r=studentinfo%2Fstudentendexamresult%2Fsearchgetmycgpa`, {
+                    headers: cgpaHeaders,
                     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
                 });
-                const cgpaHtml = await cgpaResp.text();
+                let cgpaHtml = await cgpaResp.text();
+
+                if (!cgpaHtml.includes('<table') || cgpaHtml.includes('id="login-form"')) {
+                    const fallbackResp = await fetch(`${ERP_BASE}/index.php?r=student%2Fstudentgrade%2Fgradecard`, {
+                        headers: cgpaHeaders,
+                        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                    });
+                    if (fallbackResp.ok) {
+                        const fallbackHtml = await fallbackResp.text();
+                        if (fallbackHtml.includes('<table')) {
+                            cgpaHtml = fallbackHtml;
+                        }
+                    }
+                }
+
                 return new Response(JSON.stringify({ success: true, html: cgpaHtml }), {
                     headers: { ...cors, 'Content-Type': 'application/json' }
                 });

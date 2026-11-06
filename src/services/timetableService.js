@@ -1567,9 +1567,9 @@ export async function fetchLiveErpTimetable(studentId, yearId, semId) {
         const offset = Math.max(0, firstYear - 2026);
         yearCandidates = [String(18 + offset), String(29 + offset), '18', '29', '22'];
     } else if (firstYear === 2025) {
-        yearCandidates = ['17', '28', '19', '18'];
+        yearCandidates = ['17', '28', '19'];
     } else if (firstYear === 2024) {
-        yearCandidates = ['16', '27', '17'];
+        yearCandidates = ['16', '27', '15'];
     } else if (firstYear === 2023) {
         yearCandidates = ['15', '26'];
     } else if (!isNaN(firstYear)) {
