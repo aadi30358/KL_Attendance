@@ -508,19 +508,46 @@ export default {
                 const year = String(body.year || body.yearId || body.academic_year_code || '');
                 const semester = String(body.semester || body.semId || body.semester_id || '').toLowerCase();
                 const semId = semester.includes('even') || semester === '2' ? '2' : (semester.includes('summer') || semester === '3' ? '3' : (semester.includes('term') || semester === '4' ? '4' : '1'));
-                const yCode = year.includes('2025') ? '19' : year.includes('2024') ? '16' : '29';
+                
+                // Resolve candidate year codes (from KLU timetable registration formulas)
+                const candidateYears = [];
+                const strYear = String(year || body.yearId || body.academic_year_code || '').trim();
+                let firstYear = parseInt(strYear.split('-')[0], 10);
+                if (!isNaN(firstYear) && firstYear < 100) firstYear += 2000;
 
-                const ttUrl = `${ERP_BASE}/index.php?r=timetables%2Funiversitymasteracademictimetableview%2Findividualstudenttimetableget&UniversityMasterAcademicTimetableView%5Bacademicyear%5D=${yCode}&UniversityMasterAcademicTimetableView%5Bsemesterid%5D=${semId}`;
-                const ttResp = await fetch(ttUrl, {
-                    headers: {
-                        'Cookie': serializeCookieMap(cookieMap),
-                        'Referer': `${ERP_BASE}/index.php`,
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-                    },
-                    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-                });
-                const ttHtml = await ttResp.text();
+                if (firstYear >= 2026 || strYear === '29' || strYear === '18') {
+                    candidateYears.push('29', '18', '22');
+                } else if (firstYear === 2025 || strYear === '19' || strYear === '28' || strYear === '17') {
+                    candidateYears.push('19', '28', '17');
+                } else if (firstYear === 2024 || strYear === '16' || strYear === '27') {
+                    candidateYears.push('16', '27', '15');
+                } else {
+                    candidateYears.push('29', '18');
+                }
+
+                let ttHtml = '';
+                for (const yCode of candidateYears) {
+                    const ttUrl = `${ERP_BASE}/index.php?r=timetables%2Funiversitymasteracademictimetableview%2Findividualstudenttimetableget&UniversityMasterAcademicTimetableView%5Bacademicyear%5D=${yCode}&UniversityMasterAcademicTimetableView%5Bsemesterid%5D=${semId}`;
+                    const ttResp = await fetch(ttUrl, {
+                        headers: {
+                            'Cookie': serializeCookieMap(cookieMap),
+                            'Referer': `${ERP_BASE}/index.php`,
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+                        },
+                        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+                    });
+                    if (ttResp.ok) {
+                        const html = await ttResp.text();
+                        if (html.includes('<table') && !html.includes('class="empty"') && !html.includes('No results found')) {
+                            ttHtml = html;
+                            break;
+                        } else if (!ttHtml) {
+                            ttHtml = html;
+                        }
+                    }
+                }
+
                 return new Response(JSON.stringify({ success: true, html: ttHtml }), {
                     headers: { ...cors, 'Content-Type': 'application/json' }
                 });
