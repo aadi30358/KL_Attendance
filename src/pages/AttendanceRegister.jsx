@@ -944,7 +944,7 @@ const AttendanceRegister = () => {
             setDebugHtml(null);
 
             // Determine target academic year & semester for this student
-            const defaultStudentYear = '2026-2027';
+            const defaultStudentYear = '2025-2026';
             const detailYear = detail?.year ? detail.year : null;
             const savedYear = newId ? (localStorage.getItem(`manualYear_${newId}`) || localStorage.getItem(`activeYear_${newId}`)) : null;
             const savedSem = newId ? (localStorage.getItem(`manualSem_${newId}`) || localStorage.getItem(`activeSem_${newId}`)) : null;
@@ -1221,7 +1221,7 @@ const AttendanceRegister = () => {
             }
             // Auto-select active year directly: prioritize saved manual selection if available
             const userManualYear = activeId ? (localStorage.getItem(`manualYear_${activeId}`) || localStorage.getItem(`activeYear_${activeId}`)) : null;
-            let nextYear = '2026-2027';
+            let nextYear = '2025-2026';
             if (userManualYear) {
                 nextYear = normalizeAcademicYear(userManualYear);
                 setYear(nextYear);
@@ -1229,8 +1229,8 @@ const AttendanceRegister = () => {
                 nextYear = normalizeAcademicYear(sessionData.selectedYear.text);
                 setYear(nextYear);
             } else {
-                nextYear = '2026-2027';
-                setYear('2026-2027');
+                nextYear = '2025-2026';
+                setYear('2025-2026');
             }
 
             const userManualSem = activeId ? (localStorage.getItem(`manualSem_${activeId}`) || localStorage.getItem(`activeSem_${activeId}`)) : null;
@@ -2343,7 +2343,7 @@ const AttendanceRegister = () => {
                         setActiveId(sid);
                         setActiveProfile(authFriend || getActiveProfileDetails(sid));
                         const savedY = localStorage.getItem(`manualYear_${sid}`) || localStorage.getItem(`activeYear_${sid}`);
-                        const targetY = year || savedY || '2026-2027';
+                        const targetY = year || savedY || '2025-2026';
                         const savedS = localStorage.getItem(`manualSem_${sid}`) || localStorage.getItem(`activeSem_${sid}`);
                         const targetS = semester || savedS || 'Odd';
                         setYear(targetY);
@@ -2635,7 +2635,7 @@ const AttendanceRegister = () => {
                     setActiveId(sid);
                     setActiveProfile(authFriend || getActiveProfileDetails(sid));
                     const savedY = localStorage.getItem(`manualYear_${sid}`) || localStorage.getItem(`activeYear_${sid}`);
-                    const targetY = year || savedY || '2026-2027';
+                    const targetY = year || savedY || '2025-2026';
                     const savedS = localStorage.getItem(`manualSem_${sid}`) || localStorage.getItem(`activeSem_${sid}`);
                     const targetS = semester || savedS || 'Odd';
                     setYear(targetY);

@@ -48,11 +48,13 @@ export default function Timetable() {
         };
     }, [navigate]);
 
+    const [semesterChangeTrigger, setSemesterChangeTrigger] = useState(0);
+
     const selectedYear = useMemo(() => {
         const raw = activeId ? (localStorage.getItem(`manualYear_${activeId}`) || localStorage.getItem(`activeYear_${activeId}`)) : null;
-        const clean = raw || '2026-2027';
+        const clean = raw || '2025-2026';
         return normalizeAcademicYear(clean);
-    }, [activeId]);
+    }, [activeId, semesterChangeTrigger]);
 
     const selectedSem = useMemo(() => {
         const raw = (activeId && (localStorage.getItem(`manualSem_${activeId}`) || localStorage.getItem(`activeSem_${activeId}`))) || 'Odd';
@@ -61,7 +63,7 @@ export default function Timetable() {
         if (s === 'Term3') return 'Tri Sem / Term 3';
         if (s === 'Even') return 'Even Sem';
         return 'Odd Sem';
-    }, [activeId]);
+    }, [activeId, semesterChangeTrigger]);
 
     const erpCourses = useMemo(() => {
         try {
@@ -201,6 +203,7 @@ export default function Timetable() {
                                 erpCourses={erpCourses}
                                 selectedYear={selectedYear}
                                 selectedSem={selectedSem}
+                                onSemesterChange={() => setSemesterChangeTrigger(t => t + 1)}
                                 onChangeSelection={() => navigate('/attendance-register')}
                                 onViewCourseAttendance={() => navigate('/login', { state: { studentId: activeId, profileId: activeId, view: 'attendance' } })}
                                 onSelectFriend={(fid) => {

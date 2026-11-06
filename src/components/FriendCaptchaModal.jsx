@@ -241,7 +241,7 @@ export default function FriendCaptchaModal({ friend, isOpen, onClose, onSuccess 
                 saveFriendsToCloud(studentId, getSavedFriends()).catch(() => {});
 
                 // Determine target session
-                const defaultStudentYear = '2026-2027';
+                const defaultStudentYear = '2025-2026';
                 let targetYear = localStorage.getItem(`manualYear_${studentId}`) || localStorage.getItem(`activeYear_${studentId}`) || defaultStudentYear;
                 const targetSem = localStorage.getItem(`manualSem_${studentId}`) || localStorage.getItem(`activeSem_${studentId}`) || 'Odd';
 
