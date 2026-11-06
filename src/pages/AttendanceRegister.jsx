@@ -1812,22 +1812,15 @@ const AttendanceRegister = () => {
                                     </div>
 
                             <div className="flex flex-wrap items-center gap-2 text-slate-500 text-xs sm:text-sm font-medium">
-                                {/* Inline Academic Semester Selection Dropdown */}
-                                <div className="relative inline-flex items-center">
-                                    <select
-                                        value={`${normalizeAcademicYear(year)}_${normalizeSemester(semester)}`}
-                                        onChange={(e) => handleSwitchSemester(e.target.value)}
-                                        aria-label="Select Academic Semester"
-                                        className="font-bold text-slate-800 dark:text-slate-100 bg-slate-100/90 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-slate-300/80 dark:border-slate-700 py-1 pl-2.5 pr-7 rounded-lg text-xs sm:text-sm cursor-pointer outline-none transition-colors appearance-none shadow-2xs"
-                                    >
-                                        {getAvailableSemesterOptions(activeId).map(opt => (
-                                            <option key={opt.key} value={opt.key} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-semibold">
-                                                {opt.label}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className="pointer-events-none absolute right-2 w-3.5 h-3.5 text-slate-500" />
-                                </div>
+                                <span
+                                    onClick={() => {
+                                        window.dispatchEvent(new CustomEvent('kl_reset_selection'));
+                                    }}
+                                    className="font-bold text-slate-800 dark:text-slate-100 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer transition-colors"
+                                    title="Click to Change Academic Year / Semester"
+                                >
+                                    {displayYearText} · {displaySemesterText}
+                                </span>
                                 {lastUpdated && (
                                     <>
                                         <span>•</span>
