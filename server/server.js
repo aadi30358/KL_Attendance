@@ -876,7 +876,7 @@ app.post('/api/fast-attendance', async (req, res) => {
             }
 
             if (firstYear === 2026 || str === '29' || str === '18' || cleanStr.includes('26')) list.push('29', '18', '2026-2027', '2026-27');
-            else if (firstYear === 2025 || str === '28' || str === '17' || str === '19' || cleanStr.includes('25')) list.push('28', '17', '19', '18', '2025-2026', '2025-26');
+            else if (firstYear === 2025 || str === '28' || str === '17' || str === '19' || cleanStr.includes('25')) list.push('28', '17', '19', '2025-2026', '2025-26');
             else if (firstYear === 2024 || str === '27' || str === '16' || cleanStr.includes('24')) list.push('27', '16', '17', '2024-2025', '2024-25');
             else if (firstYear === 2023 || str === '26' || str === '15' || cleanStr.includes('23')) list.push('26', '15', '16', '2023-2024', '2023-24');
             else if (firstYear === 2022 || str === '25' || str === '14' || cleanStr.includes('22')) list.push('25', '14', '15', '2022-2023', '2022-23');

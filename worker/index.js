@@ -425,7 +425,7 @@ export default {
                 if (firstYear >= 2026 || strYear === '29' || strYear === '18') {
                     candidateYears.push('29', '18', '22');
                 } else if (firstYear === 2025 || strYear === '19' || strYear === '28' || strYear === '17') {
-                    candidateYears.push('19', '28', '17', '18');
+                    candidateYears.push('19', '28', '17');
                 } else if (firstYear === 2024 || strYear === '16' || strYear === '27') {
                     candidateYears.push('16', '27', '15');
                 } else if (firstYear === 2023 || strYear === '13' || strYear === '15') {
@@ -476,7 +476,12 @@ export default {
                     finalHtml = crHtml;
                     const hasTable = crHtml.includes('<table') || crHtml.includes('grid-view') || crHtml.includes('Course Code');
                     const hasEmptyResult = crHtml.includes('class="empty"') || crHtml.includes('No results found');
-                    if (hasTable && !hasEmptyResult) {
+                    
+                    // Verify row-level academic year to reject default-session fallback
+                    const rowYears = Array.from(crHtml.matchAll(/<td[^>]*>\s*(20\d\d[-/]\d{2,4})\s*<\/td>/gi)).map(m => m[1]);
+                    const matchesReqYear = (!firstYear || rowYears.length === 0 || rowYears.some(y => y.includes(String(firstYear))));
+
+                    if (hasTable && !hasEmptyResult && matchesReqYear) {
                         break;
                     }
                 }

@@ -118,7 +118,7 @@ export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId
   } else if (firstYear === 2026 || strYear === '29' || strYear === '18') {
     candidates.push('29', '18', '22', '2026-2027', '2026-27', '26-27');
   } else if (firstYear === 2025 || strYear === '19' || strYear === '28' || strYear === '17') {
-    candidates.push('19', '28', '17', '18', '2025-2026', '2025-26', '25-26');
+    candidates.push('19', '28', '17', '2025-2026', '2025-26', '25-26');
   } else if (firstYear === 2024 || strYear === '16' || strYear === '27') {
     candidates.push('16', '27', '15', '2024-2025', '2024-25', '24-25');
   } else if (firstYear === 2023 || strYear === '13' || strYear === '15' || strYear === '26') {
@@ -138,6 +138,39 @@ export const getCandidateYearIdsForYear = (academicYear, detectedYearId, extraId
   return Array.from(new Set(candidates.filter(Boolean)));
 };
 
-export const isHtmlMatchingRequestedYear = () => true;
-export const findAcademicYearFromHtml = () => null;
-export const findSemesterFromHtml = () => null;
+/**
+ * Validates whether an ERP attendance HTML response matches the requested academic year and semester.
+ * Prevents default-session leakage (e.g. ERP serving 2026-2027 present courses for past queries).
+ */
+export const isHtmlMatchingRequestedYear = (html, requestedYear, requestedSem = null) => {
+  if (!html || typeof html !== 'string') return false;
+  if (!requestedYear) return true;
+
+  const cleanReq = String(requestedYear).trim();
+  const reqStartYear = cleanReq.split('-')[0].trim();
+  if (!reqStartYear || reqStartYear.length < 4) return true;
+
+  // Check if HTML contains explicit academic year column text in table cells
+  const rowYearMatches = Array.from(html.matchAll(/<td[^>]*>\s*(20\d\d[-/]\d{2,4})\s*<\/td>/gi)).map(m => m[1]);
+  if (rowYearMatches.length > 0) {
+    const matchingCount = rowYearMatches.filter(yr => yr.includes(reqStartYear)).length;
+    // If table rows exist and none match the requested year, reject
+    if (matchingCount === 0) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+export const findAcademicYearFromHtml = (html) => {
+  if (!html || typeof html !== 'string') return null;
+  const match = html.match(/<td[^>]*>\s*(20\d\d[-/]\d{2,4})\s*<\/td>/i);
+  return match ? match[1].trim() : null;
+};
+
+export const findSemesterFromHtml = (html) => {
+  if (!html || typeof html !== 'string') return null;
+  const match = html.match(/<td[^>]*>\s*(Odd\s*Sem|Even\s*Sem|Summer\s*Term|Term\s*3)\s*<\/td>/i);
+  return match ? match[1].trim() : null;
+};

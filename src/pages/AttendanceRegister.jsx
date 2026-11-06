@@ -581,8 +581,19 @@ const AttendanceRegister = () => {
         if (scopedRaw && !forceLive) {
             try {
                 const parsed = JSON.parse(scopedRaw);
-                // If this semester has valid courses, load them immediately (< 10ms)
-                if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
+                const yrStart = normYear.split('-')[0].trim();
+                const isContaminated = yrStart !== '2026' && Array.isArray(parsed?.attendance_data) && parsed.attendance_data.some(c =>
+                    c.code === '24SDCS03A' || (c.title && c.title.includes('SOA PROGRAMMING'))
+                );
+
+                if (isContaminated) {
+                    console.warn(`[AttendanceRegister] Purging contaminated cache for ${normYear}_${normSem}`);
+                    try {
+                        if (scopedKey) localStorage.removeItem(scopedKey);
+                        if (numKey) localStorage.removeItem(numKey);
+                    } catch {}
+                    scopedRaw = null;
+                } else if (Array.isArray(parsed?.attendance_data) && parsed.attendance_data.length > 0) {
                     const baseKey = `${targetId}_${normYear}_${normSem}`;
                     sessionAttendanceBaselines.current.set(baseKey, parsed.attendance_data);
                     setSubjects(parsed.attendance_data);
@@ -612,6 +623,9 @@ const AttendanceRegister = () => {
                         erpService.fetchAttendance(queryYear, fetchSemester, targetId)
                             .then(freshCourses => {
                                 if (Array.isArray(freshCourses) && freshCourses.length > 0) {
+                                    if (yrStart !== '2026' && freshCourses.some(c => c.code === '24SDCS03A' || (c.title && c.title.includes('SOA PROGRAMMING')))) {
+                                        return;
+                                    }
                                     const freshKey = `${targetId}_${normYear}_${normSem}`;
                                     sessionAttendanceBaselines.current.set(freshKey, freshCourses);
                                     const currentActive = localStorage.getItem('activeErpUser');
@@ -682,6 +696,10 @@ const AttendanceRegister = () => {
                         erpService.fetchAttendance(queryYear, fetchSemester, targetId)
                             .then(freshCourses => {
                                 if (Array.isArray(freshCourses) && freshCourses.length > 0) {
+                                    const yrStart = normYear.split('-')[0].trim();
+                                    if (yrStart !== '2026' && freshCourses.some(c => c.code === '24SDCS03A' || (c.title && c.title.includes('SOA PROGRAMMING')))) {
+                                        return;
+                                    }
                                     setSubjects(freshCourses);
                                     saveAttendanceToCloud(targetId, normYear, normSem, freshCourses).catch(() => {});
                                 }
@@ -1074,7 +1092,18 @@ const AttendanceRegister = () => {
         if (scopedRaw) {
             try {
                 const parsed = JSON.parse(scopedRaw);
-                if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
+                const yrStart = initY.split('-')[0].trim();
+                const isContaminated = yrStart !== '2026' && Array.isArray(parsed?.attendance_data) && parsed.attendance_data.some(c =>
+                    c.code === '24SDCS03A' || (c.title && c.title.includes('SOA PROGRAMMING'))
+                );
+                if (isContaminated) {
+                    console.warn(`[AttendanceRegister] Purging contaminated initial cache for ${initY}_${initS}`);
+                    try {
+                        if (scopedKey) localStorage.removeItem(scopedKey);
+                        if (numKey) localStorage.removeItem(numKey);
+                    } catch {}
+                    scopedRaw = null;
+                } else if (parsed.empty || (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length === 0)) {
                     isRestoredEmpty = true;
                     restoredCourses = [];
                 } else if (Array.isArray(parsed.attendance_data) && parsed.attendance_data.length > 0) {
@@ -2240,16 +2269,18 @@ const AttendanceRegister = () => {
                         setTargetFriendForCaptcha(null);
                         setAttendanceNotification(null);
                         setRecentlyUpdatedCodes(new Set());
-                        const sid = authFriend?.studentId || authFriend?.id || activeId;
+                        const sid = (authFriend?.studentId && authFriend.studentId !== 'main')
+                            ? authFriend.studentId
+                            : (authFriend?.username || activeId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : '') || '2400030358');
                         setActiveId(sid);
                         setActiveProfile(authFriend || getActiveProfileDetails(sid));
                         const savedY = localStorage.getItem(`manualYear_${sid}`) || localStorage.getItem(`activeYear_${sid}`);
-                        const targetY = savedY || '2026-2027';
+                        const targetY = year || savedY || '2026-2027';
                         const savedS = localStorage.getItem(`manualSem_${sid}`) || localStorage.getItem(`activeSem_${sid}`);
-                        const targetS = savedS || semester || 'Odd';
+                        const targetS = semester || savedS || 'Odd';
                         setYear(targetY);
                         setSemester(targetS);
-                        handleSearch(targetY, targetS, sid, true);
+                        handleSearch(targetY, targetS, sid, false);
                     }}
                 />
             </div>
@@ -2530,16 +2561,18 @@ const AttendanceRegister = () => {
                     setTargetFriendForCaptcha(null);
                     setAttendanceNotification(null);
                     setRecentlyUpdatedCodes(new Set());
-                    const sid = authFriend?.studentId || authFriend?.id || activeId;
+                    const sid = (authFriend?.studentId && authFriend.studentId !== 'main')
+                        ? authFriend.studentId
+                        : (authFriend?.username || activeId || (typeof window !== 'undefined' ? localStorage.getItem('activeErpUser') : '') || '2400030358');
                     setActiveId(sid);
                     setActiveProfile(authFriend || getActiveProfileDetails(sid));
                     const savedY = localStorage.getItem(`manualYear_${sid}`) || localStorage.getItem(`activeYear_${sid}`);
-                    const targetY = savedY || year || '2026-2027';
+                    const targetY = year || savedY || '2026-2027';
                     const savedS = localStorage.getItem(`manualSem_${sid}`) || localStorage.getItem(`activeSem_${sid}`);
-                    const targetS = savedS || semester || 'Odd';
+                    const targetS = semester || savedS || 'Odd';
                     setYear(targetY);
                     setSemester(targetS);
-                    handleSearch(targetY, targetS, sid, true);
+                    handleSearch(targetY, targetS, sid, false);
                 }}
             />
         </div>

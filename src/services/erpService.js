@@ -1332,7 +1332,7 @@ export const erpService = {
                     throw new Error("Your session has expired. Please log out and sign in again.");
                 }
                 if (fastData?.html) {
-                    const parsed = this.parseSubjects(fastData.html);
+                    const parsed = this.parseSubjects(fastData.html, reqYearStr, semester);
                     if (parsed && parsed.length > 0) {
                         saveErpCookiesFromResponse(fastResp, { studentId: targetStudent });
                         if (fastData.selectedYearText) parsed.discoveredYear = fastData.selectedYearText;
@@ -1437,7 +1437,7 @@ export const erpService = {
                     throw new Error("Your session has expired. Please log out and sign in again.");
                 }
 
-                const parsed = this.parseSubjects(html);
+                const parsed = this.parseSubjects(html, reqYearStr, semester);
                 if (parsed.length > 0) {
                     subjects = parsed;
                     saveErpCookiesFromResponse(response, { studentId: targetStudent });
@@ -1472,8 +1472,8 @@ export const erpService = {
         return [];
     },
 
-    // Resilient Parser for Attendance HTML
-    parseSubjects(html) {
+    // Resilient Parser for Attendance HTML with strict cross-semester validation
+    parseSubjects(html, requestedYear = null, requestedSemester = null) {
         if (!html) return [];
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
@@ -1505,6 +1505,8 @@ export const erpService = {
             let codeIdx = 1;
             let titleIdx = 2;
             let ltpsIdx = 3;
+            let yearIdx = 5;
+            let semIdx = 6;
             let conductedIdx = 8;
             let attendedIdx = 9;
 
@@ -1523,6 +1525,8 @@ export const erpService = {
                     if (txt.includes('code')) codeIdx = idx;
                     else if (txt.includes('title') || txt.includes('name') || txt.includes('course')) titleIdx = idx;
                     else if (txt.includes('ltps') || txt.includes('component') || txt.includes('type')) ltpsIdx = idx;
+                    else if (txt.includes('year')) yearIdx = idx;
+                    else if (txt.includes('sem')) semIdx = idx;
                     else if (txt.includes('conducted')) conductedIdx = idx;
                     else if ((txt.includes('attended') || txt.includes('present')) && !txt.includes('absent')) attendedIdx = idx;
                 });
@@ -1536,6 +1540,30 @@ export const erpService = {
 
                 const cols = row.querySelectorAll('td');
                 if (cols.length < 3) return;
+
+                // Validate row-level academic year to reject default-session fallbacks
+                if (requestedYear) {
+                    const reqStartYr = String(requestedYear).split('-')[0].trim();
+                    if (reqStartYr && reqStartYr.length === 4) {
+                        const cellYear = (cols[yearIdx]?.textContent || '').trim();
+                        if (cellYear && cellYear.match(/20\d\d/) && !cellYear.includes(reqStartYr)) {
+                            // Row explicitly belongs to a different academic year (e.g. 2026-2027 instead of 2025-2026)
+                            return;
+                        }
+                    }
+                }
+
+                // Validate row-level semester if requested
+                if (requestedSemester) {
+                    const cleanReqSem = String(requestedSemester).trim().toLowerCase();
+                    const isReqOdd = cleanReqSem === '1' || cleanReqSem.includes('odd');
+                    const isReqEven = cleanReqSem === '2' || cleanReqSem.includes('even');
+                    const cellSem = (cols[semIdx]?.textContent || '').trim().toLowerCase();
+                    if (cellSem && (cellSem.includes('odd') || cellSem.includes('even'))) {
+                        if (isReqOdd && cellSem.includes('even')) return;
+                        if (isReqEven && cellSem.includes('odd')) return;
+                    }
+                }
 
                 let code = cols[codeIdx]?.textContent.trim();
                 let title = cols[titleIdx]?.textContent.trim();
@@ -1753,6 +1781,13 @@ export const erpService = {
                 try {
                     const courses = await this.fetchAttendance(yr, sem, targetStudent);
                     if (Array.isArray(courses) && courses.length > 0) {
+                        // Prevent saving contaminated courses (e.g. 2026-2027 courses into 2025-2026)
+                        const yrPrefix = yr.split('-')[0].trim();
+                        if (yrPrefix !== '2026' && courses.some(c => c.code === '24SDCS03A' || (c.title && c.title.includes('SOA PROGRAMMING')))) {
+                            console.warn(`[ERP] fetchAllEnrolledSemesters: rejecting contaminated courses for ${yr}_${sem}`);
+                            continue;
+                        }
+
                         const semId = sem === 'Even' ? '2' : '1';
                         const payload = JSON.stringify({
                             attendance_data: courses,

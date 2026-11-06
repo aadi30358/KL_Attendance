@@ -151,6 +151,13 @@ export async function saveAttendanceToCloud(studentId, year, sem, courses = [], 
     const isTerm3 = rawSem === '4' || (rawSem.toLowerCase().includes('term') && !isSummer);
     const semName = isOdd ? 'Odd' : isEven ? 'Even' : isSummer ? 'Summer' : isTerm3 ? 'Term3' : rawSem;
     const semNum = isOdd ? '1' : isEven ? '2' : isSummer ? '3' : isTerm3 ? '4' : rawSem;
+
+    // Critical Defense: Never overwrite a past semester document with present-year (2026-2027) courses
+    const yrStart = cleanYear.split('-')[0].trim();
+    if (yrStart !== '2026' && courses.some(c => c.code === '24SDCS03A' || (c.title && c.title.includes('SOA PROGRAMMING')))) {
+        console.warn(`[CloudStorage] Refusing to overwrite ${cleanYear}_${semName} with present semester courses for ${cleanId}`);
+        return false;
+    }
     const historyKey1 = `${cleanYear}_${semName}`;
     const historyKey2 = `${cleanYear}_${semNum}`;
     const nowIso = new Date().toISOString();
@@ -257,6 +264,10 @@ export async function getAttendanceFromCloud(studentId, year = null, sem = null)
             if (data.attendanceHistory && typeof data.attendanceHistory === 'object') {
                 for (const key of candidates) {
                     if (data.attendanceHistory[key] && Array.isArray(data.attendanceHistory[key].courses) && data.attendanceHistory[key].courses.length > 0) {
+                        const courses = data.attendanceHistory[key].courses;
+                        if (startYear !== '2026' && courses.some(c => c.code === '24SDCS03A' || (c.title && c.title.includes('SOA PROGRAMMING')))) {
+                            continue;
+                        }
                         return data.attendanceHistory[key];
                     }
                 }
@@ -270,6 +281,9 @@ export async function getAttendanceFromCloud(studentId, year = null, sem = null)
                     if (subSnap.exists()) {
                         const subData = subSnap.data();
                         if (Array.isArray(subData?.courses) && subData.courses.length > 0) {
+                            if (startYear !== '2026' && subData.courses.some(c => c.code === '24SDCS03A' || (c.title && c.title.includes('SOA PROGRAMMING')))) {
+                                continue;
+                            }
                             return subData;
                         }
                     }
@@ -291,6 +305,9 @@ export async function getAttendanceFromCloud(studentId, year = null, sem = null)
                             : (docSem.includes('term') || docSem.includes('_4') || d.id.endsWith('_4') || d.id.endsWith('_Term3'));
 
                         if (matchesYear && matchesSem && Array.isArray(docData.courses) && docData.courses.length > 0) {
+                            if (startYear !== '2026' && docData.courses.some(c => c.code === '24SDCS03A' || (c.title && c.title.includes('SOA PROGRAMMING')))) {
+                                continue;
+                            }
                             return docData;
                         }
                     }
