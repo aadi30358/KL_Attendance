@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck, CalendarDays, ArrowRight, AlertTriangle, LogOut, ChevronDown } from 'lucide-react';
+import { BookOpen, Calendar, Sparkles, CheckCircle2, X, Users, ArrowLeft, User, ShieldCheck, CalendarDays, ArrowRight, AlertTriangle, LogOut, ChevronDown, Lock, LogIn } from 'lucide-react';
 import { erpService, hasActiveErpSession } from '../services/erpService';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -869,7 +869,10 @@ const AttendanceRegister = () => {
 
             const errMsg = String(error?.message || error || '');
             const lowerErr = errMsg.toLowerCase();
-            if (lowerErr.includes('signal') || lowerErr.includes('timed out') || lowerErr.includes('timeout') || lowerErr.includes('abort')) {
+            if (lowerErr.includes('session_expired') || lowerErr.includes('expired')) {
+                setSessionStatus('expired');
+                setShowDashboard(true);
+            } else if (lowerErr.includes('signal') || lowerErr.includes('timed out') || lowerErr.includes('timeout') || lowerErr.includes('abort')) {
                 setFetchError('University ERP server took longer than expected to respond. Please try again or re-verify your session.');
             } else if (errMsg.startsWith('DEBUG_HTML:') || errMsg.startsWith('No table found')) { 
                 setDebugHtml(errMsg); 
@@ -2011,9 +2014,33 @@ const AttendanceRegister = () => {
                                                     {subject.components && Object.keys(subject.components).length > 0 && (
                                                         <div className="flex justify-between items-center pt-2 border-t border-slate-100 mt-1">
                                                             <span className="text-slate-700 text-xs font-bold">Total (Raw)</span>
-                                                            <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended}</span>
+                                                            <span className="text-slate-900 text-xs font-bold font-mono">{subject.attended || `${subject.rawAttended}/${subject.rawConducted}`}</span>
                                                         </div>
                                                     )}
+                                                    {(() => {
+                                                        const rawAtt = Number(subject.rawAttended) || (subject.attended ? parseInt(subject.attended.split('/')[0], 10) : 0) || 0;
+                                                        const rawCond = Number(subject.rawConducted) || (subject.attended ? parseInt(subject.attended.split('/')[1], 10) : 0) || 0;
+                                                        if (rawCond > 0) {
+                                                            if (pct >= 85) {
+                                                                const safeHrs = Math.max(0, Math.floor((100 * rawAtt - 85 * rawCond) / 85));
+                                                                return (
+                                                                    <div className="flex justify-between items-center pt-1 text-[11px]">
+                                                                        <span className="text-slate-500 font-medium">Safe Margin (85%)</span>
+                                                                        <span className="text-emerald-700 font-bold font-mono">{safeHrs} (hrs) safe</span>
+                                                                    </div>
+                                                                );
+                                                            } else {
+                                                                const needHrs = Math.max(0, Math.ceil((85 * rawCond - 100 * rawAtt) / (100 - 85)));
+                                                                return (
+                                                                    <div className="flex justify-between items-center pt-1 text-[11px]">
+                                                                        <span className="text-slate-500 font-medium">Needed for 85%</span>
+                                                                        <span className="text-amber-700 font-bold font-mono">Attend {needHrs} (hrs)</span>
+                                                                    </div>
+                                                                );
+                                                            }
+                                                        }
+                                                        return null;
+                                                    })()}
                                                 </div>
                                             </div>
                                         </div>
@@ -2234,6 +2261,40 @@ const AttendanceRegister = () => {
                             Please solve the Captcha verification above to view attendance records.
                         </p>
                     </div>
+                ) : (!hasActiveErpSession(activeId) || sessionStatus === 'expired') ? (
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="max-w-2xl mx-auto bg-white border-2 border-slate-900 rounded-[2.5rem] p-10 text-center shadow-xl"
+                    >
+                        <div className="w-16 h-16 bg-amber-50 border border-amber-200 rounded-3xl flex items-center justify-center mx-auto mb-5 text-amber-600">
+                            <Lock className="w-8 h-8" />
+                        </div>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 mb-3">
+                            Session Inactive
+                        </span>
+                        <h2 className="text-2xl font-black text-slate-900 mb-2">
+                            {activeProfile?.nickname || activeProfile?.name || 'Student'} Session Expired
+                        </h2>
+                        <p className="text-slate-500 font-medium max-w-md mx-auto text-sm leading-relaxed mb-6">
+                            To view authentic live registered courses and real-time attendance for ID <span className="font-mono font-bold text-slate-800">{activeId}</span>, please verify their ERP session with a quick Captcha.
+                        </p>
+                        <div className="flex flex-wrap items-center justify-center gap-3">
+                            <button
+                                onClick={() => setTargetFriendForCaptcha(activeProfile || { id: activeId, studentId: activeId, nickname: activeProfile?.nickname || activeId })}
+                                className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-black text-sm shadow-lg shadow-indigo-200 transition-all cursor-pointer"
+                            >
+                                <LogIn className="w-4 h-4" />
+                                <span>Enter Captcha to Check Attendance</span>
+                            </button>
+                            <button
+                                onClick={handleBack}
+                                className="inline-flex items-center gap-2 px-5 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-all cursor-pointer"
+                            >
+                                Change Academic Year / Semester
+                            </button>
+                        </div>
+                    </motion.div>
                 ) : (
                     <motion.div 
                         initial={{ opacity: 0, scale: 0.9 }}
@@ -2247,16 +2308,16 @@ const AttendanceRegister = () => {
                         <p className="text-slate-500 font-medium max-w-sm mx-auto">
                             We couldn&apos;t find any registered courses for {displayYearText} ({cleanSemesterLabel}) on KL ERP.
                         </p>
-                                    <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                                        <button
-                                            onClick={handleBack}
-                                            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-200 transition-all cursor-pointer"
-                                        >
-                                            Change Academic Year / Semester
-                                        </button>
-                                    </div>
-                                </motion.div>
-                            )}
+                        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                            <button
+                                onClick={handleBack}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg shadow-indigo-200 transition-all cursor-pointer"
+                            >
+                                Change Academic Year / Semester
+                            </button>
+                        </div>
+                    </motion.div>
+                )}
 
                     </main>
                 </div>

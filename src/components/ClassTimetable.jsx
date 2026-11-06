@@ -59,8 +59,8 @@ export default function ClassTimetable({
     onRefreshErp,
     onSelectFriend,
     onSelectProfile,
-    selectedYear = '2025-2026',
-    selectedSem = 'Odd Semester'
+    selectedYear = '2026-2027',
+    selectedSem = 'Odd Sem'
 }) {
     const navigate = useNavigate();
     const myProfile = useMemo(() => getMyProfile(), []);
@@ -184,6 +184,11 @@ export default function ClassTimetable({
     }, [studentId, erpCourses, primaryMyId, currentYear, currentSem]);
 
     const [timetable, setTimetable] = useState(() => getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem));
+
+    useEffect(() => {
+        const fresh = getStudentTimetable(effectiveId, erpCourses, currentYear, currentSem);
+        setTimetable(fresh);
+    }, [effectiveId, erpCourses, currentYear, currentSem]);
 
     useEffect(() => {
         if (studentId) setActiveTargetId(studentId);

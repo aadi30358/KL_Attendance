@@ -1209,7 +1209,7 @@ export const erpService = {
         const targetCookie = getStoredErpCookies(targetStudent);
         if (!targetCookie) {
             console.warn(`[ERP] Refusing to fetch attendance for ${targetStudent}: No active session cookie found. Prevents cross-student data contamination.`);
-            return [];
+            throw new Error(`SESSION_EXPIRED: No active ERP session cookie for student ${targetStudent}`);
         }
 
         // 1. Prime the controller session and discover dynamic options
